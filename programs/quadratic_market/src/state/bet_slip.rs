@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::constants::MAX_SLIP_LEGS;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, Copy)]
 pub struct SlipLeg {
     pub market_id: u64,
     pub outcome_id: u8,
@@ -25,6 +25,6 @@ pub struct BetSlip {
 }
 
 impl BetSlip {
-    // 8 + 8 + 32 + 128 + 1 + 7 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1 = 234
-    pub const LEN: usize = 8 + 8 + 32 + 128 + 1 + 7 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
+    // 8 + 8 + 32 + 136 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1 = 235
+    pub const LEN: usize = 8 + 8 + 32 + 136 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
 }

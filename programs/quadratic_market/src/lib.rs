@@ -87,6 +87,15 @@ pub mod quadratic_market {
         add_liquidity_handler(ctx, amount)
     }
 
+    pub fn init_pending_liquidity(
+        ctx: Context<InitPendingLiquidity>,
+        shares: u64,
+        activation_time: i64,
+        amount: u64,
+    ) -> Result<()> {
+        init_pending_liquidity_handler(ctx, shares, activation_time, amount)
+    }
+
     pub fn request_withdraw(ctx: Context<RequestWithdraw>, shares: u64) -> Result<()> {
         request_withdraw_handler(ctx, shares)
     }
@@ -286,8 +295,9 @@ pub mod quadratic_market {
     pub fn claim_slip<'info>(
         ctx: Context<'_, '_, '_, 'info, ClaimSlip<'info>>,
         slip_id: u64,
+        num_groups: u8,
     ) -> Result<()> {
-        claim_slip_handler(ctx, slip_id)
+        claim_slip_handler(ctx, slip_id, num_groups)
     }
 
     pub fn update_slip_lock(

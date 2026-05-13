@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::constants::{MAX_GROUP_MARKETS, MAX_CORRELATION_PAIRS};
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, Copy)]
 pub struct CorrelationPair {
     pub market_a_index: u8,
     pub outcome_a_id: u8,

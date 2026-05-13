@@ -283,7 +283,7 @@ pub struct VoidMarket<'info> {
         seeds = [seeds::GLOBAL_CONFIG],
         bump = global_config.bump,
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
         mut,

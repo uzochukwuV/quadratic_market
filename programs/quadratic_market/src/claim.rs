@@ -107,6 +107,9 @@ pub fn claim_payout_handler(ctx: Context<ClaimPayout>, _market_id: u64) -> Resul
         amount,
     )?;
 
+    // Release the locked payout liability
+    config.locked_payouts = config.locked_payouts.saturating_sub(amount);
+
     Ok(())
 }
 
@@ -215,6 +218,7 @@ pub struct CloseMarket<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    #[account(mut)]
     pub authority: Signer<'info>,
 }
 

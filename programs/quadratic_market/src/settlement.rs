@@ -13,7 +13,7 @@ pub struct ProposeResult<'info> {
         seeds = [seeds::GLOBAL_CONFIG],
         bump = global_config.bump,
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
         mut,
@@ -37,7 +37,7 @@ pub struct ProposeResult<'info> {
         seeds = [seeds::TREASURY],
         bump = global_config.treasury_bump,
     )]
-    pub treasury: SystemAccount<'info>,
+    pub treasury: UncheckedAccount<'info>,
 
     /// Proposer's base token account (pays stake)
     #[account(
@@ -128,7 +128,7 @@ pub struct DisputeResult<'info> {
         seeds = [seeds::GLOBAL_CONFIG],
         bump = global_config.bump,
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
         mut,
@@ -151,7 +151,7 @@ pub struct DisputeResult<'info> {
         seeds = [seeds::TREASURY],
         bump = global_config.treasury_bump,
     )]
-    pub treasury: SystemAccount<'info>,
+    pub treasury: UncheckedAccount<'info>,
 
     /// Challenger's base token account (pays dispute stake)
     #[account(
@@ -278,7 +278,7 @@ pub struct EscalateDispute<'info> {
         seeds = [seeds::TREASURY],
         bump = global_config.treasury_bump,
     )]
-    pub treasury: SystemAccount<'info>,
+    pub treasury: UncheckedAccount<'info>,
 
     /// Escalator's base token account
     #[account(
@@ -402,7 +402,7 @@ pub struct FinalizeResult<'info> {
         seeds = [seeds::GLOBAL_CONFIG],
         bump = global_config.bump,
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
         mut,
@@ -423,7 +423,7 @@ pub struct FinalizeResult<'info> {
         seeds = [seeds::TREASURY],
         bump = global_config.treasury_bump,
     )]
-    pub treasury: SystemAccount<'info>,
+    pub treasury: UncheckedAccount<'info>,
 
     /// Winner's base token account (receives stake back)
     /// CHECK: Validated dynamically based on dispute outcome
@@ -480,12 +480,9 @@ pub fn finalize_result_handler(
             (dispute.proposed_outcome, dispute.proposer_stake, 0u64, true)
         }
         DisputeStatus::Challenged => {
-            // Was challenged, no escalation — challenger wins (they put up 2x stake)
-            if dispute.challenger_stake > dispute.proposer_stake {
-                (dispute.challenge_outcome, dispute.challenger_stake, dispute.proposer_stake, false)
-            } else {
-                (dispute.proposed_outcome, dispute.proposer_stake, dispute.challenger_stake, true)
-            }
+            // Was challenged, no escalation — proposer wins (challenger didn't follow through)
+            // Challenger's stake stays in treasury as penalty for failed challenge
+            (dispute.proposed_outcome, dispute.proposer_stake, dispute.challenger_stake, true)
         }
         _ => return Err(QuadraticMarketError::NoDisputeToFinalize.into()),
     };

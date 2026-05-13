@@ -6,7 +6,13 @@
       "Bash(cat /workspaces/Ismart/quadratic_market/target/debug/.fingerprint/anchor-lang-*/lib-anchor-lang.json 2>/dev/null | head -5 || echo \"Checking cargo lock instead\" && ls /workspaces/Ismart/quadratic_market/Cargo.lock 2>/dev/null || echo \"No lock file\")",
       "Bash(find /workspaces/Ismart/quadratic_market -type f -name \"*.rs\" | head -50)",
       "Bash(cargo build 2>&1)",
-      "Bash(git show HEAD:programs/quadratic_market/src/liquidity.rs | grep -n \"base_mint\" | head -5)"
+      "Bash(git show HEAD:programs/quadratic_market/src/liquidity.rs | grep -n \"base_mint\" | head -5)",
+      "Bash(anchor build 2>&1)",
+      "Bash(anchor test --skip-build 2>&1 | head -100)",
+      "Bash(anchor test --skip-build 2>&1)",
+      "Bash(python3 -c \"\n# Borsh serialization size calculation for MarketStatus enum\n# MarketStatus has 7 variants \\(Open, Suspended, AwaitingResult, Proposed, Disputed, Settled, Voided\\)\n# Borsh serializes enums as: 1 byte for variant index + the variant's payload size\n# Since this is a unit enum \\(no payload per variant\\), it's just 1 byte\n# Anchor adds 1 byte of padding for the discriminator in the account layout\n\n# Actually in Borsh, an enum with no data in variants = u8 \\(1 byte for variant index\\)\n# But in Anchor, the #[account] derive wraps it differently\n\n# Let's check: MarketStatus enum has 7 variants\n# Borsh enum layout: 1 byte for variant index \\(u8\\)\n# No padding needed since it's followed by u64 \\(bond_amount\\)\n\n# In the Market struct comment: 'pub status: MarketStatus, // 1 + 1 \\(enum variant\\)'\n# The comment says 1 + 1 but actually in Borsh it's just 1 byte\n# The struct definition comment is misleading\n\n# Let's verify by computing actual sizes\n# In Borsh:\n# - u8 = 1 byte\n# - u64 = 8 bytes \\(aligned to 8-byte boundary\\)\n# - Pubkey = 32 bytes\n# - i64 = 8 bytes\n# - bool = 1 byte\n# - String = 4 bytes \\(length\\) + content\n# - Array<T, N> = N * size_of\\(T\\)\n\n# MarketStatus in Borsh = 1 byte \\(u8 variant index\\)\n# BUT Borsh aligns u64 fields to 8-byte boundaries\n# So after status \\(1 byte\\), we need 7 padding bytes before bond_amount \\(u64\\)\n\n# Wait, actually let me reconsider...\n# The Market struct uses Anchor's #[account] derive which uses Borsh\n# In Borsh, the alignment rules are:\n# - Fields are NOT aligned \\(Borsh doesn't add padding between fields\\)\n# - Only the enum variant index is stored \\(1 byte\\)\n\n# So status = 1 byte, not 2\nprint\\('MarketStatus enum in Borsh: 1 byte \\(variant index only\\)'\\)\nprint\\('Comment says +2, should be +1'\\)\n\"\n)",
+      "Bash(anchor build 2>&1 | grep -E \"^\\(Error|warning:.*stack|warning:.*lib\\)\" | head -10)",
+      "Bash(anchor test --skip-build 2>&1 | tail -15)"
     ]
   }
 }

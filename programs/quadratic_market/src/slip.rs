@@ -384,7 +384,7 @@ pub fn place_slip_handler<'info>(
     let slip = &mut ctx.accounts.bet_slip;
     slip.slip_id = slip_id;
     slip.creator = ctx.accounts.slip_creator.key();
-    let mut legs_arr: [SlipLeg; MAX_SLIP_LEGS] = unsafe { std::mem::zeroed() };
+    let mut legs_arr: [SlipLeg; MAX_SLIP_LEGS] = [SlipLeg::default(); MAX_SLIP_LEGS];
     let mut ci = 0;
     while ci < num_legs as usize {
         legs_arr[ci] = legs[ci].clone();
@@ -456,6 +456,7 @@ pub struct ClaimSlip<'info> {
 pub fn claim_slip_handler<'info>(
     ctx: Context<'_, '_, '_, 'info, ClaimSlip<'info>>,
     _slip_id: u64,
+    num_groups: u8,
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     let slip = &mut ctx.accounts.bet_slip;
@@ -464,15 +465,17 @@ pub fn claim_slip_handler<'info>(
     require!(slip.num_legs > 0, QuadraticMarketError::SlipNoLegs);
 
     // remaining_accounts layout per leg: [Market, outcome_mint, claimer_outcome_ata]
+    // After leg triplets: optional [MarketGroup] accounts for group exposure release
     let accounts_per_leg = 3;
-    let total_needed = slip.num_legs as usize * accounts_per_leg;
+    let total_leg_accounts = slip.num_legs as usize * accounts_per_leg;
     require!(
-        ctx.remaining_accounts.len() >= total_needed,
+        ctx.remaining_accounts.len() >= total_leg_accounts,
         QuadraticMarketError::InvalidRemainingAccount
     );
 
     // Check all legs are settled and burn outcome tokens
     let mut all_won = true;
+    let mut slip_voided = false;
     let mut num_legs_settled: u8 = 0;
 
     let mut leg_idx: u8 = 0;
@@ -499,6 +502,14 @@ pub fn claim_slip_handler<'info>(
         let market: Market = AccountDeserialize::try_deserialize(&mut &market_data[8..])
             .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
         drop(market_data);
+
+        // Handle voided market: skip burn, mark slip as voided
+        if market.status == MarketStatus::Voided {
+            slip_voided = true;
+            num_legs_settled += 1;
+            leg_idx += 1;
+            continue;
+        }
 
         require!(market.status == MarketStatus::Settled, QuadraticMarketError::SlipNotSettled);
         num_legs_settled += 1;
@@ -551,8 +562,52 @@ pub fn claim_slip_handler<'info>(
     config.locked_payouts = config.locked_payouts
         .saturating_sub(slip.locked_amount);
 
-    // Note: group exposure release would happen here if we had group accounts in claim_slip
-    // For now, exposure is released implicitly when the group is recalculated
+    // Release group exposure if group accounts are provided
+    if num_groups > 0 {
+        require!(
+            ctx.remaining_accounts.len() >= total_leg_accounts + num_groups as usize,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+
+        let mut g: u8 = 0;
+        while g < num_groups {
+            let group_account_idx = total_leg_accounts + g as usize;
+            let group_info = &ctx.remaining_accounts[group_account_idx];
+            let group_data = group_info.data.borrow();
+            let mut market_group: MarketGroup = AccountDeserialize::try_deserialize(&mut &group_data[8..])
+                .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+            drop(group_data);
+
+            market_group.total_group_exposure = market_group.total_group_exposure
+                .saturating_sub(slip.exposure_locked);
+
+            // Serialize back
+            let mut group_data_mut = group_info.data.borrow_mut();
+            let mut group_writer = &mut group_data_mut[8..];
+            market_group.serialize(&mut group_writer)?;
+
+            g += 1;
+        }
+    }
+
+    if slip_voided {
+        // Voided slip: refund the total stake to the claimer
+        let treasury_seeds = &[seeds::TREASURY, &[config.treasury_bump]];
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: ctx.accounts.treasury_base_ata.to_account_info(),
+                    to: ctx.accounts.claimer_base_ata.to_account_info(),
+                    authority: ctx.accounts.treasury.to_account_info(),
+                },
+                &[treasury_seeds],
+            ),
+            slip.total_stake,
+        )?;
+
+        return Ok(());
+    }
 
     if all_won {
         // Pay out the fixed potential_payout (user's locked-in odds)

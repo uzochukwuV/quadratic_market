@@ -36,7 +36,7 @@ pub struct Market {
     pub market_id: u64,                     // 8
     pub creator: Pubkey,                    // 32
     pub start_time: i64,                    // 8
-    pub status: MarketStatus,               // 1 + 1 (enum variant)
+    pub status: MarketStatus,               // 1
     pub bond_amount: u64,                   // 8
     pub bond_claimed: bool,                 // 1
     pub num_outcomes: u8,                   // 1
@@ -60,7 +60,7 @@ impl Market {
         + 8   // market_id
         + 32  // creator
         + 8   // start_time
-        + 2   // status (enum)
+        + 1   // status (enum variant index)
         + 8   // bond_amount
         + 1   // bond_claimed
         + 1   // num_outcomes
@@ -76,7 +76,7 @@ impl Market {
         + 1   // bump
         + 16  // group_id (Option<u64>: 1 variant + 8 value + 7 padding)
         + 1   // group_market_index
-        + 7;  // padding
+        + 6;  // padding
 
     pub fn active_q_values(&self) -> Vec<u64> {
         self.q_values[..self.num_outcomes as usize].to_vec()

@@ -205,7 +205,7 @@ mod tests {
     fn test_no_correlation_passthrough() {
         let q = [10_000_000u64, 5_000_000u64, 0, 0, 0, 0, 0, 0];
         let correlated = [[0u64; MAX_OUTCOMES]; MAX_OUTCOMES];
-        let correlations: [CorrelationPair; 16] = unsafe { std::mem::zeroed() };
+        let correlations: [CorrelationPair; 16] = [CorrelationPair::default(); 16];
 
         let adjusted = compute_adjusted_q_values(
             &q, 2, 0, &correlated, &correlations, 0,
@@ -226,7 +226,7 @@ mod tests {
         correlated[0] = q_market0;
         correlated[1] = q_market1;
 
-        let mut correlations: [CorrelationPair; 16] = unsafe { std::mem::zeroed() };
+        let mut correlations: [CorrelationPair; 16] = [CorrelationPair::default(); 16];
         correlations[0] = CorrelationPair {
             market_a_index: 0,
             outcome_a_id: 0, // BTTS Yes
@@ -259,7 +259,7 @@ mod tests {
         correlated[1] = q_source_b;
         correlated[2] = q_target;
 
-        let mut correlations: [CorrelationPair; 16] = unsafe { std::mem::zeroed() };
+        let mut correlations: [CorrelationPair; 16] = [CorrelationPair::default(); 16];
         correlations[0] = CorrelationPair {
             market_a_index: 0, outcome_a_id: 0,
             market_b_index: 2, outcome_b_id: 0,
@@ -284,7 +284,7 @@ mod tests {
     fn test_zero_weight_no_adjustment() {
         let q = [10_000_000u64, 5_000_000u64, 0, 0, 0, 0, 0, 0];
         let correlated = [[0u64; MAX_OUTCOMES]; MAX_OUTCOMES];
-        let mut correlations: [CorrelationPair; 16] = unsafe { std::mem::zeroed() };
+        let mut correlations: [CorrelationPair; 16] = [CorrelationPair::default(); 16];
         correlations[0] = CorrelationPair {
             market_a_index: 0, outcome_a_id: 0,
             market_b_index: 0, outcome_b_id: 0,

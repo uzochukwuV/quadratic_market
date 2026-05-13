@@ -131,4 +131,6 @@ pub enum QuadraticMarketError {
     InvalidRemainingAccount = 714,
     #[msg("Slip lock update failed")]
     SlipLockUpdateFailed = 715,
+    #[msg("Bet slip has a voided leg — refunding stake")]
+    SlipPartiallyVoided = 716,
 }

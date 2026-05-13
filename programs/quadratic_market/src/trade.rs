@@ -121,7 +121,7 @@ pub fn buy_shares_handler(
     // Liquidity check: treasury must have enough to cover potential payout
     let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
     require!(
-        free_liquidity >= cost,
+        free_liquidity >= num_shares,
         QuadraticMarketError::InsufficientLiquidity
     );
 
@@ -163,7 +163,7 @@ pub fn buy_shares_handler(
         .ok_or(QuadraticMarketError::MathOverflow)?;
     market.exposure = new_exposure;
     config.locked_payouts = config.locked_payouts
-        .checked_add(cost)
+        .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     Ok(())
@@ -306,7 +306,8 @@ pub fn sell_shares_handler(
     market.q_values[outcome_id as usize] = market.q_values[outcome_id as usize]
         .checked_sub(num_shares)
         .ok_or(QuadraticMarketError::MathUnderflow)?;
-    market.exposure = market.exposure.saturating_sub(payout);
+    let profit_exposure_reduction = num_shares.saturating_sub(payout);
+    market.exposure = market.exposure.saturating_sub(profit_exposure_reduction);
     config.locked_payouts = config.locked_payouts.saturating_sub(payout);
 
     Ok(())
@@ -477,7 +478,7 @@ pub fn buy_shares_correlated_handler<'info>(
 
     let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
     require!(
-        free_liquidity >= cost,
+        free_liquidity >= num_shares,
         QuadraticMarketError::InsufficientLiquidity
     );
 
@@ -518,7 +519,7 @@ pub fn buy_shares_correlated_handler<'info>(
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     config.locked_payouts = config.locked_payouts
-        .checked_add(cost)
+        .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     Ok(())
@@ -562,20 +563,12 @@ fn assemble_correlated_q_values(
 
         // Deserialize the Market account to read q_values
         let market_data = account.data.borrow();
-        // Skip 8-byte discriminator, then read q_values at the correct offset
-        // Market layout after discriminator: market_id(8), creator(32), start_time(8),
-        // status(2), bond_amount(8), bond_claimed(1), num_outcomes(1), q_values(64)...
-        let q_offset = 8 + 8 + 32 + 8 + 2 + 8 + 1 + 1; // 68
-        require!(
-            market_data.len() >= q_offset + 64,
-            QuadraticMarketError::InvalidRemainingAccount
-        );
+        let market: Market = AccountDeserialize::try_deserialize(&mut &market_data[8..])
+            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+        drop(market_data);
 
         for i in 0..MAX_OUTCOMES {
-            let byte_offset = q_offset + (i * 8);
-            let mut bytes = [0u8; 8];
-            bytes.copy_from_slice(&market_data[byte_offset..byte_offset + 8]);
-            correlated_q[market_idx as usize][i] = u64::from_le_bytes(bytes);
+            correlated_q[market_idx as usize][i] = market.q_values[i];
         }
 
         account_idx += 1;
@@ -728,10 +721,11 @@ pub fn sell_shares_correlated_handler<'info>(
     );
 
     // Reduce exposure: group-level for grouped markets
+    let profit_exposure_reduction = num_shares.saturating_sub(payout);
     if let Some(ref mut group) = ctx.accounts.market_group {
-        group.total_group_exposure = group.total_group_exposure.saturating_sub(payout);
+        group.total_group_exposure = group.total_group_exposure.saturating_sub(profit_exposure_reduction);
     } else {
-        market.exposure = market.exposure.saturating_sub(payout);
+        market.exposure = market.exposure.saturating_sub(profit_exposure_reduction);
     }
 
     // Burn outcome tokens
