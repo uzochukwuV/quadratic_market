@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, MarketStatus, BetSlip, SlipLeg};
+use crate::state::{GlobalConfig, BetSlip, SlipLeg};
 use crate::errors::QuadraticMarketError;
-use crate::constants::{seeds, MAX_SLIP_LEGS, MAX_OUTCOMES};
+use crate::constants::{seeds, MAX_SLIP_LEGS, MAX_OUTCOMES, SCALE};
 use crate::math::lmsr::{lmsr_buy_cost, lmsr_price};
-use crate::math::correlation::compute_combined_odds_bps;
+use crate::math::correlation::{compute_combined_odds_fp, compute_bonus_multiplier};
 
 // ─── Place Slip ─────────────────────────────────────────────────
 
@@ -77,7 +77,7 @@ pub fn place_slip_handler<'info>(
         QuadraticMarketError::SlipTooManyLegs
     );
 
-    // remaining_accounts layout per leg: [Market, outcome_mint, buyer_outcome_ata]
+    // remaining_accounts layout per leg: [Market info, outcome_mint, buyer_outcome_ata]
     let accounts_per_leg = 3;
     let total_needed = num_legs as usize * accounts_per_leg;
     require!(
@@ -135,9 +135,9 @@ pub fn place_slip_handler<'info>(
             q_values[j] = u64::from_le_bytes(b);
         }
 
-        // lmsr_b at offset 405
+        // lmsr_b at offset 408 (corrected for Anchor padding)
         let mut lb = [0u8; 8];
-        lb.copy_from_slice(&data[405..413]);
+        lb.copy_from_slice(&data[408..416]);
         let lmsr_b = u64::from_le_bytes(lb);
 
         let cost = lmsr_buy_cost(&q_values, num_outcomes, leg.outcome_id, leg.num_shares, lmsr_b)?;
@@ -161,19 +161,26 @@ pub fn place_slip_handler<'info>(
         i += 1;
     }
 
-    // Compute multiplicative combined odds
-    let combined_odds_bps = compute_combined_odds_bps(&leg_prices, num_legs)?;
+    // Compute combined odds with house margin and bonus
+    let house_margin_bps = config.slip_house_margin_bps;
+    let bonus = compute_bonus_multiplier(num_legs, config.max_slip_bonus_multiplier_bps)?;
+    let combined_odds_fp = compute_combined_odds_fp(
+        &leg_prices, num_legs, house_margin_bps, bonus,
+    )?;
+
+    // potential_payout = total_stake * combined_odds_fp / SCALE
     let potential_payout = (total_cost as u128)
-        .checked_mul(combined_odds_bps as u128)
+        .checked_mul(combined_odds_fp as u128)
         .ok_or(QuadraticMarketError::MathOverflow)?
-        / 10_000;
+        / SCALE as u128;
+    let potential_payout = potential_payout as u64;
 
     require!(
         total_cost <= max_payment,
         QuadraticMarketError::SlipCostExceeded
     );
 
-    // Liquidity check
+    // Liquidity check: must cover the potential payout, not just the cost
     let treasury_balance = ctx.accounts.treasury_base_ata.amount;
     let free = if treasury_balance > config.locked_payouts {
         treasury_balance - config.locked_payouts
@@ -181,7 +188,7 @@ pub fn place_slip_handler<'info>(
         0
     };
     require!(
-        free >= total_cost,
+        free >= potential_payout,
         QuadraticMarketError::InsufficientLiquidity
     );
 
@@ -206,8 +213,6 @@ pub fn place_slip_handler<'info>(
         let buyer_outcome_ata_info = &ctx.remaining_accounts[market_idx + 2];
 
         // Read bump from market data (at the very end of the struct)
-        // Market struct size without discriminator: ~530 + 24(new fields) = ~554
-        // bump is at offset: after all fields. For safety, read last byte
         let data = market_info.data.borrow();
         let market_len = data.len();
         let bump = data[market_len - 1];
@@ -230,34 +235,30 @@ pub fn place_slip_handler<'info>(
             leg.num_shares,
         )?;
 
-        // Compute cost again for state update (we already computed it above)
-        let mut q_values = [0u64; MAX_OUTCOMES];
+        // Compute cost again for state update
         let num_outcomes = data[67] as u8;
+        let mut q_values = [0u64; MAX_OUTCOMES];
         for j in 0..num_outcomes as usize {
             let off = 68 + j * 8;
             let mut b = [0u8; 8];
             b.copy_from_slice(&data[off..off + 8]);
             q_values[j] = u64::from_le_bytes(b);
         }
-        let mut lb = [0u8; 8];
-        lb.copy_from_slice(&data[405..413]);
-        let lmsr_b = u64::from_le_bytes(lb);
 
-        let cost = lmsr_buy_cost(&q_values, num_outcomes, leg.outcome_id, leg.num_shares, lmsr_b)?;
+        let cost = lmsr_buy_cost(&q_values, num_outcomes, leg.outcome_id, leg.num_shares, lmsr_b_from_data(&data)?)?;
         let profit = cost.saturating_sub(leg.num_shares);
 
         // Update q_values via set_account_data
         drop(data); // release borrow
         {
             let mut data_mut = market_info.data.borrow_mut();
-            // Update q_values
             let new_q = q_values[leg.outcome_id as usize]
                 .checked_add(leg.num_shares)
                 .ok_or(QuadraticMarketError::MathOverflow)?;
             let off = 68 + (leg.outcome_id as usize) * 8;
             data_mut[off..off + 8].copy_from_slice(&new_q.to_le_bytes());
 
-            // Update exposure (offset 68 + 64 = 132)
+            // Update exposure (offset 132)
             let exp_offset = 132;
             let mut exp_bytes = [0u8; 8];
             exp_bytes.copy_from_slice(&data_mut[exp_offset..exp_offset + 8]);
@@ -268,19 +269,18 @@ pub fn place_slip_handler<'info>(
             data_mut[exp_offset..exp_offset + 8].copy_from_slice(&new_exposure.to_le_bytes());
         }
 
-        // Update locked_payouts on global_config
-        config.locked_payouts = config.locked_payouts
-            .checked_add(cost)
-            .ok_or(QuadraticMarketError::MathOverflow)?;
-
         leg_idx += 1;
     }
+
+    // Lock the full potential payout (not cost)
+    config.locked_payouts = config.locked_payouts
+        .checked_add(potential_payout)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Write BetSlip
     let slip = &mut ctx.accounts.bet_slip;
     slip.slip_id = slip_id;
     slip.creator = ctx.accounts.slip_creator.key();
-    // Copy legs into fixed array
     let mut legs_arr: [SlipLeg; MAX_SLIP_LEGS] = unsafe { std::mem::zeroed() };
     let mut ci = 0;
     while ci < num_legs as usize {
@@ -290,12 +290,22 @@ pub fn place_slip_handler<'info>(
     slip.legs = legs_arr;
     slip.num_legs = num_legs;
     slip.total_stake = total_cost;
-    slip.combined_odds_bps = combined_odds_bps;
-    slip.potential_payout = potential_payout as u64;
+    slip.combined_odds_fp = combined_odds_fp;
+    slip.house_margin_bps = house_margin_bps;
+    slip.potential_payout = potential_payout;
+    slip.locked_amount = potential_payout; // initial lock = max
     slip.claimed = false;
     slip.bump = ctx.bumps.bet_slip;
 
     Ok(())
+}
+
+/// Helper: read lmsr_b from raw market data
+fn lmsr_b_from_data(data: &[u8]) -> Result<u64> {
+    // lmsr_b is at offset 408 in the serialized Market struct
+    let mut lb = [0u8; 8];
+    lb.copy_from_slice(&data[408..416]);
+    Ok(u64::from_le_bytes(lb))
 }
 
 // ─── Claim Slip ─────────────────────────────────────────────────
@@ -349,7 +359,7 @@ pub struct ClaimSlip<'info> {
 
 pub fn claim_slip_handler(
     ctx: Context<ClaimSlip>,
-    _slip_id: u64,
+    slip_id: u64,
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     let slip = &mut ctx.accounts.bet_slip;
@@ -384,12 +394,11 @@ pub fn claim_slip_handler(
 
         // Read status (offset 56) and winning_outcome from market data
         let data = market_info.data.borrow();
-        // MarketStatus::Settled = variant 5
         require!(data[56] == 5, QuadraticMarketError::SlipNotSettled);
         num_legs_settled += 1;
 
-        // winning_outcome is at offset 68 + 64 + 8 + 8 = 148
-        let winning_offset = 68 + 64 + 8 + 8;
+        // winning_outcome at offset 148
+        let winning_offset = 68 + 64 + 8 + 8; // 148
         let winning_outcome = data[winning_offset];
 
         if winning_outcome != leg.outcome_id {
@@ -406,10 +415,12 @@ pub fn claim_slip_handler(
 
     slip.claimed = true;
 
-    if all_won {
-        config.locked_payouts = config.locked_payouts
-            .saturating_sub(slip.potential_payout);
+    // Release the locked amount (not potential_payout)
+    config.locked_payouts = config.locked_payouts
+        .saturating_sub(slip.locked_amount);
 
+    if all_won {
+        // Pay out the fixed potential_payout (user's locked-in odds)
         let treasury_seeds = &[seeds::TREASURY, &[config.treasury_bump]];
         token::transfer(
             CpiContext::new_with_signer(
@@ -424,6 +435,108 @@ pub fn claim_slip_handler(
             slip.potential_payout,
         )?;
     }
+    // If any leg lost: no payout, house keeps the difference between locked_amount and actual payout (0)
+
+    Ok(())
+}
+
+// ─── Update Slip Lock ──────────────────────────────────────────
+
+#[derive(Accounts)]
+#[instruction(slip_id: u64)]
+pub struct UpdateSlipLock<'info> {
+    #[account(
+        mut,
+        seeds = [seeds::GLOBAL_CONFIG],
+        bump = global_config.bump,
+    )]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        mut,
+        seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
+        bump = bet_slip.bump,
+    )]
+    pub bet_slip: Account<'info, BetSlip>,
+
+    pub updater: Signer<'info>,
+}
+
+pub fn update_slip_lock_handler(
+    ctx: Context<UpdateSlipLock>,
+    _slip_id: u64,
+) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+    let slip = &mut ctx.accounts.bet_slip;
+
+    require!(!slip.claimed, QuadraticMarketError::SlipAlreadyClaimed);
+    require!(slip.num_legs > 0, QuadraticMarketError::SlipNoLegs);
+
+    // remaining_accounts: one Market info account per leg
+    let num_legs = slip.num_legs;
+    require!(
+        ctx.remaining_accounts.len() >= num_legs as usize,
+        QuadraticMarketError::InvalidRemainingAccount
+    );
+
+    // Recompute current prices for each leg
+    let mut leg_prices: Vec<u64> = Vec::with_capacity(num_legs as usize);
+
+    let mut leg_idx: u8 = 0;
+    while leg_idx < num_legs {
+        let leg = &slip.legs[leg_idx as usize];
+        let market_info = &ctx.remaining_accounts[leg_idx as usize];
+
+        // Validate PDA
+        let (expected_pda, _) = Pubkey::find_program_address(
+            &[seeds::MARKET, leg.market_id.to_le_bytes().as_ref()],
+            &crate::ID,
+        );
+        require!(
+            market_info.key() == expected_pda,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+
+        // Read market data
+        let data = market_info.data.borrow();
+        require!(data.len() > 416, QuadraticMarketError::InvalidRemainingAccount);
+
+        let num_outcomes = data[67] as u8;
+        let mut q_values = [0u64; MAX_OUTCOMES];
+        for j in 0..num_outcomes as usize {
+            let off = 68 + j * 8;
+            let mut b = [0u8; 8];
+            b.copy_from_slice(&data[off..off + 8]);
+            q_values[j] = u64::from_le_bytes(b);
+        }
+
+        let lmsr_b = lmsr_b_from_data(&data)?;
+        let price = lmsr_price(&q_values, num_outcomes, leg.outcome_id, lmsr_b)?;
+        leg_prices.push(price);
+
+        leg_idx += 1;
+    }
+
+    // Recompute combined odds with the same house margin stored on the slip
+    let bonus = compute_bonus_multiplier(num_legs, config.max_slip_bonus_multiplier_bps)?;
+    let current_combined_odds_fp = compute_combined_odds_fp(
+        &leg_prices, num_legs, slip.house_margin_bps, bonus,
+    )?;
+
+    // Recompute potential payout at current prices
+    let current_potential = (slip.total_stake as u128)
+        .checked_mul(current_combined_odds_fp as u128)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / SCALE as u128;
+    let current_potential = current_potential as u64;
+
+    // Asymmetric: only decrease the lock, never increase
+    if current_potential < slip.locked_amount {
+        let delta = slip.locked_amount - current_potential;
+        slip.locked_amount = current_potential;
+        config.locked_payouts = config.locked_payouts.saturating_sub(delta);
+    }
+    // If current_potential >= slip.locked_amount: do nothing (lock never increases)
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::constants::{CORRELATION_MAX_BPS, MAX_OUTCOMES};
+use crate::constants::{CORRELATION_MAX_BPS, MAX_OUTCOMES, SCALE, MIN_SLIP_LEGS_FOR_BONUS, SLIP_BONUS_INCREMENT_BPS};
 use crate::errors::QuadraticMarketError;
 use crate::state::CorrelationPair;
 use anchor_lang::prelude::*;
@@ -110,6 +110,91 @@ pub fn compute_combined_odds_bps(
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     Ok(odds_bps as u64)
+}
+
+/// Compute the bonus multiplier for multi-leg slips.
+/// Bonus kicks in at MIN_SLIP_LEGS_FOR_BONUS legs, increasing by SLIP_BONUS_INCREMENT_BPS per extra leg,
+/// capped at max_bonus_bps.
+pub fn compute_bonus_multiplier(num_legs: u8, max_bonus_bps: u64) -> Result<u64> {
+    if num_legs < MIN_SLIP_LEGS_FOR_BONUS {
+        return Ok(CORRELATION_MAX_BPS); // 1.0x (no bonus)
+    }
+    // At threshold (5 legs): base bonus = SLIP_BONUS_INCREMENT_BPS
+    // Each extra leg above threshold adds another increment
+    let extra_legs = (num_legs - MIN_SLIP_LEGS_FOR_BONUS) as u64;
+    let bonus = CORRELATION_MAX_BPS
+        .checked_add(SLIP_BONUS_INCREMENT_BPS)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        .checked_add(extra_legs.checked_mul(SLIP_BONUS_INCREMENT_BPS).ok_or(QuadraticMarketError::MathOverflow)?)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    // Cap at max_bonus_bps
+    Ok(std::cmp::min(bonus, max_bonus_bps))
+}
+
+/// Compute the multiplicative combined odds from multiple legs, with house margin and bonus.
+/// Each leg price is an LMSR price (Q32.32 probability).
+///
+/// For each leg:
+///   decimal_odds = SCALE^2 / price     (Q32.32)
+///   odds_with_margin = odds * (CORRELATION_MAX_BPS - house_margin_bps) / CORRELATION_MAX_BPS
+///
+/// Combined = product of all margin-adjusted odds (dividing by SCALE between multiplications)
+/// Then apply bonus_multiplier if applicable.
+///
+/// Returns combined odds in Q32.32 fixed-point (decimal odds, e.g., 2.5x, 32x).
+pub fn compute_combined_odds_fp(
+    leg_probabilities: &[u64],
+    num_legs: u8,
+    house_margin_bps: u64,
+    bonus_multiplier_bps: u64,
+) -> Result<u64> {
+    if num_legs == 0 {
+        return Err(QuadraticMarketError::SlipNoLegs.into());
+    }
+
+    let margin_factor = CORRELATION_MAX_BPS
+        .checked_sub(house_margin_bps)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+
+    // Start with SCALE (1.0 in Q32.32) for the running combined odds
+    let mut combined_odds: u128 = SCALE as u128;
+
+    let mut i: usize = 0;
+    while i < num_legs as usize {
+        let p = leg_probabilities[i];
+        require!(p > 0, QuadraticMarketError::InvalidAmount);
+
+        // decimal_odds = SCALE^2 / p (Q32.32)
+        let odds_fp = ((SCALE as u128) << 32)
+            .checked_div(p as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+
+        // Apply house margin: odds * margin_factor / CORRELATION_MAX_BPS
+        let odds_with_margin = odds_fp
+            .checked_mul(margin_factor as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / CORRELATION_MAX_BPS as u128;
+
+        // Multiply into combined: combined * odds_with_margin / SCALE
+        combined_odds = combined_odds
+            .checked_mul(odds_with_margin)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / SCALE as u128;
+
+        i += 1;
+    }
+
+    require!(combined_odds > 0, QuadraticMarketError::InvalidAmount);
+
+    // Apply bonus multiplier
+    if bonus_multiplier_bps != CORRELATION_MAX_BPS {
+        combined_odds = combined_odds
+            .checked_mul(bonus_multiplier_bps as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / CORRELATION_MAX_BPS as u128;
+    }
+
+    Ok(combined_odds as u64)
 }
 
 #[cfg(test)]
@@ -229,5 +314,80 @@ mod tests {
         let odds = compute_combined_odds_bps(&[p, p], 2).unwrap();
         // Combined: 0.5 * 0.5 = 0.25 → odds = 4.0 = 40000 bps
         assert!(odds >= 39800 && odds <= 40200, "Expected ~40000 bps, got {}", odds);
+    }
+
+    #[test]
+    fn test_bonus_multiplier_no_bonus_below_threshold() {
+        // 4 legs < MIN_SLIP_LEGS_FOR_BONUS (5) → no bonus
+        let bonus = compute_bonus_multiplier(4, 30_000).unwrap();
+        assert_eq!(bonus, CORRELATION_MAX_BPS); // 1.0x
+    }
+
+    #[test]
+    fn test_bonus_multiplier_at_threshold() {
+        // 5 legs → 1 extra leg → +1000 bps = 11000 bps = 1.1x
+        let bonus = compute_bonus_multiplier(5, 30_000).unwrap();
+        assert_eq!(bonus, CORRELATION_MAX_BPS + SLIP_BONUS_INCREMENT_BPS);
+    }
+
+    #[test]
+    fn test_bonus_multiplier_capped() {
+        // 8 legs → 10000 + 1000 + 3*1000 = 14000, but cap at 12000
+        let bonus = compute_bonus_multiplier(8, 12_000).unwrap();
+        assert_eq!(bonus, 12_000); // capped
+    }
+
+    #[test]
+    fn test_combined_odds_fp_no_margin() {
+        // Single leg at 50% probability, no margin, no bonus
+        let p = SCALE / 2;
+        let odds = compute_combined_odds_fp(&[p], 1, 0, CORRELATION_MAX_BPS).unwrap();
+        // Expected: 2.0 in Q32.32 = 2 * SCALE = 8589934592
+        let expected = 2 * SCALE;
+        assert!(
+            (odds as i64 - expected as i64).unsigned_abs() < SCALE / 100,
+            "Expected ~2.0 ({}), got {}", expected, odds
+        );
+    }
+
+    #[test]
+    fn test_combined_odds_fp_with_margin() {
+        // Single leg at 50% probability, 5% margin
+        let p = SCALE / 2;
+        let odds = compute_combined_odds_fp(&[p], 1, 500, CORRELATION_MAX_BPS).unwrap();
+        // Raw odds = 2.0, with 5% margin = 2.0 * 0.95 = 1.9
+        let expected_fp = (1.9 * SCALE as f64) as u64;
+        assert!(
+            (odds as i64 - expected_fp as i64).unsigned_abs() < SCALE / 100,
+            "Expected ~1.9 ({}), got {}", expected_fp, odds
+        );
+    }
+
+    #[test]
+    fn test_combined_odds_fp_two_legs_with_margin() {
+        // Two legs at 50% each, 5% margin per leg
+        let p = SCALE / 2;
+        let odds = compute_combined_odds_fp(&[p, p], 2, 500, CORRELATION_MAX_BPS).unwrap();
+        // Raw combined = 4.0, with 5% margin per leg = 4.0 * 0.95^2 = 3.61
+        let expected_fp = (3.61 * SCALE as f64) as u64;
+        assert!(
+            (odds as i64 - expected_fp as i64).unsigned_abs() < SCALE / 50,
+            "Expected ~3.61 ({}), got {}", expected_fp, odds
+        );
+    }
+
+    #[test]
+    fn test_combined_odds_fp_with_bonus() {
+        // 5 legs at 50% each, 5% margin, bonus at 5 legs = 1.1x
+        let p = SCALE / 2;
+        let prices = [p, p, p, p, p];
+        let bonus = compute_bonus_multiplier(5, 30_000).unwrap();
+        let odds = compute_combined_odds_fp(&prices, 5, 500, bonus).unwrap();
+        // Raw combined = 32.0, margin = 32.0 * 0.95^5 ≈ 24.76, bonus 1.1x = 27.24
+        let expected_fp = (27.24 * SCALE as f64) as u64;
+        assert!(
+            (odds as i64 - expected_fp as i64).unsigned_abs() < SCALE,
+            "Expected ~27.24 ({}), got {}", expected_fp, odds
+        );
     }
 }

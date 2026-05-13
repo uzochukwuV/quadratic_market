@@ -48,3 +48,7 @@ pub const CORRELATION_MAX_BPS: u64 = 10_000;
 
 // Bet slip
 pub const MAX_SLIP_LEGS: usize = 8;
+pub const DEFAULT_SLIP_HOUSE_MARGIN_BPS: u64 = 500;       // 5% per leg
+pub const DEFAULT_MAX_SLIP_BONUS_BPS: u64 = 30_000;       // 3.0x max bonus
+pub const MIN_SLIP_LEGS_FOR_BONUS: u8 = 5;               // bonus kicks in at 5 legs
+pub const SLIP_BONUS_INCREMENT_BPS: u64 = 1_000;          // +10% per leg above threshold

@@ -19,12 +19,14 @@ pub struct GlobalConfig {
     pub odds_basis: u64,              // 8
     pub lmsr_default_b: u64,          // 8 (Q32.32)
     pub min_first_liquidity: u64,     // 8
+    pub slip_house_margin_bps: u64,   // 8 — default house margin for bet slips
+    pub max_slip_bonus_multiplier_bps: u64, // 8 — max bonus multiplier for multi-leg slips
     pub bump: u8,                     // 1
 }
 
 impl GlobalConfig {
-    // 8 (discriminator) + 32+1+32+8+8+8+32+32+32+1+8+8+8+8+8+8+8+1 = 245
-    pub const LEN: usize = 8 + 32 + 1 + 32 + 8 + 8 + 8 + 32 + 32 + 32 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 1;
+    // 8 (discriminator) + 32+1+32+8+8+8+32+32+32+1+8+8+8+8+8+8+8+8+8+1 = 261
+    pub const LEN: usize = 8 + 32 + 1 + 32 + 8 + 8 + 8 + 32 + 32 + 32 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 1;
 
     pub fn free_liquidity(&self, treasury_balance: u64) -> u64 {
         if treasury_balance > self.locked_payouts {

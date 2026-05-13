@@ -15,22 +15,15 @@ pub struct BetSlip {
     pub legs: [SlipLeg; MAX_SLIP_LEGS],
     pub num_legs: u8,
     pub total_stake: u64,
-    pub combined_odds_bps: u64,
-    pub potential_payout: u64,
+    pub combined_odds_fp: u64,       // Q32.32 decimal odds
+    pub house_margin_bps: u64,      // margin applied at placement
+    pub potential_payout: u64,      // fixed at placement — what user gets if all legs win
+    pub locked_amount: u64,         // current treasury lock (<= potential_payout, never increases)
     pub claimed: bool,
     pub bump: u8,
 }
 
 impl BetSlip {
-    pub const LEN: usize = 8 // discriminator
-        + 8   // slip_id
-        + 32  // creator
-        + 128 // legs (8 * 16 bytes each due to alignment)
-        + 1   // num_legs
-        + 7   // padding
-        + 8   // total_stake
-        + 8   // combined_odds_bps
-        + 8   // potential_payout
-        + 1   // claimed
-        + 1;  // bump
+    // 8 + 8 + 32 + 128 + 1 + 7 + 8 + 8 + 8 + 8 + 8 + 1 + 1 = 226
+    pub const LEN: usize = 8 + 8 + 32 + 128 + 1 + 7 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
 }

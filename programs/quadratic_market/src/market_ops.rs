@@ -68,6 +68,7 @@ pub fn create_market_handler(
     description: String,
     category: u8,
     lmsr_b_override: Option<u64>,
+    initial_q_values: Option<Vec<u64>>,
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);
@@ -101,6 +102,14 @@ pub fn create_market_handler(
         QuadraticMarketError::InvalidAmount
     );
 
+    // Validate initial q_values if provided
+    if let Some(ref q_vals) = initial_q_values {
+        require!(
+            q_vals.len() == num_outcomes as usize,
+            QuadraticMarketError::InvalidOutcomeId
+        );
+    }
+
     // Transfer bond from creator to treasury
     let cpi_accounts = token::Transfer {
         from: ctx.accounts.creator_base_ata.to_account_info(),
@@ -121,7 +130,16 @@ pub fn create_market_handler(
     market.bond_amount = bond_amount;
     market.bond_claimed = false;
     market.num_outcomes = num_outcomes;
-    market.q_values = [0u64; MAX_OUTCOMES];
+
+    // Seed q_values: use initial values if provided, otherwise zero
+    let mut q_values: [u64; MAX_OUTCOMES] = [0u64; MAX_OUTCOMES];
+    if let Some(q_vals) = initial_q_values {
+        for i in 0..num_outcomes as usize {
+            q_values[i] = q_vals[i];
+        }
+    }
+    market.q_values = q_values;
+
     market.exposure = 0;
     market.settlement_time = 0;
     market.winning_outcome = 0;

@@ -81,6 +81,8 @@ pub fn update_config_handler(
     min_dispute_stake: Option<u64>,
     min_market_bond: Option<u64>,
     lmsr_default_b: Option<u64>,
+    slip_house_margin_bps: Option<u64>,
+    max_slip_bonus_multiplier_bps: Option<u64>,
 ) -> Result<()> {
     require!(
         ctx.accounts.admin.key() == ctx.accounts.global_config.admin,
@@ -92,5 +94,7 @@ pub fn update_config_handler(
     if let Some(v) = min_dispute_stake { config.min_dispute_stake = v; }
     if let Some(v) = min_market_bond { config.min_market_bond = v; }
     if let Some(v) = lmsr_default_b { config.lmsr_default_b = v; }
+    if let Some(v) = slip_house_margin_bps { config.slip_house_margin_bps = v; }
+    if let Some(v) = max_slip_bonus_multiplier_bps { config.max_slip_bonus_multiplier_bps = v; }
     Ok(())
 }

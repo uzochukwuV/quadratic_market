@@ -73,8 +73,10 @@ pub mod quadratic_market {
         min_dispute_stake: Option<u64>,
         min_market_bond: Option<u64>,
         lmsr_default_b: Option<u64>,
+        slip_house_margin_bps: Option<u64>,
+        max_slip_bonus_multiplier_bps: Option<u64>,
     ) -> Result<()> {
-        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, min_dispute_stake, min_market_bond, lmsr_default_b)
+        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, min_dispute_stake, min_market_bond, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps)
     }
 
     // ─── LP Operations ────────────────────────────────────────
@@ -102,8 +104,9 @@ pub mod quadratic_market {
         description: String,
         category: u8,
         lmsr_b_override: Option<u64>,
+        initial_q_values: Option<Vec<u64>>,
     ) -> Result<()> {
-        create_market_handler(ctx, start_time, num_outcomes, bond_amount, title, description, category, lmsr_b_override)
+        create_market_handler(ctx, start_time, num_outcomes, bond_amount, title, description, category, lmsr_b_override, initial_q_values)
     }
 
     pub fn init_outcome_mint(
@@ -279,5 +282,12 @@ pub mod quadratic_market {
         slip_id: u64,
     ) -> Result<()> {
         claim_slip_handler(ctx, slip_id)
+    }
+
+    pub fn update_slip_lock(
+        ctx: Context<UpdateSlipLock>,
+        slip_id: u64,
+    ) -> Result<()> {
+        update_slip_lock_handler(ctx, slip_id)
     }
 }

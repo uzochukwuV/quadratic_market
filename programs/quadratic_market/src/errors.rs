@@ -123,4 +123,6 @@ pub enum QuadraticMarketError {
     CorrelationMatrixLocked = 713,
     #[msg("Invalid account in remaining_accounts")]
     InvalidRemainingAccount = 714,
+    #[msg("Slip lock update failed")]
+    SlipLockUpdateFailed = 715,
 }
