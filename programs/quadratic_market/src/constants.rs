@@ -1,0 +1,40 @@
+// Q32.32 fixed-point arithmetic constants
+pub const SCALE: u64 = 1_u64 << 32; // 4_294_967_296
+pub const ONE_FP: u64 = SCALE; // 1.0 in Q32.32
+
+// Precomputed ln(2) in Q32.32: 0.69314718056 * 2^32
+pub const LN2_FP: i64 = 2_973_032_047;
+
+// LMSR defaults
+pub const MAX_OUTCOMES: usize = 8;
+pub const DEFAULT_LMSR_B: u64 = 100_000_000; // 100 USDC (6-decimal lamports)
+pub const DEFAULT_LMSR_B_FP: u64 = DEFAULT_LMSR_B * SCALE; // Q32.32 representation
+
+// ERC4626 inflation fix
+pub const MIN_FIRST_LIQUIDITY: u64 = 1000; // Lock 1000 base units on first deposit
+
+// Settlement
+pub const DEFAULT_CHALLENGE_WINDOW: i64 = 3600; // 1 hour
+pub const MIN_DISPUTE_STAKE: u64 = 1_000_000; // 1 USDC
+pub const MAX_DISPUTE_ROUNDS: u32 = 3;
+
+// Market creation
+pub const DEFAULT_MIN_MARKET_BOND: u64 = 50_000_000; // 50 USDC
+
+// Token
+pub const BASE_MINT_DECIMALS: u8 = 6;
+
+// Strings
+pub const MAX_TITLE_LEN: usize = 128;
+pub const MAX_DESCRIPTION_LEN: usize = 256;
+
+// PDA seeds
+pub mod seeds {
+    pub const GLOBAL_CONFIG: &[u8] = b"global_config";
+    pub const TREASURY: &[u8] = b"treasury";
+    pub const LP_MINT: &[u8] = b"lp_mint";
+    pub const MARKET: &[u8] = b"market";
+    pub const OUTCOME_MINT: &[u8] = b"outcome_mint";
+    pub const DISPUTE: &[u8] = b"dispute";
+    pub const WITHDRAWAL: &[u8] = b"withdrawal";
+}

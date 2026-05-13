@@ -1,0 +1,202 @@
+use anchor_lang::prelude::*;
+
+declare_id!("9H1DCo5QaUtiMne4UH44aefHyv8Xpc8EgZwrshRZqsLC");
+
+pub mod constants;
+pub mod errors;
+pub mod math;
+pub mod state;
+pub mod utils;
+
+// Instruction modules
+pub mod initialize;
+pub mod admin;
+pub mod liquidity;
+pub mod market_ops;
+pub mod trade;
+pub mod swap_trade;
+pub mod settlement;
+pub mod claim;
+
+// Bring all account structs into scope so Anchor's #[program]
+// macro references them directly
+use initialize::*;
+use admin::*;
+use liquidity::*;
+use market_ops::*;
+use trade::*;
+use swap_trade::*;
+use settlement::*;
+use claim::*;
+
+#[program]
+pub mod quadratic_market {
+    use super::*;
+
+    // ─── Initialization ───────────────────────────────────────
+
+    pub fn initialize(
+        ctx: Context<Initialize>,
+        oracle_pubkey: [u8; 32],
+        max_market_exposure: u64,
+        challenge_window_seconds: i64,
+        min_dispute_stake: u64,
+        min_market_bond: u64,
+    ) -> Result<()> {
+        handler(ctx, oracle_pubkey, max_market_exposure, challenge_window_seconds, min_dispute_stake, min_market_bond)
+    }
+
+    // ─── Admin ────────────────────────────────────────────────
+
+    pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<()> {
+        transfer_admin_handler(ctx, new_admin)
+    }
+
+    pub fn pause(ctx: Context<Pause>) -> Result<()> {
+        pause_handler(ctx)
+    }
+
+    pub fn unpause(ctx: Context<Unpause>) -> Result<()> {
+        unpause_handler(ctx)
+    }
+
+    pub fn update_config(
+        ctx: Context<UpdateConfig>,
+        max_market_exposure: Option<u64>,
+        challenge_window_seconds: Option<i64>,
+        min_dispute_stake: Option<u64>,
+        min_market_bond: Option<u64>,
+        lmsr_default_b: Option<u64>,
+    ) -> Result<()> {
+        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, min_dispute_stake, min_market_bond, lmsr_default_b)
+    }
+
+    // ─── LP Operations ────────────────────────────────────────
+
+    pub fn add_liquidity(ctx: Context<AddLiquidity>, amount: u64) -> Result<()> {
+        add_liquidity_handler(ctx, amount)
+    }
+
+    pub fn request_withdraw(ctx: Context<RequestWithdraw>, shares: u64) -> Result<()> {
+        request_withdraw_handler(ctx, shares)
+    }
+
+    pub fn process_withdrawal(ctx: Context<ProcessWithdrawal>) -> Result<()> {
+        process_withdrawal_handler(ctx)
+    }
+
+    // ─── Market Operations ────────────────────────────────────
+
+    pub fn create_market(
+        ctx: Context<CreateMarket>,
+        start_time: i64,
+        num_outcomes: u8,
+        bond_amount: u64,
+        title: String,
+        description: String,
+        category: u8,
+        lmsr_b_override: Option<u64>,
+    ) -> Result<()> {
+        create_market_handler(ctx, start_time, num_outcomes, bond_amount, title, description, category, lmsr_b_override)
+    }
+
+    pub fn init_outcome_mint(
+        ctx: Context<InitOutcomeMint>,
+        market_id: u64,
+        outcome_id: u8,
+    ) -> Result<()> {
+        init_outcome_mint_handler(ctx, market_id, outcome_id)
+    }
+
+    pub fn suspend_market(ctx: Context<SuspendMarket>) -> Result<()> {
+        suspend_market_handler(ctx)
+    }
+
+    pub fn resume_market(ctx: Context<ResumeMarket>) -> Result<()> {
+        resume_market_handler(ctx)
+    }
+
+    pub fn void_market(ctx: Context<VoidMarket>) -> Result<()> {
+        void_market_handler(ctx)
+    }
+
+    // ─── Trading ──────────────────────────────────────────────
+
+    pub fn buy_shares(
+        ctx: Context<BuyShares>,
+        outcome_id: u8,
+        num_shares: u64,
+        max_payment: u64,
+    ) -> Result<()> {
+        buy_shares_handler(ctx, outcome_id, num_shares, max_payment)
+    }
+
+    pub fn sell_shares(
+        ctx: Context<SellShares>,
+        outcome_id: u8,
+        num_shares: u64,
+        min_payout: u64,
+    ) -> Result<()> {
+        sell_shares_handler(ctx, outcome_id, num_shares, min_payout)
+    }
+
+    pub fn buy_shares_with_swap(
+        ctx: Context<BuySharesWithSwap>,
+        outcome_id: u8,
+        num_shares: u64,
+        max_payment: u64,
+        min_base_from_swap: u64,
+    ) -> Result<()> {
+        buy_shares_with_swap_handler(ctx, outcome_id, num_shares, max_payment, min_base_from_swap)
+    }
+
+    // ─── Settlement ───────────────────────────────────────────
+
+    pub fn propose_result(
+        ctx: Context<ProposeResult>,
+        market_id: u64,
+        proposed_outcome: u8,
+    ) -> Result<()> {
+        propose_result_handler(ctx, market_id, proposed_outcome)
+    }
+
+    pub fn dispute_result(
+        ctx: Context<DisputeResult>,
+        market_id: u64,
+        round: u32,
+        challenge_outcome: u8,
+    ) -> Result<()> {
+        dispute_result_handler(ctx, market_id, round, challenge_outcome)
+    }
+
+    pub fn escalate_dispute(
+        ctx: Context<EscalateDispute>,
+        market_id: u64,
+        current_round: u32,
+        proposed_outcome: u8,
+    ) -> Result<()> {
+        escalate_dispute_handler(ctx, market_id, current_round, proposed_outcome)
+    }
+
+    pub fn finalize_result(
+        ctx: Context<FinalizeResult>,
+        market_id: u64,
+        round: u32,
+    ) -> Result<()> {
+        finalize_result_handler(ctx, market_id, round)
+    }
+
+    // ─── Claims ───────────────────────────────────────────────
+
+    pub fn claim_payout(ctx: Context<ClaimPayout>, market_id: u64) -> Result<()> {
+        claim_payout_handler(ctx, market_id)
+    }
+
+    pub fn claim_market_bond(ctx: Context<ClaimMarketBond>, market_id: u64) -> Result<()> {
+        claim_market_bond_handler(ctx, market_id)
+    }
+
+    pub fn close_market(ctx: Context<CloseMarket>, market_id: u64) -> Result<()> {
+        close_market_handler(ctx, market_id)
+    }
+}
