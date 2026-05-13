@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token};
-use crate::constants::{seeds, DEFAULT_LMSR_B_FP, MIN_FIRST_LIQUIDITY, DEFAULT_SLIP_HOUSE_MARGIN_BPS, DEFAULT_MAX_SLIP_BONUS_BPS};
+use crate::constants::{seeds, DEFAULT_LMSR_B_FP, MIN_FIRST_LIQUIDITY, DEFAULT_SLIP_HOUSE_MARGIN_BPS, DEFAULT_MAX_SLIP_BONUS_BPS, DEFAULT_EPOCH_DURATION_SECONDS, DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS};
 use crate::state::GlobalConfig;
 
 #[derive(Accounts)]
@@ -73,6 +73,9 @@ pub fn handler(
     config.slip_house_margin_bps = DEFAULT_SLIP_HOUSE_MARGIN_BPS;
     config.max_slip_bonus_multiplier_bps = DEFAULT_MAX_SLIP_BONUS_BPS;
     config.next_slip_id = 1;
+    config.current_epoch = 0;
+    config.epoch_duration_seconds = DEFAULT_EPOCH_DURATION_SECONDS;
+    config.withdrawal_cooldown_seconds = DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS;
     config.bump = ctx.bumps.global_config;
 
     Ok(())

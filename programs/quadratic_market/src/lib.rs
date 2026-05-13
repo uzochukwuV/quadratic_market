@@ -75,8 +75,10 @@ pub mod quadratic_market {
         lmsr_default_b: Option<u64>,
         slip_house_margin_bps: Option<u64>,
         max_slip_bonus_multiplier_bps: Option<u64>,
+        epoch_duration_seconds: Option<i64>,
+        withdrawal_cooldown_seconds: Option<i64>,
     ) -> Result<()> {
-        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, min_dispute_stake, min_market_bond, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps)
+        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, min_dispute_stake, min_market_bond, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds)
     }
 
     // ─── LP Operations ────────────────────────────────────────
@@ -91,6 +93,10 @@ pub mod quadratic_market {
 
     pub fn process_withdrawal(ctx: Context<ProcessWithdrawal>) -> Result<()> {
         process_withdrawal_handler(ctx)
+    }
+
+    pub fn activate_liquidity(ctx: Context<ActivateLiquidity>) -> Result<()> {
+        activate_liquidity_handler(ctx)
     }
 
     // ─── Market Operations ────────────────────────────────────

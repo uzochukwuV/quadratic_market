@@ -39,6 +39,7 @@ pub mod seeds {
     pub const WITHDRAWAL: &[u8] = b"withdrawal";
     pub const MARKET_GROUP: &[u8] = b"market_group";
     pub const BET_SLIP: &[u8] = b"bet_slip";
+    pub const PENDING: &[u8] = b"pending";
 }
 
 // Correlated markets
@@ -52,3 +53,7 @@ pub const DEFAULT_SLIP_HOUSE_MARGIN_BPS: u64 = 500;       // 5% per leg
 pub const DEFAULT_MAX_SLIP_BONUS_BPS: u64 = 30_000;       // 3.0x max bonus
 pub const MIN_SLIP_LEGS_FOR_BONUS: u8 = 5;               // bonus kicks in at 5 legs
 pub const SLIP_BONUS_INCREMENT_BPS: u64 = 1_000;          // +10% per leg above threshold
+
+// LP epoch / timing
+pub const DEFAULT_EPOCH_DURATION_SECONDS: i64 = 86_400;       // 24 hours
+pub const DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS: i64 = 86_400;   // 24 hours

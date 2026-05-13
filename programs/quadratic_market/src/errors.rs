@@ -77,6 +77,12 @@ pub enum QuadraticMarketError {
     NoWithdrawalRequest = 403,
     #[msg("Insufficient free liquidity for withdrawal")]
     InsufficientFreeLiquidity = 404,
+    #[msg("Withdrawal cooldown has not elapsed")]
+    CooldownNotElapsed = 405,
+    #[msg("No pending liquidity to activate")]
+    NoPendingLiquidity = 406,
+    #[msg("LP shares are still locked pending activation")]
+    SharesStillLocked = 407,
 
     // 500-599: Claim errors
     #[msg("No winning positions to claim")]
