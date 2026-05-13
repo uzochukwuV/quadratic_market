@@ -5,7 +5,8 @@
       "Bash(ls /workspaces/Ismart/quadratic_market/target/types/ 2>/dev/null && cat /workspaces/Ismart/quadratic_market/target/types/quadratic_market.ts 2>/dev/null | head -20 || echo \"No types yet\")",
       "Bash(cat /workspaces/Ismart/quadratic_market/target/debug/.fingerprint/anchor-lang-*/lib-anchor-lang.json 2>/dev/null | head -5 || echo \"Checking cargo lock instead\" && ls /workspaces/Ismart/quadratic_market/Cargo.lock 2>/dev/null || echo \"No lock file\")",
       "Bash(find /workspaces/Ismart/quadratic_market -type f -name \"*.rs\" | head -50)",
-      "Bash(cargo build 2>&1)"
+      "Bash(cargo build 2>&1)",
+      "Bash(git show HEAD:programs/quadratic_market/src/liquidity.rs | grep -n \"base_mint\" | head -5)"
     ]
   }
 }

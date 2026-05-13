@@ -91,6 +91,7 @@ pub struct AddLiquidity<'info> {
     )]
     pub pending_liquidity: Account<'info, PendingLiquidity>,
 
+    #[account(mut)]
     pub provider: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -210,6 +211,14 @@ pub struct RequestWithdraw<'info> {
     )]
     pub treasury: SystemAccount<'info>,
 
+    /// Treasury's base token account (for NAV snapshot)
+    #[account(
+        mut,
+        associated_token::mint = base_mint,
+        associated_token::authority = treasury,
+    )]
+    pub treasury_base_ata: Account<'info, TokenAccount>,
+
     /// Treasury's LP token escrow account
     #[account(
         mut,
@@ -242,6 +251,10 @@ pub struct RequestWithdraw<'info> {
         bump,
     )]
     pub withdrawal_request: Account<'info, WithdrawalRequest>,
+
+    /// CHECK: Validated by constraint
+    #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
+    pub base_mint: Account<'info, Mint>,
 
     #[account(mut)]
     pub lp: Signer<'info>,
