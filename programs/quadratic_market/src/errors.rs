@@ -91,4 +91,36 @@ pub enum QuadraticMarketError {
     SwapBelowMinimum = 600,
     #[msg("Swap failed")]
     SwapFailed = 601,
+
+    // 700-799: Correlated market errors
+    #[msg("Market group not found")]
+    MarketGroupNotFound = 700,
+    #[msg("Market already belongs to a group")]
+    MarketAlreadyInGroup = 701,
+    #[msg("Market group is full")]
+    MarketGroupFull = 702,
+    #[msg("Correlation weight exceeds maximum")]
+    CorrelationOutOfBounds = 703,
+    #[msg("Group exposure cap exceeded")]
+    GroupExposureExceeded = 704,
+    #[msg("Market is not in the specified group")]
+    MarketNotInGroup = 705,
+    #[msg("Bet slip has no legs")]
+    SlipNoLegs = 706,
+    #[msg("Bet slip has too many legs")]
+    SlipTooManyLegs = 707,
+    #[msg("Bet slip cost exceeds maximum payment")]
+    SlipCostExceeded = 708,
+    #[msg("Bet slip not fully settled")]
+    SlipNotSettled = 709,
+    #[msg("Bet slip already claimed")]
+    SlipAlreadyClaimed = 710,
+    #[msg("Correlation calculation overflow")]
+    CorrelationOverflow = 711,
+    #[msg("Market group event has started")]
+    GroupEventStarted = 712,
+    #[msg("Correlation matrix is locked after first trade")]
+    CorrelationMatrixLocked = 713,
+    #[msg("Invalid account in remaining_accounts")]
+    InvalidRemainingAccount = 714,
 }

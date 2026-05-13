@@ -37,4 +37,14 @@ pub mod seeds {
     pub const OUTCOME_MINT: &[u8] = b"outcome_mint";
     pub const DISPUTE: &[u8] = b"dispute";
     pub const WITHDRAWAL: &[u8] = b"withdrawal";
+    pub const MARKET_GROUP: &[u8] = b"market_group";
+    pub const BET_SLIP: &[u8] = b"bet_slip";
 }
+
+// Correlated markets
+pub const MAX_GROUP_MARKETS: usize = MAX_OUTCOMES;
+pub const MAX_CORRELATION_PAIRS: usize = 16;
+pub const CORRELATION_MAX_BPS: u64 = 10_000;
+
+// Bet slip
+pub const MAX_SLIP_LEGS: usize = 8;

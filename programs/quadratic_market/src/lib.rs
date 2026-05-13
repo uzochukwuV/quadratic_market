@@ -17,6 +17,8 @@ pub mod trade;
 pub mod swap_trade;
 pub mod settlement;
 pub mod claim;
+pub mod market_group;
+pub mod slip;
 
 // Bring all account structs into scope so Anchor's #[program]
 // macro references them directly
@@ -28,6 +30,10 @@ use trade::*;
 use swap_trade::*;
 use settlement::*;
 use claim::*;
+use market_group::*;
+use slip::*;
+use crate::state::market_group::CorrelationPair;
+use crate::state::bet_slip::SlipLeg;
 
 #[program]
 pub mod quadratic_market {
@@ -198,5 +204,80 @@ pub mod quadratic_market {
 
     pub fn close_market(ctx: Context<CloseMarket>, market_id: u64) -> Result<()> {
         close_market_handler(ctx, market_id)
+    }
+
+    // ─── Market Group Operations ────────────────────────────────
+
+    pub fn create_market_group(
+        ctx: Context<CreateMarketGroup>,
+        group_id: u64,
+        max_group_exposure: u64,
+        event_start_time: i64,
+        title: String,
+    ) -> Result<()> {
+        create_market_group_handler(ctx, group_id, max_group_exposure, event_start_time, title)
+    }
+
+    pub fn add_market_to_group(
+        ctx: Context<AddMarketToGroup>,
+        group_id: u64,
+        market_index: u8,
+    ) -> Result<()> {
+        add_market_to_group_handler(ctx, group_id, market_index)
+    }
+
+    pub fn add_correlation_pair(
+        ctx: Context<AddCorrelationPair>,
+        group_id: u64,
+        pair: CorrelationPair,
+    ) -> Result<()> {
+        add_correlation_pair_handler(ctx, group_id, pair)
+    }
+
+    pub fn update_correlation_weight(
+        ctx: Context<UpdateCorrelationWeight>,
+        group_id: u64,
+        pair_index: u8,
+        new_weight_bps: u64,
+    ) -> Result<()> {
+        update_correlation_weight_handler(ctx, group_id, pair_index, new_weight_bps)
+    }
+
+    // ─── Correlated Trading ─────────────────────────────────────
+
+    pub fn buy_shares_correlated<'info>(
+        ctx: Context<'_, '_, '_, 'info, BuySharesCorrelated<'info>>,
+        outcome_id: u8,
+        num_shares: u64,
+        max_payment: u64,
+    ) -> Result<()> {
+        buy_shares_correlated_handler(ctx, outcome_id, num_shares, max_payment)
+    }
+
+    pub fn sell_shares_correlated<'info>(
+        ctx: Context<'_, '_, '_, 'info, SellSharesCorrelated<'info>>,
+        outcome_id: u8,
+        num_shares: u64,
+        min_payout: u64,
+    ) -> Result<()> {
+        sell_shares_correlated_handler(ctx, outcome_id, num_shares, min_payout)
+    }
+
+    // ─── Bet Slip ───────────────────────────────────────────────
+
+    pub fn place_slip<'info>(
+        ctx: Context<'_, '_, '_, 'info, PlaceSlip<'info>>,
+        slip_id: u64,
+        legs: Vec<SlipLeg>,
+        max_payment: u64,
+    ) -> Result<()> {
+        place_slip_handler(ctx, slip_id, legs, max_payment)
+    }
+
+    pub fn claim_slip(
+        ctx: Context<ClaimSlip>,
+        slip_id: u64,
+    ) -> Result<()> {
+        claim_slip_handler(ctx, slip_id)
     }
 }

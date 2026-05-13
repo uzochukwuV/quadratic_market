@@ -50,6 +50,9 @@ pub struct Market {
     pub description: String,                // 4 + 256
     pub category: u8,                       // 1
     pub bump: u8,                           // 1
+    // Correlated market fields
+    pub group_id: Option<u64>,              // 1 + 8 (+ 7 padding)
+    pub group_market_index: u8,             // 1
 }
 
 impl Market {
@@ -70,7 +73,10 @@ impl Market {
         + (4 + 128) // title
         + (4 + 256) // description
         + 1   // category
-        + 1;  // bump
+        + 1   // bump
+        + 16  // group_id (Option<u64>: 1 variant + 8 value + 7 padding)
+        + 1   // group_market_index
+        + 7;  // padding
 
     pub fn active_q_values(&self) -> Vec<u64> {
         self.q_values[..self.num_outcomes as usize].to_vec()
