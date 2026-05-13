@@ -270,15 +270,15 @@ pub mod quadratic_market {
 
     pub fn place_slip<'info>(
         ctx: Context<'_, '_, '_, 'info, PlaceSlip<'info>>,
-        slip_id: u64,
         legs: Vec<SlipLeg>,
         max_payment: u64,
+        num_groups: u8,
     ) -> Result<()> {
-        place_slip_handler(ctx, slip_id, legs, max_payment)
+        place_slip_handler(ctx, legs, max_payment, num_groups)
     }
 
-    pub fn claim_slip(
-        ctx: Context<ClaimSlip>,
+    pub fn claim_slip<'info>(
+        ctx: Context<'_, '_, '_, 'info, ClaimSlip<'info>>,
         slip_id: u64,
     ) -> Result<()> {
         claim_slip_handler(ctx, slip_id)

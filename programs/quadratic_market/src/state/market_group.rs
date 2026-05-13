@@ -34,7 +34,7 @@ impl MarketGroup {
         + 8   // max_group_exposure
         + 1   // num_markets
         + 64  // market_ids (8 * u64)
-        + 128 // correlations (16 * 8 due to Anchor alignment)
+        + 192 // correlations (16 pairs × 12 bytes each in Borsh)
         + 1   // num_correlations
         + 8   // event_start_time
         + 1   // correlation_locked

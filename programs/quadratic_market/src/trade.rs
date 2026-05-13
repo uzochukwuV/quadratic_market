@@ -109,7 +109,7 @@ pub fn buy_shares_handler(
     );
 
     // Exposure check
-    let profit_exposure = cost.saturating_sub(num_shares); // worst case LP loss
+    let profit_exposure = num_shares.saturating_sub(cost); // worst case LP loss
     let new_exposure = market.exposure
         .checked_add(profit_exposure)
         .ok_or(QuadraticMarketError::MathOverflow)?;
@@ -451,7 +451,7 @@ pub fn buy_shares_correlated_handler<'info>(
         QuadraticMarketError::LmsrCostExceedsMax
     );
 
-    let profit_exposure = cost.saturating_sub(num_shares);
+    let profit_exposure = num_shares.saturating_sub(cost);
 
     // Exposure check: group-level for grouped markets, market-level for standalone
     if let Some(ref mut group) = ctx.accounts.market_group {
@@ -599,6 +599,8 @@ pub struct SellSharesCorrelated<'info> {
 
     #[account(
         mut,
+        seeds = [seeds::MARKET, market.market_id.to_le_bytes().as_ref()],
+        bump = market.bump,
         constraint = market.group_id.is_some() == market_group.is_some() @ QuadraticMarketError::MarketGroupNotFound,
     )]
     pub market: Box<Account<'info, Market>>,

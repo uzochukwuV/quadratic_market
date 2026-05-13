@@ -72,6 +72,7 @@ pub fn handler(
     config.min_first_liquidity = MIN_FIRST_LIQUIDITY;
     config.slip_house_margin_bps = DEFAULT_SLIP_HOUSE_MARGIN_BPS;
     config.max_slip_bonus_multiplier_bps = DEFAULT_MAX_SLIP_BONUS_BPS;
+    config.next_slip_id = 1;
     config.bump = ctx.bumps.global_config;
 
     Ok(())
