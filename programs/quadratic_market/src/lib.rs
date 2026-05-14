@@ -45,11 +45,8 @@ pub mod quadratic_market {
         ctx: Context<Initialize>,
         oracle_pubkey: [u8; 32],
         max_market_exposure: u64,
-        challenge_window_seconds: i64,
-        min_dispute_stake: u64,
-        min_market_bond: u64,
     ) -> Result<()> {
-        handler(ctx, oracle_pubkey, max_market_exposure, challenge_window_seconds, min_dispute_stake, min_market_bond)
+        handler(ctx, oracle_pubkey, max_market_exposure)
     }
 
     // ─── Admin ────────────────────────────────────────────────
@@ -70,15 +67,26 @@ pub mod quadratic_market {
         ctx: Context<UpdateConfig>,
         max_market_exposure: Option<u64>,
         challenge_window_seconds: Option<i64>,
-        min_dispute_stake: Option<u64>,
-        min_market_bond: Option<u64>,
+        settlement_deadline_seconds: Option<i64>,
         lmsr_default_b: Option<u64>,
         slip_house_margin_bps: Option<u64>,
         max_slip_bonus_multiplier_bps: Option<u64>,
         epoch_duration_seconds: Option<i64>,
         withdrawal_cooldown_seconds: Option<i64>,
+        max_single_bet: Option<u64>,
+        min_outcome_price_bps: Option<u64>,
+        buy_fee_bps: Option<u64>,
+        oracle_pubkey: Option<[u8; 32]>,
     ) -> Result<()> {
-        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, min_dispute_stake, min_market_bond, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds)
+        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, settlement_deadline_seconds, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds, max_single_bet, min_outcome_price_bps, buy_fee_bps, oracle_pubkey)
+    }
+
+    pub fn add_operator(ctx: Context<AddOperator>, operator: Pubkey) -> Result<()> {
+        add_operator_handler(ctx, operator)
+    }
+
+    pub fn remove_operator(ctx: Context<RemoveOperator>, operator: Pubkey) -> Result<()> {
+        remove_operator_handler(ctx, operator)
     }
 
     // ─── LP Operations ────────────────────────────────────────
@@ -114,14 +122,13 @@ pub mod quadratic_market {
         ctx: Context<CreateMarket>,
         start_time: i64,
         num_outcomes: u8,
-        bond_amount: u64,
         title: String,
         description: String,
         category: u8,
         lmsr_b_override: Option<u64>,
         initial_q_values: Option<Vec<u64>>,
     ) -> Result<()> {
-        create_market_handler(ctx, start_time, num_outcomes, bond_amount, title, description, category, lmsr_b_override, initial_q_values)
+        create_market_handler(ctx, start_time, num_outcomes, title, description, category, lmsr_b_override, initial_q_values)
     }
 
     pub fn init_outcome_mint(
@@ -142,6 +149,10 @@ pub mod quadratic_market {
 
     pub fn void_market(ctx: Context<VoidMarket>) -> Result<()> {
         void_market_handler(ctx)
+    }
+
+    pub fn void_if_expired(ctx: Context<VoidIfExpired>) -> Result<()> {
+        void_if_expired_handler(ctx)
     }
 
     // ─── Trading ──────────────────────────────────────────────
@@ -184,40 +195,22 @@ pub mod quadratic_market {
         propose_result_handler(ctx, market_id, proposed_outcome)
     }
 
-    pub fn dispute_result(
-        ctx: Context<DisputeResult>,
+    pub fn admin_override(
+        ctx: Context<AdminOverride>,
         market_id: u64,
-        round: u32,
-        challenge_outcome: u8,
+        correct_outcome: u8,
     ) -> Result<()> {
-        dispute_result_handler(ctx, market_id, round, challenge_outcome)
+        admin_override_handler(ctx, market_id, correct_outcome)
     }
 
-    pub fn escalate_dispute(
-        ctx: Context<EscalateDispute>,
-        market_id: u64,
-        current_round: u32,
-        proposed_outcome: u8,
-    ) -> Result<()> {
-        escalate_dispute_handler(ctx, market_id, current_round, proposed_outcome)
-    }
-
-    pub fn finalize_result(
-        ctx: Context<FinalizeResult>,
-        market_id: u64,
-        round: u32,
-    ) -> Result<()> {
-        finalize_result_handler(ctx, market_id, round)
+    pub fn finalize_result(ctx: Context<FinalizeResult>, market_id: u64) -> Result<()> {
+        finalize_result_handler(ctx, market_id)
     }
 
     // ─── Claims ───────────────────────────────────────────────
 
     pub fn claim_payout(ctx: Context<ClaimPayout>, market_id: u64) -> Result<()> {
         claim_payout_handler(ctx, market_id)
-    }
-
-    pub fn claim_market_bond(ctx: Context<ClaimMarketBond>, market_id: u64) -> Result<()> {
-        claim_market_bond_handler(ctx, market_id)
     }
 
     pub fn close_market(ctx: Context<CloseMarket>, market_id: u64) -> Result<()> {

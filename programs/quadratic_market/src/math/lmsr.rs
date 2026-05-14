@@ -52,8 +52,8 @@ pub fn lmsr_price(q_values: &[u64; MAX_OUTCOMES], num_outcomes: u8, outcome_id: 
         return Ok(SCALE / num_outcomes as u64);
     }
 
-    // price_i = exp_i / sum_exp (in Q32.32)
-    let price = ((target_exp as u128) << 32 / sum_exp as u128) as u64;
+    // price_i = exp_i / sum_exp  — parentheses required: << has lower precedence than /
+    let price = (((target_exp as u128) << 32) / sum_exp as u128) as u64;
     Ok(price)
 }
 

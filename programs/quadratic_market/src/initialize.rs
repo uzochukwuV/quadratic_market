@@ -1,6 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token};
-use crate::constants::{seeds, DEFAULT_LMSR_B_FP, MIN_FIRST_LIQUIDITY, DEFAULT_SLIP_HOUSE_MARGIN_BPS, DEFAULT_MAX_SLIP_BONUS_BPS, DEFAULT_EPOCH_DURATION_SECONDS, DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS};
+use crate::constants::{
+    seeds, DEFAULT_LMSR_B_FP, MIN_FIRST_LIQUIDITY,
+    DEFAULT_SLIP_HOUSE_MARGIN_BPS, DEFAULT_MAX_SLIP_BONUS_BPS,
+    DEFAULT_EPOCH_DURATION_SECONDS, DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS,
+    DEFAULT_CHALLENGE_WINDOW, DEFAULT_SETTLEMENT_DEADLINE,
+    DEFAULT_MAX_SINGLE_BET, DEFAULT_MIN_OUTCOME_PRICE_BPS, DEFAULT_BUY_FEE_BPS,
+    MAX_OPERATORS,
+};
 use crate::state::GlobalConfig;
 
 #[derive(Accounts)]
@@ -31,8 +38,6 @@ pub struct Initialize<'info> {
     )]
     pub treasury: SystemAccount<'info>,
 
-    /// The base token mint (e.g., USDC)
-    /// CHECK: Validated by being a known mint
     pub base_mint: Account<'info, Mint>,
 
     #[account(mut)]
@@ -47,9 +52,6 @@ pub fn handler(
     ctx: Context<Initialize>,
     oracle_pubkey: [u8; 32],
     max_market_exposure: u64,
-    challenge_window_seconds: i64,
-    min_dispute_stake: u64,
-    min_market_bond: u64,
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
 
@@ -64,9 +66,8 @@ pub fn handler(
     config.treasury = ctx.accounts.treasury.key();
     config.treasury_bump = ctx.bumps.treasury;
     config.next_market_id = 1;
-    config.min_market_bond = min_market_bond;
-    config.challenge_window_seconds = challenge_window_seconds;
-    config.min_dispute_stake = min_dispute_stake;
+    config.challenge_window_seconds = DEFAULT_CHALLENGE_WINDOW;
+    config.settlement_deadline_seconds = DEFAULT_SETTLEMENT_DEADLINE;
     config.odds_basis = 10_000;
     config.lmsr_default_b = DEFAULT_LMSR_B_FP;
     config.min_first_liquidity = MIN_FIRST_LIQUIDITY;
@@ -76,6 +77,11 @@ pub fn handler(
     config.current_epoch = 0;
     config.epoch_duration_seconds = DEFAULT_EPOCH_DURATION_SECONDS;
     config.withdrawal_cooldown_seconds = DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS;
+    config.max_single_bet = DEFAULT_MAX_SINGLE_BET;
+    config.min_outcome_price_bps = DEFAULT_MIN_OUTCOME_PRICE_BPS;
+    config.buy_fee_bps = DEFAULT_BUY_FEE_BPS;
+    config.operators = [Pubkey::default(); MAX_OPERATORS];
+    config.num_operators = 0;
     config.bump = ctx.bumps.global_config;
 
     Ok(())
