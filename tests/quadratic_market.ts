@@ -10,7 +10,13 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { Keypair, PublicKey, SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  SYSVAR_RENT_PUBKEY,
+} from "@solana/web3.js";
 import { assert } from "chai";
 
 const TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
@@ -129,7 +135,9 @@ describe("quadratic_market — Happy Path", () => {
 
     // Fund SOL
     for (const kp of [lp1, user1, oracleKeypair]) {
-      const sig = await provider.connection.requestAirdrop(kp.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+      const sig = await provider.connection.requestAirdrop(
+        kp.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL
+      );
       await provider.connection.confirmTransaction(sig);
     }
 
@@ -186,7 +194,9 @@ describe("quadratic_market — Happy Path", () => {
     assert.equal(config.nextMarketId.toNumber(), 1);
 
     // Create LP ATA for lp1 (mint is now live)
-    lp1LpAta = getAssociatedTokenAddressSync(lpMintPda, lp1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
+    lp1LpAta = getAssociatedTokenAddressSync(
+      lpMintPda, lp1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM
+    );
     await provider.sendAndConfirm(
       new Transaction().add(createAssociatedTokenAccountInstruction(
         payer.publicKey, lp1LpAta, lp1.publicKey, lpMintPda, TOKEN_PROGRAM, ATA_PROGRAM
@@ -335,10 +345,14 @@ describe("quadratic_market — Happy Path", () => {
       })
       .rpc();
 
-    // Init outcome mints on settlement market too
+    // Init outcome mints on settlement market
     for (const oid of [0, 1]) {
       const [mintPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("outcome_mint"), new anchor.BN(settlementMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([oid])],
+        [
+          Buffer.from("outcome_mint"),
+          new anchor.BN(settlementMarketId).toArrayLike(Buffer, "le", 8),
+          Buffer.from([oid]),
+        ],
         program.programId
       );
       await program.methods
@@ -363,7 +377,11 @@ describe("quadratic_market — Happy Path", () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
 
     [tradeOutcomeMint0] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(tradingMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([0])],
+      [
+        Buffer.from("outcome_mint"),
+        new anchor.BN(tradingMarketId).toArrayLike(Buffer, "le", 8),
+        Buffer.from([0]),
+      ],
       program.programId
     );
 
@@ -388,7 +406,11 @@ describe("quadratic_market — Happy Path", () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
 
     [tradeOutcomeMint1] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(tradingMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([1])],
+      [
+        Buffer.from("outcome_mint"),
+        new anchor.BN(tradingMarketId).toArrayLike(Buffer, "le", 8),
+        Buffer.from([1]),
+      ],
       program.programId
     );
 
@@ -418,7 +440,7 @@ describe("quadratic_market — Happy Path", () => {
     // max_payment = numShares * 2 to cover LMSR cost + 1% buy fee
     const maxPayment = numShares * 2;
 
-    // Create buyer outcome ATA
+    // Create buyer outcome ATA (on-curve owner, allowOffCurve=false)
     user1Outcome0Ata = getAssociatedTokenAddressSync(
       tradeOutcomeMint0, user1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM
     );
@@ -451,7 +473,10 @@ describe("quadratic_market — Happy Path", () => {
       .rpc();
 
     const outcomeBalance = await getAccount(provider.connection, user1Outcome0Ata);
-    assert.equal(Number(outcomeBalance.amount), numShares, "User1 should hold numShares outcome tokens");
+    assert.equal(
+      Number(outcomeBalance.amount), numShares,
+      "User1 should hold numShares outcome tokens"
+    );
 
     const baseAfter = await getAccount(provider.connection, user1BaseAta);
     assert.ok(
@@ -463,7 +488,10 @@ describe("quadratic_market — Happy Path", () => {
     assert.equal(market.qValues[0].toNumber(), numShares, "q_values[0] should equal numShares");
 
     const config = await program.account.globalConfig.fetch(globalConfigPda);
-    assert.equal(config.lockedPayouts.toNumber(), numShares, "locked_payouts should increase by numShares");
+    assert.equal(
+      config.lockedPayouts.toNumber(), numShares,
+      "locked_payouts should increase by numShares"
+    );
   });
 
   it("Sells outcome shares back to AMM", async () => {
@@ -498,7 +526,10 @@ describe("quadratic_market — Happy Path", () => {
     );
 
     const market = await program.account.market.fetch(tradingMarketPda);
-    assert.equal(market.qValues[0].toNumber(), 5_000_000, "q_values[0] should be reduced by sellShares");
+    assert.equal(
+      market.qValues[0].toNumber(), 5_000_000,
+      "q_values[0] should be reduced by sellShares"
+    );
 
     const configAfter = await program.account.globalConfig.fetch(globalConfigPda);
     assert.ok(
@@ -540,7 +571,7 @@ describe("quadratic_market — Happy Path", () => {
   it("Oracle proposes result on settlement market", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
 
-    // Oracle must be funded for tx fees
+    // Oracle must sign — use oracleKeypair (airdrop was done in before())
     await program.methods
       .proposeResult(new anchor.BN(settlementMarketId), 0)
       .accounts({
@@ -584,15 +615,14 @@ describe("quadratic_market — Happy Path", () => {
   it("Claim payout on settled market (winner gets 1:1)", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
 
-    // Buy shares on the trading market BEFORE it was settled (settlement market is fully settled).
-    // We need a winner on the settlement market. The settlement market has zero q_values
-    // (no trades), so there are no outstanding outcome tokens to claim.
-    // Instead test claim_payout on the trading market by settling it too.
-    // Since the trading market has start_time in the future we can't propose on it yet.
-    // Test the claim flow on the settlement market: user1 has zero positions there.
-    // Validate: attempting to claim with zero shares fails.
+    // Settlement market had no trades so no outcome tokens exist.
+    // Verify claim with 0 shares fails with the appropriate error.
     const [settlementOutcomeMint0] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(settlementMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([0])],
+      [
+        Buffer.from("outcome_mint"),
+        new anchor.BN(settlementMarketId).toArrayLike(Buffer, "le", 8),
+        Buffer.from([0]),
+      ],
       program.programId
     );
 
@@ -602,12 +632,13 @@ describe("quadratic_market — Happy Path", () => {
     );
     await provider.sendAndConfirm(
       new Transaction().add(createAssociatedTokenAccountInstruction(
-        payer.publicKey, user1SettlementAta, user1.publicKey, settlementOutcomeMint0, TOKEN_PROGRAM, ATA_PROGRAM
+        payer.publicKey, user1SettlementAta, user1.publicKey,
+        settlementOutcomeMint0, TOKEN_PROGRAM, ATA_PROGRAM
       )),
       []
     );
 
-    // User has 0 tokens — claim should fail with NoWinningPositions
+    // User has 0 tokens — claim should fail
     try {
       await program.methods
         .claimPayout(new anchor.BN(settlementMarketId))
@@ -631,7 +662,7 @@ describe("quadratic_market — Happy Path", () => {
       assert.ok(err, "Correctly rejected claim with 0 shares");
     }
 
-    // Now verify solvency invariant holds
+    // Verify solvency invariant holds
     const config = await program.account.globalConfig.fetch(globalConfigPda);
     const treasuryBal = await getAccount(provider.connection, treasuryBaseAta);
     assert.ok(
