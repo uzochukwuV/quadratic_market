@@ -1,6 +1,6 @@
 // Q32.32 fixed-point arithmetic constants
 pub const SCALE: u64 = 1_u64 << 32; // 4_294_967_296
-pub const ONE_FP: u64 = SCALE; // 1.0 in Q32.32
+pub const ONE_FP: u64 = SCALE;       // 1.0 in Q32.32
 
 // Precomputed ln(2) in Q32.32: 0.69314718056 * 2^32
 pub const LN2_FP: i64 = 2_973_032_047;
@@ -13,13 +13,10 @@ pub const DEFAULT_LMSR_B_FP: u64 = DEFAULT_LMSR_B * SCALE; // Q32.32 representat
 // ERC4626 inflation fix
 pub const MIN_FIRST_LIQUIDITY: u64 = 1000; // Lock 1000 base units on first deposit
 
-// Settlement
-pub const DEFAULT_CHALLENGE_WINDOW: i64 = 3600; // 1 hour
-pub const MIN_DISPUTE_STAKE: u64 = 1_000_000; // 1 USDC
-pub const MAX_DISPUTE_ROUNDS: u32 = 3;
-
-// Market creation
-pub const DEFAULT_MIN_MARKET_BOND: u64 = 50_000_000; // 50 USDC
+// Settlement — sports-focused: short window, oracle-driven
+pub const DEFAULT_CHALLENGE_WINDOW: i64 = 300;          // 5 minutes
+pub const DEFAULT_SETTLEMENT_DEADLINE: i64 = 14_400;    // 4 hours after start_time
+pub const MAX_DISPUTE_ROUNDS: u32 = 1;                  // single-round only
 
 // Token
 pub const BASE_MINT_DECIMALS: u8 = 6;
@@ -49,11 +46,19 @@ pub const CORRELATION_MAX_BPS: u64 = 10_000;
 
 // Bet slip
 pub const MAX_SLIP_LEGS: usize = 8;
-pub const DEFAULT_SLIP_HOUSE_MARGIN_BPS: u64 = 500;       // 5% per leg
-pub const DEFAULT_MAX_SLIP_BONUS_BPS: u64 = 30_000;       // 3.0x max bonus
-pub const MIN_SLIP_LEGS_FOR_BONUS: u8 = 5;               // bonus kicks in at 5 legs
-pub const SLIP_BONUS_INCREMENT_BPS: u64 = 1_000;          // +10% per leg above threshold
+pub const DEFAULT_SLIP_HOUSE_MARGIN_BPS: u64 = 500;    // 5% per leg
+pub const DEFAULT_MAX_SLIP_BONUS_BPS: u64 = 30_000;    // 3.0x max bonus
+pub const MIN_SLIP_LEGS_FOR_BONUS: u8 = 5;             // bonus kicks in at 5 legs
+pub const SLIP_BONUS_INCREMENT_BPS: u64 = 1_000;        // +10% per leg above threshold
 
 // LP epoch / timing
 pub const DEFAULT_EPOCH_DURATION_SECONDS: i64 = 86_400;       // 24 hours
-pub const DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS: i64 = 86_400;   // 24 hours
+pub const DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS: i64 = 86_400;  // 24 hours
+
+// Sports risk controls
+pub const DEFAULT_MAX_SINGLE_BET: u64 = 10_000_000_000; // 10,000 USDC — overridable per market
+pub const DEFAULT_MIN_OUTCOME_PRICE_BPS: u64 = 100;     // 1% minimum implied probability
+pub const DEFAULT_BUY_FEE_BPS: u64 = 100;               // 1% house fee on direct buys
+
+// Operator allowlist
+pub const MAX_OPERATORS: usize = 8;
