@@ -1,15 +1,13 @@
 use anchor_lang::prelude::*;
 use crate::state::GlobalConfig;
 use crate::errors::QuadraticMarketError;
-use crate::constants::seeds;
+use crate::constants::{seeds, MAX_OPERATORS};
+
+// ─── Transfer Admin ────────────────────────────────────────────
 
 #[derive(Accounts)]
 pub struct TransferAdmin<'info> {
-    #[account(
-        mut,
-        seeds = [seeds::GLOBAL_CONFIG],
-        bump = global_config.bump,
-    )]
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Account<'info, GlobalConfig>,
     pub admin: Signer<'info>,
 }
@@ -23,13 +21,11 @@ pub fn transfer_admin_handler(ctx: Context<TransferAdmin>, new_admin: Pubkey) ->
     Ok(())
 }
 
+// ─── Pause / Unpause ───────────────────────────────────────────
+
 #[derive(Accounts)]
 pub struct Pause<'info> {
-    #[account(
-        mut,
-        seeds = [seeds::GLOBAL_CONFIG],
-        bump = global_config.bump,
-    )]
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Account<'info, GlobalConfig>,
     pub admin: Signer<'info>,
 }
@@ -45,11 +41,7 @@ pub fn pause_handler(ctx: Context<Pause>) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct Unpause<'info> {
-    #[account(
-        mut,
-        seeds = [seeds::GLOBAL_CONFIG],
-        bump = global_config.bump,
-    )]
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Account<'info, GlobalConfig>,
     pub admin: Signer<'info>,
 }
@@ -63,13 +55,11 @@ pub fn unpause_handler(ctx: Context<Unpause>) -> Result<()> {
     Ok(())
 }
 
+// ─── Update Config ─────────────────────────────────────────────
+
 #[derive(Accounts)]
 pub struct UpdateConfig<'info> {
-    #[account(
-        mut,
-        seeds = [seeds::GLOBAL_CONFIG],
-        bump = global_config.bump,
-    )]
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Account<'info, GlobalConfig>,
     pub admin: Signer<'info>,
 }
@@ -78,27 +68,89 @@ pub fn update_config_handler(
     ctx: Context<UpdateConfig>,
     max_market_exposure: Option<u64>,
     challenge_window_seconds: Option<i64>,
-    min_dispute_stake: Option<u64>,
-    min_market_bond: Option<u64>,
+    settlement_deadline_seconds: Option<i64>,
     lmsr_default_b: Option<u64>,
     slip_house_margin_bps: Option<u64>,
     max_slip_bonus_multiplier_bps: Option<u64>,
     epoch_duration_seconds: Option<i64>,
     withdrawal_cooldown_seconds: Option<i64>,
+    max_single_bet: Option<u64>,
+    min_outcome_price_bps: Option<u64>,
+    buy_fee_bps: Option<u64>,
+    oracle_pubkey: Option<[u8; 32]>,
 ) -> Result<()> {
     require!(
         ctx.accounts.admin.key() == ctx.accounts.global_config.admin,
         QuadraticMarketError::Unauthorized
     );
     let config = &mut ctx.accounts.global_config;
-    if let Some(v) = max_market_exposure { config.max_market_exposure = v; }
-    if let Some(v) = challenge_window_seconds { config.challenge_window_seconds = v; }
-    if let Some(v) = min_dispute_stake { config.min_dispute_stake = v; }
-    if let Some(v) = min_market_bond { config.min_market_bond = v; }
-    if let Some(v) = lmsr_default_b { config.lmsr_default_b = v; }
-    if let Some(v) = slip_house_margin_bps { config.slip_house_margin_bps = v; }
+    if let Some(v) = max_market_exposure          { config.max_market_exposure = v; }
+    if let Some(v) = challenge_window_seconds      { config.challenge_window_seconds = v; }
+    if let Some(v) = settlement_deadline_seconds   { config.settlement_deadline_seconds = v; }
+    if let Some(v) = lmsr_default_b               { config.lmsr_default_b = v; }
+    if let Some(v) = slip_house_margin_bps         { config.slip_house_margin_bps = v; }
     if let Some(v) = max_slip_bonus_multiplier_bps { config.max_slip_bonus_multiplier_bps = v; }
-    if let Some(v) = epoch_duration_seconds { config.epoch_duration_seconds = v; }
-    if let Some(v) = withdrawal_cooldown_seconds { config.withdrawal_cooldown_seconds = v; }
+    if let Some(v) = epoch_duration_seconds        { config.epoch_duration_seconds = v; }
+    if let Some(v) = withdrawal_cooldown_seconds   { config.withdrawal_cooldown_seconds = v; }
+    if let Some(v) = max_single_bet                { config.max_single_bet = v; }
+    if let Some(v) = min_outcome_price_bps         { config.min_outcome_price_bps = v; }
+    if let Some(v) = buy_fee_bps                   { config.buy_fee_bps = v; }
+    if let Some(v) = oracle_pubkey                 { config.oracle_pubkey = v; }
+    Ok(())
+}
+
+// ─── Operator Management ───────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct AddOperator<'info> {
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
+    pub global_config: Account<'info, GlobalConfig>,
+    pub admin: Signer<'info>,
+}
+
+pub fn add_operator_handler(ctx: Context<AddOperator>, operator: Pubkey) -> Result<()> {
+    require!(
+        ctx.accounts.admin.key() == ctx.accounts.global_config.admin,
+        QuadraticMarketError::Unauthorized
+    );
+    let config = &mut ctx.accounts.global_config;
+    require!(
+        (config.num_operators as usize) < MAX_OPERATORS,
+        QuadraticMarketError::OperatorListFull
+    );
+    // Idempotent — don't add duplicates
+    let already_exists = config.operators[..config.num_operators as usize]
+        .iter()
+        .any(|op| op == &operator);
+    if !already_exists {
+        let idx = config.num_operators as usize;
+        config.operators[idx] = operator;
+        config.num_operators += 1;
+    }
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct RemoveOperator<'info> {
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
+    pub global_config: Account<'info, GlobalConfig>,
+    pub admin: Signer<'info>,
+}
+
+pub fn remove_operator_handler(ctx: Context<RemoveOperator>, operator: Pubkey) -> Result<()> {
+    require!(
+        ctx.accounts.admin.key() == ctx.accounts.global_config.admin,
+        QuadraticMarketError::Unauthorized
+    );
+    let config = &mut ctx.accounts.global_config;
+    let n = config.num_operators as usize;
+    let pos = config.operators[..n]
+        .iter()
+        .position(|op| op == &operator)
+        .ok_or(QuadraticMarketError::OperatorNotFound)?;
+    // Swap-remove to keep the array compact
+    config.operators[pos] = config.operators[n - 1];
+    config.operators[n - 1] = Pubkey::default();
+    config.num_operators -= 1;
     Ok(())
 }

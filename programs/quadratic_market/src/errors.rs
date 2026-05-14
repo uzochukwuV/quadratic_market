@@ -31,14 +31,14 @@ pub enum QuadraticMarketError {
     InvalidNumOutcomes = 105,
     #[msg("Market not settled")]
     MarketNotSettled = 106,
-    #[msg("Market bond already claimed")]
-    BondAlreadyClaimed = 107,
     #[msg("Market not voidable")]
     MarketNotVoidable = 108,
     #[msg("Invalid market status for this operation")]
     InvalidMarketStatus = 109,
     #[msg("Market has expired for new positions")]
     MarketExpired = 110,
+    #[msg("Market settlement deadline has not passed")]
+    SettlementDeadlineNotPassed = 111,
 
     // 200-299: Trading errors
     #[msg("Insufficient shares to sell")]
@@ -49,22 +49,24 @@ pub enum QuadraticMarketError {
     LmsrCostExceedsMax = 202,
     #[msg("LMSR sell price below minimum")]
     LmsrSellBelowMin = 203,
+    #[msg("Bet size exceeds maximum allowed")]
+    BetTooLarge = 204,
+    #[msg("Outcome probability is below the minimum floor — odds too short")]
+    OddsFloor = 205,
 
     // 300-399: Settlement errors
     #[msg("Challenge window still active")]
     ChallengeWindowActive = 300,
     #[msg("Challenge window has expired")]
     ChallengeWindowExpired = 301,
-    #[msg("Dispute stake too low")]
-    DisputeStakeTooLow = 302,
     #[msg("Maximum dispute rounds reached")]
     MaxDisputeRounds = 303,
     #[msg("No dispute to finalize")]
     NoDisputeToFinalize = 304,
     #[msg("Invalid proposed outcome")]
     InvalidProposedOutcome = 305,
-    #[msg("Result already proposed")]
-    ResultAlreadyProposed = 306,
+    #[msg("Invalid oracle signature — transaction must be signed by the oracle key")]
+    InvalidOracleSignature = 307,
 
     // 400-499: LP errors
     #[msg("Amount too small for first deposit")]
@@ -98,7 +100,7 @@ pub enum QuadraticMarketError {
     #[msg("Swap failed")]
     SwapFailed = 601,
 
-    // 700-799: Correlated market errors
+    // 700-799: Correlated market / slip errors
     #[msg("Market group not found")]
     MarketGroupNotFound = 700,
     #[msg("Market already belongs to a group")]
@@ -133,4 +135,8 @@ pub enum QuadraticMarketError {
     SlipLockUpdateFailed = 715,
     #[msg("Bet slip has a voided leg — refunding stake")]
     SlipPartiallyVoided = 716,
+    #[msg("Operator list is full")]
+    OperatorListFull = 717,
+    #[msg("Operator not found")]
+    OperatorNotFound = 718,
 }
