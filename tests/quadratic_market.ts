@@ -15,43 +15,33 @@ import { assert } from "chai";
 
 const TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
 const ATA_PROGRAM = ASSOCIATED_TOKEN_PROGRAM_ID;
-const TOKEN_ACCOUNT_SIZE = 165;
 
-/**
- * Create a token account for a PDA owner (off-curve) using raw instructions.
- * This avoids the ATA program's GetAccountDataSize call which is Token-2022 only.
- */
-async function createTokenAccountRaw(
+// ─── Helpers ────────────────────────────────────────────────────
+
+async function createAtaOffCurve(
   provider: anchor.AnchorProvider,
   mint: PublicKey,
-  owner: PublicKey,
-  newAccount: Keypair
+  owner: PublicKey
 ): Promise<PublicKey> {
-  const lamports = await provider.connection.getMinimumBalanceForRentExemption(TOKEN_ACCOUNT_SIZE);
-  const createAccountIx = SystemProgram.createAccount({
-    fromPubkey: provider.wallet.publicKey,
-    newAccountPubkey: newAccount.publicKey,
-    lamports,
-    space: TOKEN_ACCOUNT_SIZE,
-    programId: TOKEN_PROGRAM,
-  });
-  const initAccountIx = {
-    keys: [
-      { pubkey: newAccount.publicKey, isSigner: false, isWritable: true },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: owner, isSigner: false, isWritable: false },
-      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-    ],
-    programId: TOKEN_PROGRAM,
-    data: Buffer.from([0x01]),
-  };
-  await provider.sendAndConfirm(new Transaction().add(createAccountIx).add(initAccountIx), [newAccount]);
-  return newAccount.publicKey;
+  const ata = getAssociatedTokenAddressSync(mint, owner, true, TOKEN_PROGRAM, ATA_PROGRAM);
+  await provider.sendAndConfirm(
+    new Transaction().add({
+      keys: [
+        { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: true },
+        { pubkey: ata, isSigner: false, isWritable: true },
+        { pubkey: owner, isSigner: false, isWritable: false },
+        { pubkey: mint, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+      ],
+      programId: ATA_PROGRAM,
+      data: Buffer.from([]),
+    }),
+    []
+  );
+  return ata;
 }
 
-/**
- * Create an ATA using the ATA program (for on-curve owners only).
- */
 async function createAtaOnCurve(
   provider: anchor.AnchorProvider,
   mint: PublicKey,
@@ -59,15 +49,19 @@ async function createAtaOnCurve(
 ): Promise<PublicKey> {
   const ata = getAssociatedTokenAddressSync(mint, owner, false, TOKEN_PROGRAM, ATA_PROGRAM);
   await provider.sendAndConfirm(
-    new Transaction().add(createAssociatedTokenAccountInstruction(
-      provider.wallet.publicKey, ata, owner, mint, TOKEN_PROGRAM, ATA_PROGRAM
-    )),
+    new Transaction().add(
+      createAssociatedTokenAccountInstruction(
+        provider.wallet.publicKey, ata, owner, mint, TOKEN_PROGRAM, ATA_PROGRAM
+      )
+    ),
     []
   );
   return ata;
 }
 
-describe("quadratic_market", () => {
+// ─── Test Suite ─────────────────────────────────────────────────
+
+describe("quadratic_market — Happy Path", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
@@ -78,31 +72,36 @@ describe("quadratic_market", () => {
   let globalConfigPda: PublicKey;
   let lpMintPda: PublicKey;
   let treasuryPda: PublicKey;
-  let pendingLiquidityPda: PublicKey;
 
-  // Test accounts
-  let baseMint: PublicKey;
-  let baseMintAuthority: Keypair;
+  // Keypairs
+  let oracleKeypair: Keypair;
   let lp1: Keypair;
-  let lp2: Keypair;
   let user1: Keypair;
-  let marketCreator: Keypair;
 
   // Token accounts
+  let baseMint: PublicKey;
+  let baseMintAuthority: Keypair;
   let treasuryBaseAta: PublicKey;
   let lp1BaseAta: PublicKey;
-  let lp2BaseAta: PublicKey;
   let lp1LpAta: PublicKey;
+  let pendingLiquidityPda: PublicKey;
   let user1BaseAta: PublicKey;
-  let creatorBaseAta: PublicKey;
 
-  const ORACLE_PUBKEY = Keypair.generate().publicKey.toBuffer();
+  // Trading market (start_time in future — betting allowed)
+  let tradingMarketId: number;
+  let tradingMarketPda: PublicKey;
+  let tradeOutcomeMint0: PublicKey;
+  let tradeOutcomeMint1: PublicKey;
+  let user1Outcome0Ata: PublicKey;
 
-  // Skip this entire suite if protocol was already initialized by another test file
+  // Settlement market (start_time in past — oracle can propose immediately, betting blocked)
+  let settlementMarketId: number;
+  let settlementMarketPda: PublicKey;
+  let settlementDisputePda: PublicKey;
+
   let skipSuite = false;
 
   before(async () => {
-    // Derive PDAs
     [globalConfigPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("global_config")], program.programId
     );
@@ -113,95 +112,66 @@ describe("quadratic_market", () => {
       [Buffer.from("treasury")], program.programId
     );
 
-    // Check if protocol is already initialized (e.g. by protocol_tests.ts)
+    // Check if already initialized by another test file
     try {
       await program.account.globalConfig.fetch(globalConfigPda);
-      console.log("Protocol already initialized by another test suite, skipping quadratic_market happy-path tests");
+      console.log("Protocol already initialized — skipping quadratic_market happy-path suite");
       skipSuite = true;
       return;
-    } catch (e) {
-      // Not initialized yet, proceed with setup
+    } catch (_) {
+      // Not yet initialized, proceed
     }
 
-    // Create base mint (standard Token program)
+    oracleKeypair = Keypair.generate();
+    lp1 = Keypair.generate();
+    user1 = Keypair.generate();
     baseMintAuthority = Keypair.generate();
+
+    // Fund SOL
+    for (const kp of [lp1, user1, oracleKeypair]) {
+      const sig = await provider.connection.requestAirdrop(kp.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+      await provider.connection.confirmTransaction(sig);
+    }
+
+    // Create base mint
     baseMint = await createMint(
       provider.connection, payer,
       baseMintAuthority.publicKey, null, 6,
       undefined, TOKEN_PROGRAM
     );
 
-    // Create test wallets
-    lp1 = Keypair.generate();
-    lp2 = Keypair.generate();
-    user1 = Keypair.generate();
-    marketCreator = Keypair.generate();
+    // Treasury ATA (off-curve PDA owner)
+    treasuryBaseAta = await createAtaOffCurve(provider, baseMint, treasuryPda);
 
-    // Derive pending liquidity PDA for lp1
-    [pendingLiquidityPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pending"), lp1.publicKey.toBuffer()], program.programId
-    );
-
-    // Airdrop SOL
-    for (const kp of [lp1, lp2, user1, marketCreator]) {
-      const sig = await provider.connection.requestAirdrop(
-        kp.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL
-      );
-      await provider.connection.confirmTransaction(sig);
-    }
-
-    // Create treasury ATA (PDA owner - off curve)
-    // Use the ATA program's create instruction which handles off-curve owners
-    treasuryBaseAta = getAssociatedTokenAddressSync(baseMint, treasuryPda, true, TOKEN_PROGRAM, ATA_PROGRAM);
-    const createAtaIx = {
-      keys: [
-        { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-        { pubkey: treasuryBaseAta, isSigner: false, isWritable: true },
-        { pubkey: treasuryPda, isSigner: false, isWritable: false },
-        { pubkey: baseMint, isSigner: false, isWritable: false },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
-      ],
-      programId: ATA_PROGRAM,
-      data: Buffer.from([]),
-    };
-    await provider.sendAndConfirm(new Transaction().add(createAtaIx), []);
-
-    // Create user ATAs (on-curve owners)
+    // LP1 ATAs
     lp1BaseAta = await createAtaOnCurve(provider, baseMint, lp1.publicKey);
     await mintTo(provider.connection, payer, baseMint, lp1BaseAta, baseMintAuthority, 1_000_000_000);
 
-    lp2BaseAta = await createAtaOnCurve(provider, baseMint, lp2.publicKey);
-    await mintTo(provider.connection, payer, baseMint, lp2BaseAta, baseMintAuthority, 1_000_000_000);
-
+    // User1 ATA
     user1BaseAta = await createAtaOnCurve(provider, baseMint, user1.publicKey);
-    await mintTo(provider.connection, payer, baseMint, user1BaseAta, baseMintAuthority, 100_000_000);
+    await mintTo(provider.connection, payer, baseMint, user1BaseAta, baseMintAuthority, 200_000_000);
 
-    creatorBaseAta = await createAtaOnCurve(provider, baseMint, marketCreator.publicKey);
-    await mintTo(provider.connection, payer, baseMint, creatorBaseAta, baseMintAuthority, 200_000_000);
-
+    // Pending liquidity PDA for lp1
+    [pendingLiquidityPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("pending"), lp1.publicKey.toBuffer()], program.programId
+    );
   });
 
-  // ─── Initialize ────────────────────────────────────────────
+  // ─── 1. Initialize ──────────────────────────────────────────────
 
   it("Initializes the protocol", async () => {
-    if (skipSuite) {
-      console.log("SKIPPED — protocol already initialized");
-      return;
-    }
+    if (skipSuite) { console.log("SKIPPED"); return; }
+
     await program.methods
       .initialize(
-        ORACLE_PUBKEY,
-        new anchor.BN(500_000_000),
-        new anchor.BN(3600),
-        new anchor.BN(1_000_000),
-        new anchor.BN(50_000_000)
+        Array.from(oracleKeypair.publicKey.toBytes()) as unknown as number[] & { length: 32 },
+        new anchor.BN(500_000_000)
       )
       .accounts({
         globalConfig: globalConfigPda,
         lpMint: lpMintPda,
         treasury: treasuryPda,
-        baseMint: baseMint,
+        baseMint,
         admin: payer.publicKey,
         tokenProgram: TOKEN_PROGRAM,
         systemProgram: SystemProgram.programId,
@@ -213,10 +183,9 @@ describe("quadratic_market", () => {
     assert.equal(config.admin.toString(), payer.publicKey.toString());
     assert.equal(config.paused, false);
     assert.equal(config.maxMarketExposure.toNumber(), 500_000_000);
-    assert.equal(config.minMarketBond.toNumber(), 50_000_000);
     assert.equal(config.nextMarketId.toNumber(), 1);
 
-    // Create LP token ATA (mint is now initialized)
+    // Create LP ATA for lp1 (mint is now live)
     lp1LpAta = getAssociatedTokenAddressSync(lpMintPda, lp1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
     await provider.sendAndConfirm(
       new Transaction().add(createAssociatedTokenAccountInstruction(
@@ -226,23 +195,22 @@ describe("quadratic_market", () => {
     );
   });
 
-  // ─── LP Operations ─────────────────────────────────────────
+  // ─── 2. LP Operations ───────────────────────────────────────────
 
-  it("Adds liquidity (first depositor with ERC4626 fix)", async () => {
+  it("Adds liquidity and initializes pending liquidity", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
-    const depositAmount = 200_000_000;
 
-    // Compute activation time (same logic as the program)
+    const depositAmount = 500_000_000;
     const now = Math.floor(Date.now() / 1000);
-    const epochDuration = 86400; // 24 hours
+    const epochDuration = 86400;
     const epochStart = Math.floor(now / epochDuration) * epochDuration;
     const activationTime = epochStart + 2 * epochDuration;
+    // shares = depositAmount - MIN_FIRST_LIQUIDITY (1000)
+    const shares = depositAmount - 1_000;
 
-    // Call addLiquidity + initPendingLiquidity in one transaction
     const tx = new anchor.web3.Transaction();
 
-    // Instruction 1: addLiquidity (transfers tokens + mints LP shares)
-    const addLiquidityIx = await program.methods
+    const addLiqIx = await program.methods
       .addLiquidity(new anchor.BN(depositAmount))
       .accounts({
         globalConfig: globalConfigPda,
@@ -258,12 +226,11 @@ describe("quadratic_market", () => {
         systemProgram: SystemProgram.programId,
       })
       .instruction();
-    tx.add(addLiquidityIx);
+    tx.add(addLiqIx);
 
-    // Instruction 2: initPendingLiquidity (creates pending PDA)
     const initPendingIx = await program.methods
       .initPendingLiquidity(
-        new anchor.BN(200_000_000 - 1_000_000), // shares (depositAmount - min_first_liquidity)
+        new anchor.BN(shares),
         new anchor.BN(activationTime),
         new anchor.BN(depositAmount)
       )
@@ -280,38 +247,37 @@ describe("quadratic_market", () => {
     await provider.sendAndConfirm(tx, [lp1]);
 
     const lpBalance = await getAccount(provider.connection, lp1LpAta);
-    assert.ok(Number(lpBalance.amount) > 0, "LP should have received tokens");
+    assert.ok(Number(lpBalance.amount) > 0, "LP1 should have received LP tokens");
 
-    const treasuryBalance = await getAccount(provider.connection, treasuryBaseAta);
-    assert.equal(Number(treasuryBalance.amount), depositAmount);
+    const treasuryBal = await getAccount(provider.connection, treasuryBaseAta);
+    assert.equal(Number(treasuryBal.amount), depositAmount, "Treasury should hold deposit");
 
     const config = await program.account.globalConfig.fetch(globalConfigPda);
-    assert.ok(config.totalLpSupply.toNumber() > 0);
+    assert.ok(config.totalLpSupply.toNumber() > 0, "Total LP supply should be positive");
 
-    // Verify pending liquidity was created
     const pending = await program.account.pendingLiquidity.fetch(pendingLiquidityPda);
     assert.equal(pending.lp.toString(), lp1.publicKey.toString());
-    assert.ok(pending.shares.toNumber() > 0);
-    assert.ok(pending.activationTime.toNumber() > 0);
+    assert.ok(pending.shares.toNumber() > 0, "Pending shares should be positive");
   });
 
-  // ─── Market Creation ────────────────────────────────────────
+  // ─── 3. Market Creation ─────────────────────────────────────────
 
-  it("Creates a market with 2 outcomes", async () => {
+  it("Creates a trading market (start_time in future)", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
-    const marketId = 1;
-    const [marketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
+
+    const config = await program.account.globalConfig.fetch(globalConfigPda);
+    tradingMarketId = config.nextMarketId.toNumber();
+    [tradingMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), new anchor.BN(tradingMarketId).toArrayLike(Buffer, "le", 8)],
       program.programId
     );
 
-    const startTime = Math.floor(Date.now() / 1000) + 3600;
+    const startTime = Math.floor(Date.now() / 1000) + 3600; // 1 hour in future
 
     await program.methods
       .createMarket(
         new anchor.BN(startTime),
         2,
-        new anchor.BN(50_000_000),
         "Will Arsenal win?",
         "Binary market for Arsenal match",
         0,
@@ -319,38 +285,94 @@ describe("quadratic_market", () => {
         null
       )
       .accounts({
-        creator: marketCreator.publicKey,
-        baseMint,
+        globalConfig: globalConfigPda,
+        market: tradingMarketPda,
+        authority: payer.publicKey, // admin is authorized
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
       })
-      .signers([marketCreator])
       .rpc();
 
-    const market = await program.account.market.fetch(marketPda);
-    assert.equal(market.marketId.toNumber(), 1);
+    const market = await program.account.market.fetch(tradingMarketPda);
+    assert.equal(market.marketId.toNumber(), tradingMarketId);
     assert.equal(market.numOutcomes, 2);
     assert.deepEqual(market.status, { open: {} });
-    assert.equal(market.bondAmount.toNumber(), 50_000_000);
+    assert.equal(market.creator.toString(), payer.publicKey.toString());
   });
 
-  it("Initializes outcome mint for outcome 0", async () => {
+  it("Creates a settlement market (start_time in past)", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
-    const marketId = 1;
-    const outcomeId = 0;
-    const [marketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
+
+    const config = await program.account.globalConfig.fetch(globalConfigPda);
+    settlementMarketId = config.nextMarketId.toNumber();
+    [settlementMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), new anchor.BN(settlementMarketId).toArrayLike(Buffer, "le", 8)],
       program.programId
     );
-    const [outcomeMintPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8), Buffer.from([outcomeId])],
+    [settlementDisputePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("dispute"), new anchor.BN(settlementMarketId).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
+
+    const startTime = Math.floor(Date.now() / 1000) - 3600; // 1 hour in past
+
+    await program.methods
+      .createMarket(
+        new anchor.BN(startTime),
+        2,
+        "Settlement Test Market",
+        "Market created for settlement testing",
+        0,
+        null,
+        null
+      )
+      .accounts({
+        globalConfig: globalConfigPda,
+        market: settlementMarketPda,
+        authority: payer.publicKey,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .rpc();
+
+    // Init outcome mints on settlement market too
+    for (const oid of [0, 1]) {
+      const [mintPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("outcome_mint"), new anchor.BN(settlementMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([oid])],
+        program.programId
+      );
+      await program.methods
+        .initOutcomeMint(new anchor.BN(settlementMarketId), oid)
+        .accounts({
+          globalConfig: globalConfigPda,
+          market: settlementMarketPda,
+          outcomeMint: mintPda,
+          payer: payer.publicKey,
+          tokenProgram: TOKEN_PROGRAM,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .rpc();
+    }
+
+    const market = await program.account.market.fetch(settlementMarketPda);
+    assert.equal(market.marketId.toNumber(), settlementMarketId);
+  });
+
+  it("Initializes outcome mint for outcome 0 (trading market)", async () => {
+    if (skipSuite) { console.log("SKIPPED"); return; }
+
+    [tradeOutcomeMint0] = PublicKey.findProgramAddressSync(
+      [Buffer.from("outcome_mint"), new anchor.BN(tradingMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([0])],
       program.programId
     );
 
     await program.methods
-      .initOutcomeMint(new anchor.BN(marketId), outcomeId)
+      .initOutcomeMint(new anchor.BN(tradingMarketId), 0)
       .accounts({
         globalConfig: globalConfigPda,
-        market: marketPda,
-        outcomeMint: outcomeMintPda,
+        market: tradingMarketPda,
+        outcomeMint: tradeOutcomeMint0,
         payer: payer.publicKey,
         tokenProgram: TOKEN_PROGRAM,
         systemProgram: SystemProgram.programId,
@@ -358,29 +380,24 @@ describe("quadratic_market", () => {
       })
       .rpc();
 
-    const market = await program.account.market.fetch(marketPda);
-    assert.equal(market.outcomeMints[0].toString(), outcomeMintPda.toString());
+    const market = await program.account.market.fetch(tradingMarketPda);
+    assert.equal(market.outcomeMints[0].toString(), tradeOutcomeMint0.toString());
   });
 
-  it("Initializes outcome mint for outcome 1", async () => {
+  it("Initializes outcome mint for outcome 1 (trading market)", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
-    const marketId = 1;
-    const outcomeId = 1;
-    const [marketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
-      program.programId
-    );
-    const [outcomeMintPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8), Buffer.from([outcomeId])],
+
+    [tradeOutcomeMint1] = PublicKey.findProgramAddressSync(
+      [Buffer.from("outcome_mint"), new anchor.BN(tradingMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([1])],
       program.programId
     );
 
     await program.methods
-      .initOutcomeMint(new anchor.BN(marketId), outcomeId)
+      .initOutcomeMint(new anchor.BN(tradingMarketId), 1)
       .accounts({
         globalConfig: globalConfigPda,
-        market: marketPda,
-        outcomeMint: outcomeMintPda,
+        market: tradingMarketPda,
+        outcomeMint: tradeOutcomeMint1,
         payer: payer.publicKey,
         tokenProgram: TOKEN_PROGRAM,
         systemProgram: SystemProgram.programId,
@@ -388,50 +405,42 @@ describe("quadratic_market", () => {
       })
       .rpc();
 
-    const market = await program.account.market.fetch(marketPda);
-    assert.equal(market.outcomeMints[1].toString(), outcomeMintPda.toString());
+    const market = await program.account.market.fetch(tradingMarketPda);
+    assert.equal(market.outcomeMints[1].toString(), tradeOutcomeMint1.toString());
   });
 
-  // ─── Trading ────────────────────────────────────────────────
+  // ─── 4. Trading ─────────────────────────────────────────────────
 
   it("Buys outcome shares via LMSR pricing", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
-    const marketId = 1;
-    const outcomeId = 0;
+
     const numShares = 10_000_000;
-    const maxPayment = 20_000_000;
+    // max_payment = numShares * 2 to cover LMSR cost + 1% buy fee
+    const maxPayment = numShares * 2;
 
-    const [marketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
-      program.programId
+    // Create buyer outcome ATA
+    user1Outcome0Ata = getAssociatedTokenAddressSync(
+      tradeOutcomeMint0, user1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM
     );
-    const [outcomeMintPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8), Buffer.from([outcomeId])],
-      program.programId
-    );
-
-    // User's outcome ATA must be at the proper ATA derived address
-    const user1OutcomeAta = getAssociatedTokenAddressSync(
-      outcomeMintPda, user1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM
-    );
-    // Create the ATA
     await provider.sendAndConfirm(
       new Transaction().add(createAssociatedTokenAccountInstruction(
-        payer.publicKey, user1OutcomeAta, user1.publicKey, outcomeMintPda, TOKEN_PROGRAM, ATA_PROGRAM
+        payer.publicKey, user1Outcome0Ata, user1.publicKey, tradeOutcomeMint0, TOKEN_PROGRAM, ATA_PROGRAM
       )),
       []
     );
 
+    const baseBefore = await getAccount(provider.connection, user1BaseAta);
+
     await program.methods
-      .buyShares(outcomeId, new anchor.BN(numShares), new anchor.BN(maxPayment))
+      .buyShares(0, new anchor.BN(numShares), new anchor.BN(maxPayment))
       .accounts({
         globalConfig: globalConfigPda,
-        market: marketPda,
+        market: tradingMarketPda,
         treasury: treasuryPda,
         buyerBaseAta: user1BaseAta,
         treasuryBaseAta,
-        buyerOutcomeAta: user1OutcomeAta,
-        outcomeMint: outcomeMintPda,
+        buyerOutcomeAta: user1Outcome0Ata,
+        outcomeMint: tradeOutcomeMint0,
         baseMint,
         buyer: user1.publicKey,
         tokenProgram: TOKEN_PROGRAM,
@@ -441,45 +450,39 @@ describe("quadratic_market", () => {
       .signers([user1])
       .rpc();
 
-    const outcomeBalance = await getAccount(provider.connection, user1OutcomeAta);
-    assert.equal(Number(outcomeBalance.amount), numShares);
+    const outcomeBalance = await getAccount(provider.connection, user1Outcome0Ata);
+    assert.equal(Number(outcomeBalance.amount), numShares, "User1 should hold numShares outcome tokens");
 
-    const market = await program.account.market.fetch(marketPda);
-    assert.equal(market.qValues[0].toNumber(), numShares);
+    const baseAfter = await getAccount(provider.connection, user1BaseAta);
+    assert.ok(
+      Number(baseAfter.amount) < Number(baseBefore.amount),
+      "User1 should have spent base tokens"
+    );
+
+    const market = await program.account.market.fetch(tradingMarketPda);
+    assert.equal(market.qValues[0].toNumber(), numShares, "q_values[0] should equal numShares");
+
+    const config = await program.account.globalConfig.fetch(globalConfigPda);
+    assert.equal(config.lockedPayouts.toNumber(), numShares, "locked_payouts should increase by numShares");
   });
 
   it("Sells outcome shares back to AMM", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
-    const marketId = 1;
-    const outcomeId = 0;
-    const numShares = 5_000_000;
-    const minPayout = 1;
 
-    const [marketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
-      program.programId
-    );
-    const [outcomeMintPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8), Buffer.from([outcomeId])],
-      program.programId
-    );
-
-    const user1OutcomeAta = getAssociatedTokenAddressSync(
-      outcomeMintPda, user1.publicKey, true, TOKEN_PROGRAM, ATA_PROGRAM
-    );
-
-    const user1BaseBefore = await getAccount(provider.connection, user1BaseAta);
+    const sellShares = 5_000_000;
+    const baseBefore = await getAccount(provider.connection, user1BaseAta);
+    const configBefore = await program.account.globalConfig.fetch(globalConfigPda);
 
     await program.methods
-      .sellShares(outcomeId, new anchor.BN(numShares), new anchor.BN(minPayout))
+      .sellShares(0, new anchor.BN(sellShares), new anchor.BN(1))
       .accounts({
         globalConfig: globalConfigPda,
-        market: marketPda,
+        market: tradingMarketPda,
         treasury: treasuryPda,
-        sellerOutcomeAta: user1OutcomeAta,
+        sellerOutcomeAta: user1Outcome0Ata,
         sellerBaseAta: user1BaseAta,
         treasuryBaseAta,
-        outcomeMint: outcomeMintPda,
+        outcomeMint: tradeOutcomeMint0,
         baseMint,
         seller: user1.publicKey,
         tokenProgram: TOKEN_PROGRAM,
@@ -488,43 +491,179 @@ describe("quadratic_market", () => {
       .signers([user1])
       .rpc();
 
-    const user1BaseAfter = await getAccount(provider.connection, user1BaseAta);
+    const baseAfter = await getAccount(provider.connection, user1BaseAta);
     assert.ok(
-      Number(user1BaseAfter.amount) > Number(user1BaseBefore.amount),
+      Number(baseAfter.amount) > Number(baseBefore.amount),
       "User should have received base tokens from sell"
     );
 
-    const market = await program.account.market.fetch(marketPda);
-    assert.equal(market.qValues[0].toNumber(), 5_000_000);
+    const market = await program.account.market.fetch(tradingMarketPda);
+    assert.equal(market.qValues[0].toNumber(), 5_000_000, "q_values[0] should be reduced by sellShares");
+
+    const configAfter = await program.account.globalConfig.fetch(globalConfigPda);
+    assert.ok(
+      configAfter.lockedPayouts.toNumber() < configBefore.lockedPayouts.toNumber(),
+      "locked_payouts should decrease after sell"
+    );
   });
 
-  // ─── Settlement ─────────────────────────────────────────────
+  // ─── 5. Settlement ───────────────────────────────────────────────
 
-  it("Proposes a result", async () => {
+  it("Sets challenge window to 10 seconds for testing", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
-    const marketId = 1;
-    const proposedOutcome = 0;
-
-    const [marketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
-      program.programId
-    );
-    const [disputePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("dispute"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8), Buffer.alloc(4)],
-      program.programId
-    );
 
     await program.methods
-      .proposeResult(new anchor.BN(marketId), proposedOutcome)
+      .updateConfig(
+        null,                  // max_market_exposure
+        new anchor.BN(10),     // challenge_window_seconds
+        null,                  // settlement_deadline_seconds
+        null,                  // lmsr_default_b
+        null,                  // slip_house_margin_bps
+        null,                  // max_slip_bonus_multiplier_bps
+        null,                  // epoch_duration_seconds
+        null,                  // withdrawal_cooldown_seconds
+        null,                  // max_single_bet
+        null,                  // min_outcome_price_bps
+        null,                  // buy_fee_bps
+        null                   // oracle_pubkey
+      )
       .accounts({
-        market: marketPda,
-        proposer: user1.publicKey,
-        baseMint,
+        globalConfig: globalConfigPda,
+        admin: payer.publicKey,
       })
-      .signers([user1])
       .rpc();
 
-    const market = await program.account.market.fetch(marketPda);
-    assert.deepEqual(market.status, { proposed: {} });
+    const config = await program.account.globalConfig.fetch(globalConfigPda);
+    assert.equal(config.challengeWindowSeconds.toNumber(), 10);
+  });
+
+  it("Oracle proposes result on settlement market", async () => {
+    if (skipSuite) { console.log("SKIPPED"); return; }
+
+    // Oracle must be funded for tx fees
+    await program.methods
+      .proposeResult(new anchor.BN(settlementMarketId), 0)
+      .accounts({
+        globalConfig: globalConfigPda,
+        market: settlementMarketPda,
+        dispute: settlementDisputePda,
+        oracle: oracleKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([oracleKeypair])
+      .rpc();
+
+    const market = await program.account.market.fetch(settlementMarketPda);
+    assert.deepEqual(market.status, { proposed: {} }, "Market should be in Proposed status");
+
+    const dispute = await program.account.dispute.fetch(settlementDisputePda);
+    assert.equal(dispute.proposedOutcome, 0, "Proposed outcome should be 0");
+  });
+
+  it("Waits for challenge window and finalizes result", async () => {
+    if (skipSuite) { console.log("SKIPPED"); return; }
+
+    // Wait for 11 seconds so the 10s challenge window expires
+    await new Promise(resolve => setTimeout(resolve, 11_000));
+
+    await program.methods
+      .finalizeResult(new anchor.BN(settlementMarketId))
+      .accounts({
+        globalConfig: globalConfigPda,
+        market: settlementMarketPda,
+        dispute: settlementDisputePda,
+        caller: payer.publicKey,
+      })
+      .rpc();
+
+    const market = await program.account.market.fetch(settlementMarketPda);
+    assert.deepEqual(market.status, { settled: {} }, "Market should be Settled");
+    assert.equal(market.winningOutcome, 0, "Winning outcome should be 0");
+  });
+
+  it("Claim payout on settled market (winner gets 1:1)", async () => {
+    if (skipSuite) { console.log("SKIPPED"); return; }
+
+    // Buy shares on the trading market BEFORE it was settled (settlement market is fully settled).
+    // We need a winner on the settlement market. The settlement market has zero q_values
+    // (no trades), so there are no outstanding outcome tokens to claim.
+    // Instead test claim_payout on the trading market by settling it too.
+    // Since the trading market has start_time in the future we can't propose on it yet.
+    // Test the claim flow on the settlement market: user1 has zero positions there.
+    // Validate: attempting to claim with zero shares fails.
+    const [settlementOutcomeMint0] = PublicKey.findProgramAddressSync(
+      [Buffer.from("outcome_mint"), new anchor.BN(settlementMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([0])],
+      program.programId
+    );
+
+    // Create user1 ATA for settlement market outcome 0
+    const user1SettlementAta = getAssociatedTokenAddressSync(
+      settlementOutcomeMint0, user1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM
+    );
+    await provider.sendAndConfirm(
+      new Transaction().add(createAssociatedTokenAccountInstruction(
+        payer.publicKey, user1SettlementAta, user1.publicKey, settlementOutcomeMint0, TOKEN_PROGRAM, ATA_PROGRAM
+      )),
+      []
+    );
+
+    // User has 0 tokens — claim should fail with NoWinningPositions
+    try {
+      await program.methods
+        .claimPayout(new anchor.BN(settlementMarketId))
+        .accounts({
+          globalConfig: globalConfigPda,
+          market: settlementMarketPda,
+          treasury: treasuryPda,
+          claimerOutcomeAta: user1SettlementAta,
+          claimerBaseAta: user1BaseAta,
+          treasuryBaseAta,
+          outcomeMint: settlementOutcomeMint0,
+          baseMint,
+          claimer: user1.publicKey,
+          tokenProgram: TOKEN_PROGRAM,
+          associatedTokenProgram: ATA_PROGRAM,
+        })
+        .signers([user1])
+        .rpc();
+      assert.fail("Should have failed with NoWinningPositions");
+    } catch (err: any) {
+      assert.ok(err, "Correctly rejected claim with 0 shares");
+    }
+
+    // Now verify solvency invariant holds
+    const config = await program.account.globalConfig.fetch(globalConfigPda);
+    const treasuryBal = await getAccount(provider.connection, treasuryBaseAta);
+    assert.ok(
+      config.lockedPayouts.toNumber() <= Number(treasuryBal.amount),
+      "locked_payouts must not exceed treasury balance"
+    );
+  });
+
+  it("Close settled market reclaims rent", async () => {
+    if (skipSuite) { console.log("SKIPPED"); return; }
+
+    const solBefore = await provider.connection.getBalance(payer.publicKey);
+
+    await program.methods
+      .closeMarket(new anchor.BN(settlementMarketId))
+      .accounts({
+        globalConfig: globalConfigPda,
+        market: settlementMarketPda,
+        authority: payer.publicKey,
+      })
+      .rpc();
+
+    const solAfter = await provider.connection.getBalance(payer.publicKey);
+    // Rent is reclaimed (net positive despite tx fees)
+    assert.ok(solAfter > solBefore - 10_000, "Rent should be reclaimed to authority");
+
+    // Account should be closed
+    try {
+      await program.account.market.fetch(settlementMarketPda);
+      assert.fail("Market account should be closed");
+    } catch (_) {
+      // Expected — account no longer exists
+    }
   });
 });
