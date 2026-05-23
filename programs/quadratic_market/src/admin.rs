@@ -78,6 +78,7 @@ pub fn update_config_handler(
     min_outcome_price_bps: Option<u64>,
     buy_fee_bps: Option<u64>,
     oracle_pubkey: Option<[u8; 32]>,
+    cash_out_margin_bps: Option<u64>,
 ) -> Result<()> {
     require!(
         ctx.accounts.admin.key() == ctx.accounts.global_config.admin,
@@ -104,6 +105,9 @@ pub fn update_config_handler(
     if let Some(v) = slip_house_margin_bps {
         require!(v < 10_000, QuadraticMarketError::InvalidAmount);
     }
+    if let Some(v) = cash_out_margin_bps {
+        require!(v < 10_000, QuadraticMarketError::InvalidAmount);
+    }
 
     let config = &mut ctx.accounts.global_config;
     if let Some(v) = max_market_exposure          { config.max_market_exposure = v; }
@@ -118,6 +122,7 @@ pub fn update_config_handler(
     if let Some(v) = min_outcome_price_bps         { config.min_outcome_price_bps = v; }
     if let Some(v) = buy_fee_bps                   { config.buy_fee_bps = v; }
     if let Some(v) = oracle_pubkey                 { config.oracle_pubkey = v; }
+    if let Some(v) = cash_out_margin_bps           { config.cash_out_margin_bps = v; }
     Ok(())
 }
 

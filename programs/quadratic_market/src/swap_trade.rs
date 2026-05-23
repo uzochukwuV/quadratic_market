@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus};
+use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode};
 use crate::errors::QuadraticMarketError;
 use crate::constants::seeds;
 use crate::math::lmsr::lmsr_buy_cost;
@@ -99,6 +99,10 @@ pub fn buy_shares_with_swap_handler(
     require!(!config.paused, QuadraticMarketError::Paused);
 
     let market = &mut ctx.accounts.market;
+    require!(
+        market.market_mode == MarketMode::Trading,
+        QuadraticMarketError::DirectTradingDisabled
+    );
     require!(market.status.is_tradable(), QuadraticMarketError::MarketNotOpen);
     require!(
         (outcome_id as usize) < market.num_outcomes as usize,

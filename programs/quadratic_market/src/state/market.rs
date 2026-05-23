@@ -1,6 +1,26 @@
 use anchor_lang::prelude::*;
 use crate::constants::MAX_OUTCOMES;
 
+/// Controls whether LMSR share trading is exposed directly to users.
+///
+/// `FixedOdds` — LMSR is an internal pricing engine only. Users interact via
+/// `place_slip` / `cash_out_slip`. Direct `buy_shares` / `sell_shares` calls
+/// are rejected. This is the default for sports markets.
+///
+/// `Trading` — LMSR is fully exposed. `buy_shares` / `sell_shares` are
+/// permitted. Intended for prediction markets, not sports.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
+pub enum MarketMode {
+    FixedOdds,
+    Trading,
+}
+
+impl Default for MarketMode {
+    fn default() -> Self {
+        MarketMode::FixedOdds
+    }
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum MarketStatus {
     Open,
@@ -50,6 +70,7 @@ pub struct Market {
     // Correlated market fields
     pub group_id: Option<u64>,                   // 9 (1 tag + 8 value)
     pub group_market_index: u8,                  // 1
+    pub market_mode: MarketMode,                 // 1 (enum tag)
 }
 
 impl Market {
@@ -71,7 +92,8 @@ impl Market {
         + 1   // bump
         + 9   // group_id (Option<u64>: 1 tag + 8 value)
         + 1   // group_market_index
-        + 6;  // padding to align to 8
+        + 1   // market_mode
+        + 5;  // padding to align to 8
 
     pub fn active_q_values(&self) -> Vec<u64> {
         self.q_values[..self.num_outcomes as usize].to_vec()

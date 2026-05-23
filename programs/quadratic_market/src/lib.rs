@@ -19,6 +19,7 @@ pub mod settlement;
 pub mod claim;
 pub mod market_group;
 pub mod slip;
+pub mod orders;
 
 // Bring all account structs into scope so Anchor's #[program]
 // macro references them directly
@@ -32,8 +33,11 @@ use settlement::*;
 use claim::*;
 use market_group::*;
 use slip::*;
+use orders::*;
 use crate::state::market_group::CorrelationPair;
 use crate::state::bet_slip::SlipLeg;
+use crate::state::market::MarketMode;
+use crate::state::order::OrderSide;
 
 #[program]
 pub mod quadratic_market {
@@ -77,8 +81,9 @@ pub mod quadratic_market {
         min_outcome_price_bps: Option<u64>,
         buy_fee_bps: Option<u64>,
         oracle_pubkey: Option<[u8; 32]>,
+        cash_out_margin_bps: Option<u64>,
     ) -> Result<()> {
-        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, settlement_deadline_seconds, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds, max_single_bet, min_outcome_price_bps, buy_fee_bps, oracle_pubkey)
+        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, settlement_deadline_seconds, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds, max_single_bet, min_outcome_price_bps, buy_fee_bps, oracle_pubkey, cash_out_margin_bps)
     }
 
     pub fn add_operator(ctx: Context<AddOperator>, operator: Pubkey) -> Result<()> {
@@ -127,8 +132,9 @@ pub mod quadratic_market {
         category: u8,
         lmsr_b_override: Option<u64>,
         initial_q_values: Option<Vec<u64>>,
+        market_mode: MarketMode,
     ) -> Result<()> {
-        create_market_handler(ctx, start_time, num_outcomes, title, description, category, lmsr_b_override, initial_q_values)
+        create_market_handler(ctx, start_time, num_outcomes, title, description, category, lmsr_b_override, initial_q_values, market_mode)
     }
 
     pub fn init_outcome_mint(
@@ -298,5 +304,48 @@ pub mod quadratic_market {
         slip_id: u64,
     ) -> Result<()> {
         update_slip_lock_handler(ctx, slip_id)
+    }
+
+    pub fn cash_out_slip<'info>(
+        ctx: Context<'_, '_, '_, 'info, CashOutSlip<'info>>,
+        slip_id: u64,
+    ) -> Result<()> {
+        cash_out_slip_handler(ctx, slip_id)
+    }
+
+    // ─── Peer-to-Peer Order Book ────────────────────────────────
+
+    pub fn place_order(
+        ctx: Context<PlaceOrder>,
+        market_id: u64,
+        outcome_id: u8,
+        side: OrderSide,
+        num_shares: u64,
+        price_per_share: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        place_order_handler(ctx, market_id, outcome_id, side, num_shares, price_per_share, expires_at)
+    }
+
+    pub fn fill_order(
+        ctx: Context<FillOrder>,
+        order_id: u64,
+        fill_shares: u64,
+    ) -> Result<()> {
+        fill_order_handler(ctx, order_id, fill_shares)
+    }
+
+    pub fn cancel_order(
+        ctx: Context<CancelOrder>,
+        order_id: u64,
+    ) -> Result<()> {
+        cancel_order_handler(ctx, order_id)
+    }
+
+    pub fn expire_order(
+        ctx: Context<ExpireOrder>,
+        order_id: u64,
+    ) -> Result<()> {
+        expire_order_handler(ctx, order_id)
     }
 }
