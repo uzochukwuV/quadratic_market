@@ -37,6 +37,7 @@ pub mod seeds {
     pub const MARKET_GROUP: &[u8] = b"market_group";
     pub const BET_SLIP: &[u8] = b"bet_slip";
     pub const PENDING: &[u8] = b"pending";
+    pub const ORDER: &[u8] = b"order";
 }
 
 // Correlated markets
@@ -62,3 +63,6 @@ pub const DEFAULT_BUY_FEE_BPS: u64 = 100;               // 1% house fee on direc
 
 // Operator allowlist
 pub const MAX_OPERATORS: usize = 8;
+
+// Cash-out
+pub const DEFAULT_CASH_OUT_MARGIN_BPS: u64 = 500; // 5%
