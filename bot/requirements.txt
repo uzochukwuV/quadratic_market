@@ -1,0 +1,7 @@
+anchorpy>=0.20.0
+solders>=0.21.0
+solana>=0.34.0
+httpx>=0.27.0
+python-dotenv>=1.0.0
+apscheduler>=3.10.0
+structlog>=24.1.0

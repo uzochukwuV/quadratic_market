@@ -124,6 +124,28 @@ async function createTestMarket(
   return { marketId, marketPda };
 }
 
+// ─── Helper: create a market that is already past its start_time ─
+// Creates with start_time = now + 3s, waits for the validator clock to pass it,
+// then returns. This avoids the create_market guard (start_time > now) while
+// producing a market whose start_time is genuinely in the past on-chain.
+async function createStartedMarket(
+  program: Program<QuadraticMarket>,
+  provider: anchor.AnchorProvider,
+  globalConfigPda: PublicKey,
+  authority: Keypair,
+  numOutcomes: number,
+  title: string,
+  desc: string
+): Promise<{ marketId: number; marketPda: PublicKey }> {
+  const nearFuture = Math.floor(Date.now() / 1000) + 3;
+  const result = await createTestMarket(
+    program, provider, globalConfigPda, authority, nearFuture, numOutcomes, title, desc
+  );
+  // Wait until the validator's clock has passed start_time
+  await new Promise(resolve => setTimeout(resolve, 4_000));
+  return result;
+}
+
 // ─── Helper: init both outcome mints for a 2-outcome market ─────
 async function initOutcomeMints2(
   program: Program<QuadraticMarket>,
@@ -311,8 +333,9 @@ describe("protocol_tests — Security & Edge Cases", () => {
       [Buffer.from("pending"), admin.publicKey.toBuffer()], program.programId
     );
 
-    const tx = new Transaction();
-    const addLiqIx = await program.methods
+    // addLiquidity now initialises pendingLiquidity inline with on-chain-computed
+    // shares and activation_time — no separate initPendingLiquidity call needed.
+    await program.methods
       .addLiquidity(new anchor.BN(depositAmount))
       .accounts({
         globalConfig: globalConfigPda,
@@ -322,31 +345,14 @@ describe("protocol_tests — Security & Edge Cases", () => {
         providerBaseAta: adminBaseAta,
         providerLpAta: adminLpAta,
         baseMint,
+        pendingLiquidity: pendingLiquidityPda,
         provider: admin.publicKey,
         tokenProgram: TOKEN_PROGRAM,
         associatedTokenProgram: ATA_PROGRAM,
         systemProgram: SystemProgram.programId,
       })
-      .instruction();
-    tx.add(addLiqIx);
-
-    const initPendingIx = await program.methods
-      .initPendingLiquidity(
-        new anchor.BN(depositAmount - 1_000), // shares (minus MIN_FIRST_LIQUIDITY)
-        new anchor.BN(activationTime),
-        new anchor.BN(depositAmount)
-      )
-      .accounts({
-        globalConfig: globalConfigPda,
-        pendingLiquidity: pendingLiquidityPda,
-        provider: admin.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
       .signers([admin])
-      .instruction();
-    tx.add(initPendingIx);
-
-    await provider.sendAndConfirm(tx, [admin]);
+      .rpc();
 
     // 3. Create initial test market (using marketCreator as operator)
     const startTime = Math.floor(Date.now() / 1000) + 3600;
@@ -665,11 +671,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
     it("2.11: Propose result with invalid outcome ID fails", async () => {
       if (skipSuite) { console.log("SKIPPED"); return; }
 
-      // Create a market with start_time in past so oracle can propose
-      const pastStartTime = Math.floor(Date.now() / 1000) - 3600;
-      const { marketId: testMarketId, marketPda: testMarketPda } = await createTestMarket(
+      // Create a market whose start_time is in the past (oracle can now propose)
+      const { marketId: testMarketId, marketPda: testMarketPda } = await createStartedMarket(
         program, provider, globalConfigPda,
-        admin, pastStartTime, 2,
+        admin, 2,
         "Invalid Outcome Test", "Test"
       );
 
@@ -743,11 +748,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
     it("2.16: Bet blocked after match starts (start_time enforcement)", async () => {
       if (skipSuite) { console.log("SKIPPED"); return; }
 
-      // Create a market with start_time in the past
-      const pastStartTime = Math.floor(Date.now() / 1000) - 60;
-      const { marketId: pastMarketId, marketPda: pastMarketPda } = await createTestMarket(
+      // Create a market whose start_time is now in the past
+      const { marketId: pastMarketId, marketPda: pastMarketPda } = await createStartedMarket(
         program, provider, globalConfigPda,
-        admin, pastStartTime, 2,
+        admin, 2,
         "Past Start Market", "Betting should be blocked"
       );
 
@@ -812,11 +816,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
     it("2.17: Oracle-only settlement — non-oracle proposer fails", async () => {
       if (skipSuite) { console.log("SKIPPED"); return; }
 
-      // Create a market with start_time in past so oracle could propose
-      const pastStartTime = Math.floor(Date.now() / 1000) - 3600;
-      const { marketId: testMarketId, marketPda: testMarketPda } = await createTestMarket(
+      // Create a market whose start_time is now in the past
+      const { marketId: testMarketId, marketPda: testMarketPda } = await createStartedMarket(
         program, provider, globalConfigPda,
-        admin, pastStartTime, 2,
+        admin, 2,
         "Oracle Settlement Test", "Non-oracle should fail"
       );
 
@@ -1020,12 +1023,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
     it("3.7: locked_payouts correctly reduced at finalize", async () => {
       if (skipSuite) { console.log("SKIPPED"); return; }
 
-      // Create settlement market (past start_time), buy shares on it before we check.
-      // Trading is BLOCKED on past-start markets. So just verify settle path.
-      const pastStartTime = Math.floor(Date.now() / 1000) - 7200;
-      const { marketId: settleId, marketPda: settlePda } = await createTestMarket(
+      // Create a market whose start_time is now in the past so oracle can propose
+      const { marketId: settleId, marketPda: settlePda } = await createStartedMarket(
         program, provider, globalConfigPda,
-        admin, pastStartTime, 2,
+        admin, 2,
         "Finalize Locked Test", "locked_payouts at finalize"
       );
 
@@ -1036,10 +1037,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
         program.programId
       );
 
-      // Set challenge window to 10s for this test
+      // Set challenge window to 60s (minimum allowed) for this test
       await program.methods
         .updateConfig(
-          null, new anchor.BN(10), null, null, null,
+          null, new anchor.BN(60), null, null, null,
           null, null, null, null, null,
           null, null
         )
@@ -1062,8 +1063,8 @@ describe("protocol_tests — Security & Edge Cases", () => {
         .signers([oracleKeypair])
         .rpc();
 
-      // Wait for challenge window
-      await new Promise(resolve => setTimeout(resolve, 11_000));
+      // Wait for challenge window (60s minimum since bounds fix)
+      await new Promise(resolve => setTimeout(resolve, 62_000));
 
       await program.methods
         .finalizeResult(new anchor.BN(settleId))
@@ -1275,11 +1276,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
     it("4.9: Non-oracle cannot propose result", async () => {
       if (skipSuite) { console.log("SKIPPED"); return; }
 
-      // Create a past-start market
-      const pastStartTime = Math.floor(Date.now() / 1000) - 3600;
-      const { marketId: testMarketId, marketPda: testMarketPda } = await createTestMarket(
+      // Create a market whose start_time is now in the past
+      const { marketId: testMarketId, marketPda: testMarketPda } = await createStartedMarket(
         program, provider, globalConfigPda,
-        admin, pastStartTime, 2,
+        admin, 2,
         "Non-Oracle Propose Test", "oracle check"
       );
 
@@ -1665,6 +1665,9 @@ describe("protocol_tests — Security & Edge Cases", () => {
       );
 
       try {
+        const [newLpPendingPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("pending"), newLp.publicKey.toBuffer()], program.programId
+        );
         await program.methods
           .addLiquidity(new anchor.BN(500)) // Below MIN_FIRST_LIQUIDITY (1000)
           .accounts({
@@ -1675,6 +1678,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
             providerBaseAta: newLpBaseAta,
             providerLpAta: newLpLpAta,
             baseMint,
+            pendingLiquidity: newLpPendingPda,
             provider: newLp.publicKey,
             tokenProgram: TOKEN_PROGRAM,
             associatedTokenProgram: ATA_PROGRAM,
