@@ -75,6 +75,10 @@ pub fn place_slip_handler<'info>(
     // ── Phase A: validate markets, compute costs, track group exposure ──
     let mut total_cost: u64 = 0;
     let mut leg_prices: Vec<u64> = Vec::with_capacity(num_legs as usize);
+    // Per-leg costs from Phase A (correlation-adjusted). Stored here so Phase C
+    // can reuse them exactly — recomputing in Phase C without correlation context
+    // would produce different values and corrupt exposure accounting (BUG-07).
+    let mut leg_costs: Vec<u64> = Vec::with_capacity(num_legs as usize);
     let mut leg_markets: Vec<Market> = Vec::with_capacity(num_legs as usize);
     let mut leg_group_indices: Vec<Option<usize>> = Vec::with_capacity(num_legs as usize);
 
@@ -212,6 +216,7 @@ pub fn place_slip_handler<'info>(
 
         total_cost = total_cost.checked_add(leg_cost).ok_or(QuadraticMarketError::MathOverflow)?;
         leg_prices.push(leg_price);
+        leg_costs.push(leg_cost);
         leg_group_indices.push(group_index);
         leg_markets.push(market);
 
@@ -254,10 +259,15 @@ pub fn place_slip_handler<'info>(
 
     require!(total_cost <= max_payment, QuadraticMarketError::SlipCostExceeded);
 
-    // Liquidity check against the full potential payout
+    // The base payout (total_cost) is self-funded by losing bettors in each market pool —
+    // it does not require LP backing. LP only covers the bonus premium above fair value.
+    // Locking the full potential_payout would massively over-collateralise the protocol.
+    let bonus_gap = potential_payout.saturating_sub(total_cost);
+
+    // Liquidity check: LP only needs to cover the bonus gap
     let treasury_balance = ctx.accounts.treasury_base_ata.amount;
     let free = config.free_liquidity(treasury_balance);
-    require!(free >= potential_payout, QuadraticMarketError::InsufficientLiquidity);
+    require!(free >= bonus_gap, QuadraticMarketError::InsufficientLiquidity);
 
     // ── Phase B: collect payment ──────────────────────────────────────────────
     token::transfer(
@@ -306,15 +316,17 @@ pub fn place_slip_handler<'info>(
             leg.num_shares,
         )?;
 
-        // Update market state via deserialize → modify → serialize
+        // Update market state via deserialize → modify → serialize.
+        // Use the Phase A cost (correlation-adjusted) — recomputing here without
+        // the full correlation context would give a different value (BUG-07).
         {
+            let phase_a_cost = leg_costs[leg_idx as usize];
+            let profit = leg.num_shares.saturating_sub(phase_a_cost);
+
             let market_data = market_info.data.borrow();
             let mut market: Market = Market::try_deserialize_unchecked(&mut &market_data[8..])
                 .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
             drop(market_data);
-
-            let cost = lmsr_buy_cost(&market.q_values, market.num_outcomes, leg.outcome_id, leg.num_shares, market.lmsr_b)?;
-            let profit = leg.num_shares.saturating_sub(cost);
 
             market.q_values[leg.outcome_id as usize] = market.q_values[leg.outcome_id as usize]
                 .checked_add(leg.num_shares)
@@ -356,9 +368,10 @@ pub fn place_slip_handler<'info>(
         leg_idx += 1;
     }
 
-    // Lock the full potential payout in treasury accounting
+    // Lock only the bonus gap against LP reserves. The base payout (total_cost) is
+    // covered by the losing bettors' stakes already sitting in each market's pool.
     config.locked_payouts = config.locked_payouts
-        .checked_add(potential_payout)
+        .checked_add(bonus_gap)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Write BetSlip
@@ -375,7 +388,7 @@ pub fn place_slip_handler<'info>(
     slip.combined_odds_fp = combined_odds_fp;
     slip.house_margin_bps = house_margin_bps;
     slip.potential_payout = potential_payout;
-    slip.locked_amount = potential_payout;
+    slip.locked_amount = bonus_gap;   // only the LP-backed premium, not the full payout
     slip.exposure_locked = total_exposure_locked;
     slip.claimed = false;
     slip.bump = ctx.bumps.bet_slip;
@@ -634,16 +647,20 @@ pub fn update_slip_lock_handler(
         &leg_prices, num_legs, slip.house_margin_bps, bonus,
     )?;
 
-    let current_potential = ((slip.total_stake as u128)
+    let current_payout = ((slip.total_stake as u128)
         .checked_mul(current_combined_odds_fp as u128)
         .ok_or(QuadraticMarketError::MathOverflow)?)
         / SCALE as u128;
-    let current_potential = current_potential as u64;
+    let current_payout = current_payout as u64;
+
+    // locked_amount tracks the bonus gap (payout - stake), not the full payout.
+    // Recompute the current bonus gap to compare against the stored lock.
+    let current_bonus_gap = current_payout.saturating_sub(slip.total_stake);
 
     // Only decrease the lock — never increase. Does NOT change potential_payout.
-    if current_potential < slip.locked_amount {
-        let delta = slip.locked_amount - current_potential;
-        slip.locked_amount = current_potential;
+    if current_bonus_gap < slip.locked_amount {
+        let delta = slip.locked_amount - current_bonus_gap;
+        slip.locked_amount = current_bonus_gap;
         config.locked_payouts = config.locked_payouts.saturating_sub(delta);
     }
 
@@ -774,7 +791,7 @@ pub fn cash_out_slip_handler<'info>(
 
     require!(cash_out_payout > 0, QuadraticMarketError::InvalidAmount);
 
-    // Release the full locked amount from treasury accounting
+    // Release the bonus gap that was locked against LP reserves
     config.locked_payouts = config.locked_payouts
         .saturating_sub(slip.locked_amount);
 
