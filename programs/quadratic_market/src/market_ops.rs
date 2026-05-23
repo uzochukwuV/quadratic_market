@@ -239,7 +239,14 @@ pub fn void_market_handler(ctx: Context<VoidMarket>) -> Result<()> {
     );
     let market = &mut ctx.accounts.market;
     let config = &mut ctx.accounts.global_config;
-    config.locked_payouts = config.locked_payouts.saturating_sub(market.exposure);
+    // Release the full outstanding share liability (sum of all q_values), not
+    // market.exposure. locked_payouts was incremented by num_shares per buy;
+    // market.exposure is the LP net-risk delta (num_shares - cost), which is
+    // always less. Using exposure left the difference permanently frozen.
+    let total_locked: u64 = (0..market.num_outcomes as usize)
+        .map(|i| market.q_values[i])
+        .fold(0u64, |acc, v| acc.saturating_add(v));
+    config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
     market.status = MarketStatus::Voided;
     Ok(())
 }
@@ -275,7 +282,11 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     require!(now > deadline, QuadraticMarketError::SettlementDeadlineNotPassed);
 
-    config.locked_payouts = config.locked_payouts.saturating_sub(market.exposure);
+    // Same fix as void_market: release sum(q_values), not market.exposure.
+    let total_locked: u64 = (0..market.num_outcomes as usize)
+        .map(|i| market.q_values[i])
+        .fold(0u64, |acc, v| acc.saturating_add(v));
+    config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
     market.status = MarketStatus::Voided;
 
     Ok(())

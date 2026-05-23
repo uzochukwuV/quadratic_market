@@ -23,15 +23,22 @@ fn advance_epoch(config: &mut GlobalConfig, now: i64) -> Result<()> {
 }
 
 // ─── Add Liquidity ─────────────────────────────────────────────
+// pending_liquidity is initialised here with on-chain-computed shares and
+// activation_time. The old separate init_pending_liquidity instruction
+// accepted these as caller-supplied parameters, allowing the epoch lock to
+// be bypassed by passing activation_time=0 or inflated shares. Fixed by
+// computing both values inside add_liquidity_handler.
 
 #[derive(Accounts)]
 pub struct AddLiquidity<'info> {
+    // Boxed: GlobalConfig is ~564 bytes; leaving it on the stack pushes try_accounts
+    // over the 4096-byte BPF frame limit.
     #[account(
         mut,
         seeds = [seeds::GLOBAL_CONFIG],
         bump = global_config.bump,
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
         mut,
@@ -51,47 +58,29 @@ pub struct AddLiquidity<'info> {
         associated_token::mint = base_mint,
         associated_token::authority = treasury,
     )]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         associated_token::mint = base_mint,
         associated_token::authority = provider,
     )]
-    pub provider_base_ata: Account<'info, TokenAccount>,
+    pub provider_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         associated_token::mint = lp_mint,
         associated_token::authority = provider,
     )]
-    pub provider_lp_ata: Account<'info, TokenAccount>,
+    pub provider_lp_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(
         constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized
     )]
     pub base_mint: Account<'info, Mint>,
 
-    #[account(mut)]
-    pub provider: Signer<'info>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
-}
-
-// ─── Init Pending Liquidity ────────────────────────────────────
-// Separate instruction to create the pending liquidity PDA.
-// Called immediately after add_liquidity in the same transaction.
-
-#[derive(Accounts)]
-pub struct InitPendingLiquidity<'info> {
-    #[account(
-        mut,
-        seeds = [seeds::GLOBAL_CONFIG],
-        bump = global_config.bump,
-    )]
-    pub global_config: Account<'info, GlobalConfig>,
-
+    // Pending liquidity PDA — initialised here so shares and activation_time
+    // are set by the program, not the caller.
     #[account(
         init_if_needed,
         payer = provider,
@@ -103,30 +92,42 @@ pub struct InitPendingLiquidity<'info> {
 
     #[account(mut)]
     pub provider: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+// ─── Init Pending Liquidity (kept for interface compatibility, now a no-op) ──
+// This instruction previously accepted caller-supplied shares/activation_time,
+// which allowed the epoch lock to be bypassed. The real work now happens inside
+// add_liquidity. This stub remains so existing client code does not break, but
+// it performs no state changes.
+
+#[derive(Accounts)]
+pub struct InitPendingLiquidity<'info> {
+    #[account(
+        seeds = [seeds::GLOBAL_CONFIG],
+        bump = global_config.bump,
+    )]
+    pub global_config: Account<'info, GlobalConfig>,
+
+    #[account(
+        seeds = [seeds::PENDING, provider.key().as_ref()],
+        bump,
+    )]
+    pub pending_liquidity: Account<'info, PendingLiquidity>,
+
+    pub provider: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
 pub fn init_pending_liquidity_handler(
-    ctx: Context<InitPendingLiquidity>,
-    shares: u64,
-    activation_time: i64,
-    amount: u64,
+    _ctx: Context<InitPendingLiquidity>,
+    _shares: u64,
+    _activation_time: i64,
+    _amount: u64,
 ) -> Result<()> {
-    let pending = &mut ctx.accounts.pending_liquidity;
-    if pending.lp == Pubkey::default() {
-        pending.lp = ctx.accounts.provider.key();
-        pending.shares = shares;
-        pending.activation_time = activation_time;
-        pending.amount_deposited = amount;
-        pending.bump = ctx.bumps.pending_liquidity;
-    } else {
-        pending.shares = pending.shares
-            .checked_add(shares)
-            .ok_or(QuadraticMarketError::MathOverflow)?;
-        pending.amount_deposited = pending.amount_deposited
-            .checked_add(amount)
-            .ok_or(QuadraticMarketError::MathOverflow)?;
-    }
+    // State is now written by add_liquidity_handler. This instruction is a no-op.
     Ok(())
 }
 
@@ -173,6 +174,7 @@ pub fn add_liquidity_handler(ctx: Context<AddLiquidity>, amount: u64) -> Result<
     )?;
 
     // Mint LP tokens
+    let bump = config.bump;
     token::mint_to(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -181,7 +183,7 @@ pub fn add_liquidity_handler(ctx: Context<AddLiquidity>, amount: u64) -> Result<
                 to: ctx.accounts.provider_lp_ata.to_account_info(),
                 authority: config.to_account_info(),
             },
-            &[&[seeds::GLOBAL_CONFIG, &[config.bump]]],
+            &[&[seeds::GLOBAL_CONFIG, &[bump]]],
         ),
         shares_to_mint,
     )?;
@@ -189,6 +191,29 @@ pub fn add_liquidity_handler(ctx: Context<AddLiquidity>, amount: u64) -> Result<
     config.total_lp_supply = config.total_lp_supply
         .checked_add(shares_to_mint)
         .ok_or(QuadraticMarketError::MathOverflow)?;
+
+    // Write pending_liquidity with on-chain-computed values.
+    // activation_time and shares_to_mint are derived here — the caller cannot
+    // supply fake values to bypass the epoch lock.
+    let pending = &mut ctx.accounts.pending_liquidity;
+    if pending.lp == Pubkey::default() {
+        pending.lp = ctx.accounts.provider.key();
+        pending.shares = shares_to_mint;
+        pending.activation_time = activation_time;
+        pending.amount_deposited = amount;
+        pending.bump = ctx.bumps.pending_liquidity;
+    } else {
+        pending.shares = pending.shares
+            .checked_add(shares_to_mint)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+        pending.amount_deposited = pending.amount_deposited
+            .checked_add(amount)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+        // Keep the earliest activation_time (most conservative lock)
+        if activation_time > pending.activation_time {
+            pending.activation_time = activation_time;
+        }
+    }
 
     Ok(())
 }
@@ -217,26 +242,28 @@ pub struct RequestWithdraw<'info> {
     )]
     pub treasury: UncheckedAccount<'info>,
 
+    // Boxed: three TokenAccounts (3 × 165 bytes) push the frame 8 bytes over the
+    // 4096-byte BPF limit. Boxing all three gives ~487 bytes of headroom.
     #[account(
         mut,
         associated_token::mint = base_mint,
         associated_token::authority = treasury,
     )]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         associated_token::mint = lp_mint,
         associated_token::authority = treasury,
     )]
-    pub treasury_lp_ata: Account<'info, TokenAccount>,
+    pub treasury_lp_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         associated_token::mint = lp_mint,
         associated_token::authority = lp,
     )]
-    pub lp_lp_ata: Account<'info, TokenAccount>,
+    pub lp_lp_ata: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: Pending liquidity PDA
     #[account(
