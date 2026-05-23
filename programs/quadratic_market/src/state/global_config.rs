@@ -33,6 +33,11 @@ pub struct GlobalConfig {
     pub operators: [Pubkey; MAX_OPERATORS],     // 32 * 8 = 256
     pub num_operators: u8,                      // 1
     pub bump: u8,                               // 1
+    // Cash-out
+    pub cash_out_margin_bps: u64,               // 8  — house cut on early cash-out (default 500 = 5%)
+    // Peer-to-peer order book
+    pub next_order_id: u64,                     // 8
+    pub order_collateral_locked: u64,           // 8  — USDC locked for open buy orders (separate from LP)
 }
 
 impl GlobalConfig {
@@ -64,7 +69,10 @@ impl GlobalConfig {
         + 8   // buy_fee_bps
         + (32 * MAX_OPERATORS) // operators
         + 1   // num_operators
-        + 1;  // bump
+        + 1   // bump
+        + 8   // cash_out_margin_bps
+        + 8   // next_order_id
+        + 8;  // order_collateral_locked
 
     pub fn free_liquidity(&self, treasury_balance: u64) -> u64 {
         if treasury_balance > self.locked_payouts {

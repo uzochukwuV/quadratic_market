@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus};
+use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode};
 use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, MAX_OUTCOMES, MAX_TITLE_LEN, MAX_DESCRIPTION_LEN, BASE_MINT_DECIMALS};
 
@@ -41,6 +41,7 @@ pub fn create_market_handler(
     category: u8,
     lmsr_b_override: Option<u64>,
     initial_q_values: Option<Vec<u64>>,
+    market_mode: MarketMode,
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);
@@ -98,6 +99,7 @@ pub fn create_market_handler(
     market.bump = ctx.bumps.market;
     market.group_id = None;
     market.group_market_index = 0;
+    market.market_mode = market_mode;
 
     config.next_market_id = config.next_market_id
         .checked_add(1)

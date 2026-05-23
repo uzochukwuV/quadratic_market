@@ -6,7 +6,7 @@ use crate::constants::{
     DEFAULT_EPOCH_DURATION_SECONDS, DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS,
     DEFAULT_CHALLENGE_WINDOW, DEFAULT_SETTLEMENT_DEADLINE,
     DEFAULT_MAX_SINGLE_BET, DEFAULT_MIN_OUTCOME_PRICE_BPS, DEFAULT_BUY_FEE_BPS,
-    MAX_OPERATORS,
+    MAX_OPERATORS, DEFAULT_CASH_OUT_MARGIN_BPS,
 };
 use crate::state::GlobalConfig;
 
@@ -83,6 +83,9 @@ pub fn handler(
     config.operators = [Pubkey::default(); MAX_OPERATORS];
     config.num_operators = 0;
     config.bump = ctx.bumps.global_config;
+    config.cash_out_margin_bps = DEFAULT_CASH_OUT_MARGIN_BPS;
+    config.next_order_id = 1;
+    config.order_collateral_locked = 0;
 
     Ok(())
 }
