@@ -649,3 +649,154 @@ pub fn update_slip_lock_handler(
 
     Ok(())
 }
+
+// ─── Cash Out Slip ──────────────────────────────────────────────
+//
+// Allows the slip creator to exit their position early at the current LMSR
+// fair value, minus a configurable house margin (cash_out_margin_bps).
+//
+// Fair value = stake × current_combined_odds (recomputed live from LMSR prices).
+// Cash-out payout = fair_value × (10_000 - cash_out_margin_bps) / 10_000.
+//
+// remaining_accounts: one Market account per leg (read-only), in leg order.
+// The slip PDA is closed and rent returned to the claimer.
+
+#[derive(Accounts)]
+#[instruction(slip_id: u64)]
+pub struct CashOutSlip<'info> {
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        mut,
+        seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
+        bump = bet_slip.bump,
+        constraint = bet_slip.creator == claimer.key() @ QuadraticMarketError::Unauthorized,
+        close = claimer,
+    )]
+    pub bet_slip: Account<'info, BetSlip>,
+
+    /// CHECK: Treasury PDA
+    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
+    pub treasury: SystemAccount<'info>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = claimer)]
+    pub claimer_base_ata: Account<'info, TokenAccount>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
+    pub treasury_base_ata: Account<'info, TokenAccount>,
+
+    #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
+    pub base_mint: Account<'info, Mint>,
+
+    pub claimer: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn cash_out_slip_handler<'info>(
+    ctx: Context<'_, '_, '_, 'info, CashOutSlip<'info>>,
+    _slip_id: u64,
+) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+    let slip = &ctx.accounts.bet_slip;
+
+    require!(!config.paused, QuadraticMarketError::Paused);
+    require!(!slip.claimed, QuadraticMarketError::SlipAlreadyClaimed);
+    require!(slip.num_legs > 0, QuadraticMarketError::SlipNoLegs);
+
+    // remaining_accounts: one Market per leg, in leg order
+    require!(
+        ctx.remaining_accounts.len() >= slip.num_legs as usize,
+        QuadraticMarketError::InvalidRemainingAccount
+    );
+
+    // Recompute current combined odds from live LMSR prices
+    let num_legs = slip.num_legs;
+    let mut leg_prices: Vec<u64> = Vec::with_capacity(num_legs as usize);
+
+    for leg_idx in 0..num_legs as usize {
+        let leg = &slip.legs[leg_idx];
+        let market_info = &ctx.remaining_accounts[leg_idx];
+
+        // Validate market PDA
+        let (expected_pda, _) = Pubkey::find_program_address(
+            &[seeds::MARKET, leg.market_id.to_le_bytes().as_ref()],
+            &crate::ID,
+        );
+        require!(
+            market_info.key() == expected_pda,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+
+        let market_data = market_info.data.borrow();
+        let market: Market = Market::try_deserialize_unchecked(&mut &market_data[8..])
+            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+        drop(market_data);
+
+        // Can only cash out while the market is still open
+        require!(
+            market.status == MarketStatus::Open,
+            QuadraticMarketError::MarketNotOpen
+        );
+
+        let price = lmsr_price(
+            &market.q_values,
+            market.num_outcomes,
+            leg.outcome_id,
+            market.lmsr_b,
+        )?;
+        leg_prices.push(price);
+    }
+
+    // Current fair value = stake × current_combined_odds (with original margin + bonus)
+    let bonus = compute_bonus_multiplier(num_legs, config.max_slip_bonus_multiplier_bps)?;
+    let current_odds_fp = compute_combined_odds_fp(
+        &leg_prices,
+        num_legs,
+        slip.house_margin_bps,
+        bonus,
+    )?;
+
+    let fair_value = ((slip.total_stake as u128)
+        .checked_mul(current_odds_fp as u128)
+        .ok_or(QuadraticMarketError::MathOverflow)?)
+        / SCALE as u128;
+
+    // Apply cash-out margin — house keeps a cut for providing early-exit liquidity
+    let cash_out_margin_bps = config.cash_out_margin_bps;
+    let cash_out_payout = (fair_value
+        .checked_mul((10_000u128).checked_sub(cash_out_margin_bps as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?)
+        .ok_or(QuadraticMarketError::MathOverflow)?)
+        / 10_000;
+    let cash_out_payout = cash_out_payout as u64;
+
+    require!(cash_out_payout > 0, QuadraticMarketError::InvalidAmount);
+
+    // Release the full locked amount from treasury accounting
+    config.locked_payouts = config.locked_payouts
+        .saturating_sub(slip.locked_amount);
+
+    // Transfer cash-out value to claimer
+    let treasury_seeds: &[&[&[u8]]] = &[&[seeds::TREASURY, &[config.treasury_bump]]];
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.treasury_base_ata.to_account_info(),
+                to: ctx.accounts.claimer_base_ata.to_account_info(),
+                authority: ctx.accounts.treasury.to_account_info(),
+            },
+            treasury_seeds,
+        ),
+        cash_out_payout,
+    )?;
+
+    // Slip PDA is closed via `close = claimer` — rent returned to claimer.
+    // Outcome tokens minted at placement remain in the user's wallet but are
+    // orphaned (no slip PDA to claim against). V1 known limitation: document
+    // in client that outcome tokens should be burned after cash-out.
+
+    Ok(())
+}

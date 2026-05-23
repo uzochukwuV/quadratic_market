@@ -139,4 +139,16 @@ pub enum QuadraticMarketError {
     OperatorListFull = 717,
     #[msg("Operator not found")]
     OperatorNotFound = 718,
+    #[msg("Direct share trading is disabled on fixed-odds markets")]
+    DirectTradingDisabled = 719,
+    #[msg("Order is not in a cancellable state")]
+    OrderNotCancellable = 720,
+    #[msg("Order has not expired")]
+    OrderNotExpired = 721,
+    #[msg("Order is not open for filling")]
+    OrderNotFillable = 722,
+    #[msg("Fill amount exceeds remaining order quantity")]
+    FillExceedsOrder = 723,
+    #[msg("Bet slip has already been cashed out")]
+    SlipAlreadyCashedOut = 724,
 }
