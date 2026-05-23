@@ -138,8 +138,15 @@ pub fn close_market_handler(ctx: Context<CloseMarket>, _market_id: u64) -> Resul
         QuadraticMarketError::Unauthorized
     );
 
-    // Return rent to authority
+    // Zero the discriminator before draining lamports. The previous manual
+    // lamport drain left the 8-byte discriminator intact, allowing the PDA to
+    // be re-initialized and old stale data to be read by claim/slip logic.
     let market_account = ctx.accounts.market.to_account_info();
+    let mut data = market_account.try_borrow_mut_data()?;
+    data[0..8].fill(0);
+    drop(data);
+
+    // Return rent to authority
     let lamports = market_account.lamports();
     **market_account.try_borrow_mut_lamports()? = 0;
     **ctx.accounts.authority.to_account_info().try_borrow_mut_lamports()? += lamports;

@@ -83,6 +83,28 @@ pub fn update_config_handler(
         ctx.accounts.admin.key() == ctx.accounts.global_config.admin,
         QuadraticMarketError::Unauthorized
     );
+
+    // Bounds guards — prevent misconfiguration that would break protocol invariants:
+    //   challenge_window = 0  → oracle can propose + finalize atomically (no review)
+    //   epoch_duration = 0    → division by zero in compute_activation_time
+    //   buy_fee_bps ≥ 10_000  → total charge ≥ 2× cost, effectively stealing from users
+    //   settlement_deadline = 0 → any market can be immediately voided
+    if let Some(v) = challenge_window_seconds {
+        require!(v >= 60, QuadraticMarketError::InvalidAmount); // minimum 1 minute
+    }
+    if let Some(v) = settlement_deadline_seconds {
+        require!(v >= 60, QuadraticMarketError::InvalidAmount); // minimum 1 minute
+    }
+    if let Some(v) = epoch_duration_seconds {
+        require!(v >= 60, QuadraticMarketError::InvalidAmount); // minimum 1 minute, prevents div-by-zero
+    }
+    if let Some(v) = buy_fee_bps {
+        require!(v < 10_000, QuadraticMarketError::InvalidAmount); // must be < 100%
+    }
+    if let Some(v) = slip_house_margin_bps {
+        require!(v < 10_000, QuadraticMarketError::InvalidAmount);
+    }
+
     let config = &mut ctx.accounts.global_config;
     if let Some(v) = max_market_exposure          { config.max_market_exposure = v; }
     if let Some(v) = challenge_window_seconds      { config.challenge_window_seconds = v; }
