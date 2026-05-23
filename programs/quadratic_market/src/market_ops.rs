@@ -270,9 +270,11 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
     let market = &mut ctx.accounts.market;
     let config = &mut ctx.accounts.global_config;
 
-    // Must not already be settled or voided
+    // Only Suspended markets can be auto-voided. An Open market is still accepting
+    // bets and must be explicitly suspended by an operator before it can be voided.
+    // This prevents a race where a market is voided while users are still placing bets.
     require!(
-        market.status != MarketStatus::Settled && market.status != MarketStatus::Voided,
+        market.status == MarketStatus::Suspended,
         QuadraticMarketError::MarketNotVoidable
     );
 
