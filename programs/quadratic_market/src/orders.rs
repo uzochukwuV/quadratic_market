@@ -42,10 +42,15 @@ pub struct PlaceOrder<'info> {
     #[account(mut)]
     pub creator_outcome_ata: Option<Account<'info, TokenAccount>>,
 
-    // Escrow ATA for SELL orders: owned by the order PDA, holds locked tokens.
+    // Escrow ATA for SELL orders: must be owned by the order PDA so only the
+    // order PDA can sign transfers out of it. Ownership is validated in the handler.
     // For BUY orders: not required.
     #[account(mut)]
     pub escrow_outcome_ata: Option<Account<'info, TokenAccount>>,
+
+    // Outcome mint — needed to validate escrow ATA ownership for sell orders.
+    #[account(mut)]
+    pub outcome_mint: Option<Account<'info, Mint>>,
 
     // For BUY orders: creator's USDC ATA (collateral transferred to treasury).
     // For SELL orders: not required.
@@ -108,6 +113,14 @@ pub fn place_order_handler(
             let escrow_ata = ctx.accounts.escrow_outcome_ata
                 .as_ref()
                 .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+
+            // Validate that the escrow ATA is owned by the order PDA.
+            // The order PDA is derived from [ORDER, next_order_id] — we know the
+            // expected key because the order account was just initialised above.
+            require!(
+                escrow_ata.owner == ctx.accounts.order.key(),
+                QuadraticMarketError::InvalidRemainingAccount
+            );
 
             require!(creator_ata.amount >= num_shares, QuadraticMarketError::InsufficientShares);
 

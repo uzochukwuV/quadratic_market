@@ -133,7 +133,7 @@ async def task_settle_markets(chain: ChainClient, api: OddsApiClient, state: Bot
         by_sport.setdefault(m.sport_key, []).append(m)
 
     for sport, markets in by_sport.items():
-        results = await api.completed_scores(sport, days_from=3)
+        results = await api.completed_scores(sport, days_from=7)
         result_map = {r.event_id: r for r in results}
 
         for m in markets:
