@@ -292,23 +292,26 @@ pub struct BuySharesCorrelated<'info> {
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
     pub treasury: SystemAccount<'info>,
 
+    // Boxed: three TokenAccounts + two Mints on the stack cause a nested-call frame
+    // overlap in try_accounts (the BPF verifier "overwrites values in the frame" error).
+    // Boxing all five frees ~659 bytes and eliminates the overlap.
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = buyer)]
-    pub buyer_base_ata: Account<'info, TokenAccount>,
+    pub buyer_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, associated_token::mint = outcome_mint, associated_token::authority = buyer)]
-    pub buyer_outcome_ata: Account<'info, TokenAccount>,
+    pub buyer_outcome_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = outcome_mint.key() == market.outcome_mints[outcome_id as usize] @ QuadraticMarketError::WrongOutcomeToken,
     )]
-    pub outcome_mint: Account<'info, Mint>,
+    pub outcome_mint: Box<Account<'info, Mint>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
@@ -445,23 +448,25 @@ pub struct SellSharesCorrelated<'info> {
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
     pub treasury: SystemAccount<'info>,
 
+    // Boxed: same nested-call frame overlap as BuySharesCorrelated — three TokenAccounts
+    // and two Mints on the stack exceed the safe threshold for nested calls in try_accounts.
     #[account(mut, associated_token::mint = outcome_mint, associated_token::authority = seller)]
-    pub seller_outcome_ata: Account<'info, TokenAccount>,
+    pub seller_outcome_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = seller)]
-    pub seller_base_ata: Account<'info, TokenAccount>,
+    pub seller_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = outcome_mint.key() == market.outcome_mints[outcome_id as usize] @ QuadraticMarketError::WrongOutcomeToken,
     )]
-    pub outcome_mint: Account<'info, Mint>,
+    pub outcome_mint: Box<Account<'info, Mint>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,

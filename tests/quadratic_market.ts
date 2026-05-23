@@ -218,9 +218,8 @@ describe("quadratic_market — Happy Path", () => {
     // shares = depositAmount - MIN_FIRST_LIQUIDITY (1000)
     const shares = depositAmount - 1_000;
 
-    const tx = new anchor.web3.Transaction();
-
-    const addLiqIx = await program.methods
+    // addLiquidity now initialises pendingLiquidity inline — no separate call needed.
+    await program.methods
       .addLiquidity(new anchor.BN(depositAmount))
       .accounts({
         globalConfig: globalConfigPda,
@@ -230,31 +229,14 @@ describe("quadratic_market — Happy Path", () => {
         providerBaseAta: lp1BaseAta,
         providerLpAta: lp1LpAta,
         baseMint,
+        pendingLiquidity: pendingLiquidityPda,
         provider: lp1.publicKey,
         tokenProgram: TOKEN_PROGRAM,
         associatedTokenProgram: ATA_PROGRAM,
         systemProgram: SystemProgram.programId,
       })
-      .instruction();
-    tx.add(addLiqIx);
-
-    const initPendingIx = await program.methods
-      .initPendingLiquidity(
-        new anchor.BN(shares),
-        new anchor.BN(activationTime),
-        new anchor.BN(depositAmount)
-      )
-      .accounts({
-        globalConfig: globalConfigPda,
-        pendingLiquidity: pendingLiquidityPda,
-        provider: lp1.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
       .signers([lp1])
-      .instruction();
-    tx.add(initPendingIx);
-
-    await provider.sendAndConfirm(tx, [lp1]);
+      .rpc();
 
     const lpBalance = await getAccount(provider.connection, lp1LpAta);
     assert.ok(Number(lpBalance.amount) > 0, "LP1 should have received LP tokens");
@@ -540,13 +522,13 @@ describe("quadratic_market — Happy Path", () => {
 
   // ─── 5. Settlement ───────────────────────────────────────────────
 
-  it("Sets challenge window to 10 seconds for testing", async () => {
+  it("Sets challenge window to 60 seconds for testing", async () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
 
     await program.methods
       .updateConfig(
         null,                  // max_market_exposure
-        new anchor.BN(10),     // challenge_window_seconds
+        new anchor.BN(60),     // challenge_window_seconds (minimum allowed: 60)
         null,                  // settlement_deadline_seconds
         null,                  // lmsr_default_b
         null,                  // slip_house_margin_bps
@@ -565,7 +547,7 @@ describe("quadratic_market — Happy Path", () => {
       .rpc();
 
     const config = await program.account.globalConfig.fetch(globalConfigPda);
-    assert.equal(config.challengeWindowSeconds.toNumber(), 10);
+    assert.equal(config.challengeWindowSeconds.toNumber(), 60);
   });
 
   it("Oracle proposes result on settlement market", async () => {
@@ -595,7 +577,7 @@ describe("quadratic_market — Happy Path", () => {
     if (skipSuite) { console.log("SKIPPED"); return; }
 
     // Wait for 11 seconds so the 10s challenge window expires
-    await new Promise(resolve => setTimeout(resolve, 11_000));
+    await new Promise(resolve => setTimeout(resolve, 62_000));
 
     await program.methods
       .finalizeResult(new anchor.BN(settlementMarketId))

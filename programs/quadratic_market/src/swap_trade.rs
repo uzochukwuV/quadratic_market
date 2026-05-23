@@ -132,8 +132,8 @@ pub fn buy_shares_with_swap_handler(
         QuadraticMarketError::LmsrCostExceedsMax
     );
 
-    // Exposure check
-    let profit_exposure = cost.saturating_sub(num_shares);
+    // Exposure check — LP's net risk = max_payout - cost_received = num_shares - cost
+    let profit_exposure = num_shares.saturating_sub(cost);
     let new_exposure = market.exposure
         .checked_add(profit_exposure)
         .ok_or(QuadraticMarketError::MathOverflow)?;
@@ -182,12 +182,14 @@ pub fn buy_shares_with_swap_handler(
     )?;
 
     // Update state
+    // locked_payouts must track num_shares (the 1:1 settlement obligation),
+    // not cost (what the buyer paid). Using cost understates the liability.
     market.q_values[outcome_id as usize] = market.q_values[outcome_id as usize]
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     market.exposure = new_exposure;
     config.locked_payouts = config.locked_payouts
-        .checked_add(cost)
+        .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     Ok(())

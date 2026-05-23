@@ -111,12 +111,24 @@ pub fn place_slip_handler<'info>(
             QuadraticMarketError::InvalidOutcomeId
         );
 
-        // Resolve group index for this leg
+        // Resolve group index for this leg.
+        // Each group account is validated against its canonical PDA before
+        // deserializing — prevents a crafted account with a matching group_id
+        // field but fake max_group_exposure / zeroed correlations from bypassing
+        // the exposure cap.
         let mut group_index: Option<usize> = None;
         if let Some(group_id) = market.group_id {
             let mut found = false;
             for g in 0..num_groups as usize {
                 let group_info = &ctx.remaining_accounts[total_leg_accounts + g];
+                // Validate PDA before trusting any deserialized fields
+                let (expected_group_pda, _) = Pubkey::find_program_address(
+                    &[seeds::MARKET_GROUP, group_id.to_le_bytes().as_ref()],
+                    &crate::ID,
+                );
+                if group_info.key() != expected_group_pda {
+                    continue;
+                }
                 let group_data = group_info.data.borrow();
                 let group: MarketGroup = MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
                     .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;

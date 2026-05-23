@@ -234,11 +234,8 @@ describe("simulation — Full Protocol Run", () => {
       );
       pendingLiquidityPdas.push(pendingPda);
 
-      // Add liquidity and init pending in one transaction
-      const shares = lpDepositAmounts[i] - (i === 0 ? 1_000 : 0);
-      const tx = new Transaction();
-
-      const addLiqIx = await program.methods
+      // addLiquidity now initialises pendingLiquidity inline — no separate call needed.
+      await program.methods
         .addLiquidity(new anchor.BN(lpDepositAmounts[i]))
         .accounts({
           globalConfig: globalConfigPda,
@@ -248,31 +245,14 @@ describe("simulation — Full Protocol Run", () => {
           providerBaseAta: baseAta,
           providerLpAta: lpAta,
           baseMint,
+          pendingLiquidity: pendingPda,
           provider: lp.publicKey,
           tokenProgram: TOKEN_PROGRAM,
           associatedTokenProgram: ATA_PROGRAM,
           systemProgram: SystemProgram.programId,
         })
-        .instruction();
-      tx.add(addLiqIx);
-
-      const initPendingIx = await program.methods
-        .initPendingLiquidity(
-          new anchor.BN(shares),
-          new anchor.BN(activationTime),
-          new anchor.BN(lpDepositAmounts[i])
-        )
-        .accounts({
-          globalConfig: globalConfigPda,
-          pendingLiquidity: pendingPda,
-          provider: lp.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
         .signers([lp])
-        .instruction();
-      tx.add(initPendingIx);
-
-      await provider.sendAndConfirm(tx, [lp]);
+        .rpc();
       console.log(`  Phase 1: LP ${i + 1} deposited ${lpDepositAmounts[i]} tokens`);
     }
 
@@ -534,11 +514,11 @@ describe("simulation — Full Protocol Run", () => {
     // Settlement markets are indices 5-7 (start_time in past)
     // ═══════════════════════════════════════════════════════
 
-    // Set challenge window to 10 seconds for testing
+    // Set challenge window to 60 seconds for testing (minimum allowed)
     await program.methods
       .updateConfig(
         null,               // max_market_exposure
-        new anchor.BN(10),  // challenge_window_seconds
+        new anchor.BN(60),  // challenge_window_seconds
         null,               // settlement_deadline_seconds
         null,               // lmsr_default_b
         null,               // slip_house_margin_bps
@@ -589,7 +569,7 @@ describe("simulation — Full Protocol Run", () => {
 
     // Wait for challenge window to expire
     console.log("  Phase 4: Waiting 11s for challenge window to expire...");
-    await new Promise(resolve => setTimeout(resolve, 11_000));
+    await new Promise(resolve => setTimeout(resolve, 62_000));
 
     // Finalize all settlement markets
     for (const m of settleMarketIndices) {
