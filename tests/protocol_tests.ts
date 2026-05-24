@@ -100,6 +100,10 @@ async function createTestMarket(
     [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
     program.programId
   );
+  const [epochPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+    program.programId
+  );
 
   await program.methods
     .createMarket(
@@ -112,10 +116,11 @@ async function createTestMarket(
       null
     )
     .accounts({
-      globalConfig: globalConfigPda,
+      global_config: globalConfigPda,
       market: marketPda,
+      epoch: epochPda,
       authority: authority.publicKey,
-      systemProgram: SystemProgram.programId,
+      system_program: SystemProgram.programId,
       rent: SYSVAR_RENT_PUBKEY,
     })
     .signers([authority])
@@ -168,12 +173,12 @@ async function initOutcomeMints2(
     await program.methods
       .initOutcomeMint(new anchor.BN(marketId), oid)
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         market: marketPda,
-        outcomeMint: mintPda,
+        outcome_mint: mintPda,
         payer: payer.publicKey,
-        tokenProgram: TOKEN_PROGRAM,
-        systemProgram: SystemProgram.programId,
+        token_program: TOKEN_PROGRAM,
+        system_program: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
@@ -290,13 +295,13 @@ describe("protocol_tests — Security & Edge Cases", () => {
         new anchor.BN(500_000_000)   // max_market_exposure
       )
       .accounts({
-        globalConfig: globalConfigPda,
-        lpMint: lpMintPda,
+        global_config: globalConfigPda,
+        lp_mint: lpMintPda,
         treasury: treasuryPda,
-        baseMint,
+        base_mint: baseMint,
         admin: admin.publicKey,
-        tokenProgram: TOKEN_PROGRAM,
-        systemProgram: SystemProgram.programId,
+        token_program: TOKEN_PROGRAM,
+        system_program: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
@@ -305,7 +310,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
     await program.methods
       .addOperator(marketCreator.publicKey)
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         admin: admin.publicKey,
       })
       .signers([admin])
@@ -338,18 +343,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
     await program.methods
       .addLiquidity(new anchor.BN(depositAmount))
       .accounts({
-        globalConfig: globalConfigPda,
-        lpMint: lpMintPda,
+        global_config: globalConfigPda,
+        lp_mint: lpMintPda,
         treasury: treasuryPda,
-        treasuryBaseAta,
-        providerBaseAta: adminBaseAta,
-        providerLpAta: adminLpAta,
-        baseMint,
-        pendingLiquidity: pendingLiquidityPda,
+        treasury_base_ata: treasuryBaseAta,
+        provider_base_ata: adminBaseAta,
+        provider_lp_ata: adminLpAta,
+        base_mint: baseMint,
+        pending_liquidity: pendingLiquidityPda,
         provider: admin.publicKey,
-        tokenProgram: TOKEN_PROGRAM,
-        associatedTokenProgram: ATA_PROGRAM,
-        systemProgram: SystemProgram.programId,
+        token_program: TOKEN_PROGRAM,
+        associated_token_program: ATA_PROGRAM,
+        system_program: SystemProgram.programId,
       })
       .signers([admin])
       .rpc();
@@ -400,7 +405,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .transferAdmin(attacker.publicKey)
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             admin: attacker.publicKey,
           })
           .signers([attacker])
@@ -417,7 +422,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .pause()
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             admin: attacker.publicKey,
           })
           .signers([attacker])
@@ -434,7 +439,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .pause()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -445,7 +450,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .unpause()
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             admin: attacker.publicKey,
           })
           .signers([attacker])
@@ -459,7 +464,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .unpause()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -476,7 +481,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
             null, null
           )
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             admin: attacker.publicKey,
           })
           .signers([attacker])
@@ -493,7 +498,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .voidMarket()
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             admin: attacker.publicKey,
           })
@@ -514,7 +519,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .addOperator(newOperator.publicKey)
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             admin: attacker.publicKey,
           })
           .signers([attacker])
@@ -528,7 +533,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .addOperator(newOperator.publicKey)
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -545,7 +550,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .removeOperator(newOperator.publicKey)
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -579,7 +584,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .suspendMarket()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPda,
           authority: marketCreator.publicKey,
         })
@@ -590,18 +595,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(10_000_000))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1Outcome0Ata,
-            outcomeMint: outcomeMint0,
-            baseMint,
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1Outcome0Ata,
+            outcome_mint: outcomeMint0,
+            base_mint: baseMint,
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -614,7 +619,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .resumeMarket()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPda,
           authority: marketCreator.publicKey,
         })
@@ -628,7 +633,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .pause()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -638,18 +643,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(10_000_000))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1Outcome0Ata,
-            outcomeMint: outcomeMint0,
-            baseMint,
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1Outcome0Ata,
+            outcome_mint: outcomeMint0,
+            base_mint: baseMint,
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -661,7 +666,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .unpause()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -690,11 +695,11 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .proposeResult(new anchor.BN(testMarketId), 5)
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: testMarketPda,
             dispute: testDisputePda,
             oracle: oracleKeypair.publicKey,
-            systemProgram: SystemProgram.programId,
+            system_program: SystemProgram.programId,
           })
           .signers([oracleKeypair])
           .rpc();
@@ -718,7 +723,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .voidMarket()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: testMarketPda,
           admin: admin.publicKey,
         })
@@ -733,7 +738,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .voidMarket()
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: testMarketPda,
             admin: admin.publicKey,
           })
@@ -766,12 +771,12 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .initOutcomeMint(new anchor.BN(pastMarketId), 0)
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: pastMarketPda,
-          outcomeMint: pastOutcomeMint0,
+          outcome_mint: pastOutcomeMint0,
           payer: payer.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          system_program: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .rpc();
@@ -792,18 +797,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(10_000_000))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: pastMarketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1PastOutcomeAta,
-            outcomeMint: pastOutcomeMint0,
-            baseMint,
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1PastOutcomeAta,
+            outcome_mint: pastOutcomeMint0,
+            base_mint: baseMint,
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -833,11 +838,11 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .proposeResult(new anchor.BN(testMarketId), 0)
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: testMarketPda,
             dispute: testDisputePda,
             oracle: user1.publicKey,    // wrong signer
-            systemProgram: SystemProgram.programId,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -863,7 +868,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .closeMarket(new anchor.BN(testMarketId))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: testMarketPda,
             authority: admin.publicKey,
           })
@@ -914,18 +919,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .buyShares(0, new anchor.BN(numShares), new anchor.BN(50_000_000))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: testMarketPda,
           treasury: treasuryPda,
-          buyerBaseAta: user2BaseAta,
-          treasuryBaseAta,
-          buyerOutcomeAta: user2Outcome0Ata,
-          outcomeMint: testOutcomeMint0,
-          baseMint,
+          buyer_base_ata: user2BaseAta,
+          treasury_base_ata: treasuryBaseAta,
+          buyer_outcome_ata: user2Outcome0Ata,
+          outcome_mint: testOutcomeMint0,
+          base_mint: baseMint,
           buyer: user2.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([user2])
         .rpc();
@@ -969,18 +974,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .buyShares(0, new anchor.BN(numShares), new anchor.BN(50_000_000))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: testMarketPda,
           treasury: treasuryPda,
-          buyerBaseAta: user2BaseAta,
-          treasuryBaseAta,
-          buyerOutcomeAta: user2Outcome0Ata,
-          outcomeMint: testOutcomeMint0,
-          baseMint,
+          buyer_base_ata: user2BaseAta,
+          treasury_base_ata: treasuryBaseAta,
+          buyer_outcome_ata: user2Outcome0Ata,
+          outcome_mint: testOutcomeMint0,
+          base_mint: baseMint,
           buyer: user2.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([user2])
         .rpc();
@@ -993,17 +998,17 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .sellShares(0, new anchor.BN(sellShares), new anchor.BN(1))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: testMarketPda,
           treasury: treasuryPda,
-          sellerOutcomeAta: user2Outcome0Ata,
-          sellerBaseAta: user2BaseAta,
-          treasuryBaseAta,
-          outcomeMint: testOutcomeMint0,
-          baseMint,
+          seller_outcome_ata: user2Outcome0Ata,
+          seller_base_ata: user2BaseAta,
+          treasury_base_ata: treasuryBaseAta,
+          outcome_mint: testOutcomeMint0,
+          base_mint: baseMint,
           seller: user2.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
         })
         .signers([user2])
         .rpc();
@@ -1044,7 +1049,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
           null, null, null, null, null,
           null, null
         )
-        .accounts({ globalConfig: globalConfigPda, admin: admin.publicKey })
+        .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
         .rpc();
 
       const configBefore = await program.account.globalConfig.fetch(globalConfigPda);
@@ -1054,11 +1059,11 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .proposeResult(new anchor.BN(settleId), 0)
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: settlePda,
           dispute: settleDpPda,
           oracle: oracleKeypair.publicKey,
-          systemProgram: SystemProgram.programId,
+          system_program: SystemProgram.programId,
         })
         .signers([oracleKeypair])
         .rpc();
@@ -1069,7 +1074,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .finalizeResult(new anchor.BN(settleId))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: settlePda,
           dispute: settleDpPda,
           caller: payer.publicKey,
@@ -1135,18 +1140,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000_000_000), new anchor.BN(1_000_000_000_000))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: testMarketPda,
             treasury: treasuryPda,
-            buyerBaseAta: attackerBaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: attackerOutcome0Ata,
-            outcomeMint: testOutcomeMint0,
-            baseMint,
+            buyer_base_ata: attackerBaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: attackerOutcome0Ata,
+            outcome_mint: testOutcomeMint0,
+            base_mint: baseMint,
             buyer: attacker.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([attacker])
           .rpc();
@@ -1178,17 +1183,17 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .sellShares(0, new anchor.BN(1_000_000), new anchor.BN(1))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            sellerOutcomeAta: user2Outcome0Ata,
-            sellerBaseAta: user2BaseAta,
-            treasuryBaseAta,
-            outcomeMint: outcomeMint0,
-            baseMint,
+            seller_outcome_ata: user2Outcome0Ata,
+            seller_base_ata: user2BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            outcome_mint: outcomeMint0,
+            base_mint: baseMint,
             seller: user2.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
           })
           .signers([user2])
           .rpc();
@@ -1205,18 +1210,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(10_000_000), new anchor.BN(1))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1Outcome0Ata,
-            outcomeMint: outcomeMint0,
-            baseMint,
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1Outcome0Ata,
+            outcome_mint: outcomeMint0,
+            base_mint: baseMint,
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -1233,18 +1238,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(10_000_000))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPda,
           treasury: treasuryPda,
-          buyerBaseAta: user1BaseAta,
-          treasuryBaseAta,
-          buyerOutcomeAta: user1Outcome0Ata,
-          outcomeMint: outcomeMint0,
-          baseMint,
+          buyer_base_ata: user1BaseAta,
+          treasury_base_ata: treasuryBaseAta,
+          buyer_outcome_ata: user1Outcome0Ata,
+          outcome_mint: outcomeMint0,
+          base_mint: baseMint,
           buyer: user1.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([user1])
         .rpc();
@@ -1253,17 +1258,17 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .sellShares(0, new anchor.BN(1_000_000), new anchor.BN(1_000_000_000_000))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            sellerOutcomeAta: user1Outcome0Ata,
-            sellerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            outcomeMint: outcomeMint0,
-            baseMint,
+            seller_outcome_ata: user1Outcome0Ata,
+            seller_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            outcome_mint: outcomeMint0,
+            base_mint: baseMint,
             seller: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
           })
           .signers([user1])
           .rpc();
@@ -1293,11 +1298,11 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .proposeResult(new anchor.BN(testMarketId), 0)
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: testMarketPda,
             dispute: testDisputePda,
             oracle: attacker.publicKey,
-            systemProgram: SystemProgram.programId,
+            system_program: SystemProgram.programId,
           })
           .signers([attacker])
           .rpc();
@@ -1338,18 +1343,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .buyShares(0, new anchor.BN(numShares), new anchor.BN(numShares * 3))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: testMarketPda,
           treasury: treasuryPda,
-          buyerBaseAta: user1BaseAta,
-          treasuryBaseAta,
-          buyerOutcomeAta: user1FeeTestAta,
-          outcomeMint: feeTestOutcomeMint0,
-          baseMint,
+          buyer_base_ata: user1BaseAta,
+          treasury_base_ata: treasuryBaseAta,
+          buyer_outcome_ata: user1FeeTestAta,
+          outcome_mint: feeTestOutcomeMint0,
+          base_mint: baseMint,
           buyer: user1.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([user1])
         .rpc();
@@ -1388,18 +1393,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(10_000_000))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1Outcome0Ata,
-            outcomeMint: outcomeMint1, // Wrong mint — should be outcomeMint0 for outcome 0
-            baseMint,
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1Outcome0Ata,
+            outcome_mint: outcomeMint1, // Wrong mint — should be outcomeMint0 for outcome 0
+            base_mint: baseMint,
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -1422,18 +1427,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(10_000_000))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1Outcome0Ata,
-            outcomeMint: outcomeMint0,
-            baseMint: fakeMint, // Wrong base mint!
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1Outcome0Ata,
+            outcome_mint: outcomeMint0,
+            base_mint: fakeMint, // Wrong base mint!
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -1452,18 +1457,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(10_000_000))
           .accounts({
-            globalConfig: fakeConfig, // Wrong config!
+            global_config: fakeConfig, // Wrong config!
             market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1Outcome0Ata,
-            outcomeMint: outcomeMint0,
-            baseMint,
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1Outcome0Ata,
+            outcome_mint: outcomeMint0,
+            base_mint: baseMint,
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -1487,18 +1492,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(0), new anchor.BN(0))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1Outcome0Ata,
-            outcomeMint: outcomeMint0,
-            baseMint,
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1Outcome0Ata,
+            outcome_mint: outcomeMint0,
+            base_mint: baseMint,
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -1516,18 +1521,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .buyShares(0, new anchor.BN(1), new anchor.BN(1_000_000))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPda,
           treasury: treasuryPda,
-          buyerBaseAta: user1BaseAta,
-          treasuryBaseAta,
-          buyerOutcomeAta: user1Outcome0Ata,
-          outcomeMint: outcomeMint0,
-          baseMint,
+          buyer_base_ata: user1BaseAta,
+          treasury_base_ata: treasuryBaseAta,
+          buyer_outcome_ata: user1Outcome0Ata,
+          outcome_mint: outcomeMint0,
+          base_mint: baseMint,
           buyer: user1.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([user1])
         .rpc();
@@ -1546,18 +1551,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(0))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: user1BaseAta,
-            treasuryBaseAta,
-            buyerOutcomeAta: user1Outcome0Ata,
-            outcomeMint: outcomeMint0,
-            baseMint,
+            buyer_base_ata: user1BaseAta,
+            treasury_base_ata: treasuryBaseAta,
+            buyer_outcome_ata: user1Outcome0Ata,
+            outcome_mint: outcomeMint0,
+            base_mint: baseMint,
             buyer: user1.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([user1])
           .rpc();
@@ -1577,6 +1582,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
         [Buffer.from("market"), new anchor.BN(testMarketId).toArrayLike(Buffer, "le", 8)],
         program.programId
       );
+      const [epochPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
 
       try {
         await program.methods
@@ -1590,10 +1599,11 @@ describe("protocol_tests — Security & Edge Cases", () => {
             null
           )
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: testMarketPda,
+            epoch: epochPda,
             authority: admin.publicKey,
-            systemProgram: SystemProgram.programId,
+            system_program: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([admin])
@@ -1614,6 +1624,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
         [Buffer.from("market"), new anchor.BN(testMarketId).toArrayLike(Buffer, "le", 8)],
         program.programId
       );
+      const [epochPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
 
       // attacker is not admin nor a registered operator
       try {
@@ -1628,10 +1642,11 @@ describe("protocol_tests — Security & Edge Cases", () => {
             null
           )
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: testMarketPda,
+            epoch: epochPda,
             authority: attacker.publicKey,
-            systemProgram: SystemProgram.programId,
+            system_program: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([attacker])
@@ -1671,18 +1686,18 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .addLiquidity(new anchor.BN(500)) // Below MIN_FIRST_LIQUIDITY (1000)
           .accounts({
-            globalConfig: globalConfigPda,
-            lpMint: lpMintPda,
+            global_config: globalConfigPda,
+            lp_mint: lpMintPda,
             treasury: treasuryPda,
-            treasuryBaseAta,
-            providerBaseAta: newLpBaseAta,
-            providerLpAta: newLpLpAta,
-            baseMint,
-            pendingLiquidity: newLpPendingPda,
+            treasury_base_ata: treasuryBaseAta,
+            provider_base_ata: newLpBaseAta,
+            provider_lp_ata: newLpLpAta,
+            base_mint: baseMint,
+            pending_liquidity: newLpPendingPda,
             provider: newLp.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([newLp])
           .rpc();
@@ -1704,6 +1719,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
         [Buffer.from("market"), new anchor.BN(testMarketId).toArrayLike(Buffer, "le", 8)],
         program.programId
       );
+      const [epochPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
 
       await program.methods
         .createMarket(
@@ -1716,10 +1735,11 @@ describe("protocol_tests — Security & Edge Cases", () => {
           null
         )
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: testMarketPda,
+          epoch: epochPda,
           authority: admin.publicKey,
-          systemProgram: SystemProgram.programId,
+          system_program: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([admin])
@@ -1748,7 +1768,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .transferAdmin(newAdmin.publicKey)
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -1761,7 +1781,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .pause()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: newAdmin.publicKey,
         })
         .signers([newAdmin])
@@ -1771,7 +1791,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .unpause()
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: newAdmin.publicKey,
         })
         .signers([newAdmin])
@@ -1781,7 +1801,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
       await program.methods
         .transferAdmin(admin.publicKey)
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: newAdmin.publicKey,
         })
         .signers([newAdmin])
@@ -1807,7 +1827,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
           null                         // oracle_pubkey
         )
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -1825,7 +1845,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
           null
         )
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -1848,7 +1868,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
           null, newOracleBytes
         )
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -1868,7 +1888,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
           null, origOracleBytes
         )
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -1921,19 +1941,19 @@ describe("protocol_tests — Security & Edge Cases", () => {
         await program.methods
           .requestWithdraw(new anchor.BN(1_000_000))
           .accounts({
-            globalConfig: globalConfigPda,
-            lpMint: lpMintPda,
+            global_config: globalConfigPda,
+            lp_mint: lpMintPda,
             treasury: treasuryPda,
-            treasuryBaseAta,
+            treasury_base_ata: treasuryBaseAta,
             treasuryLpAta,
-            lpLpAta: adminLpAta,
-            pendingLiquidity: pendingPda,
+            lp_lp_ata: adminLpAta,
+            pending_liquidity: pendingPda,
             withdrawalRequest: withdrawalPda,
-            baseMint,
+            base_mint: baseMint,
             lp: admin.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([admin])
           .rpc();
@@ -1944,16 +1964,16 @@ describe("protocol_tests — Security & Edge Cases", () => {
             await program.methods
               .processWithdrawal()
               .accounts({
-                globalConfig: globalConfigPda,
-                lpMint: lpMintPda,
+                global_config: globalConfigPda,
+                lp_mint: lpMintPda,
                 treasury: treasuryPda,
-                treasuryBaseAta,
+                treasury_base_ata: treasuryBaseAta,
                 treasuryLpAta,
-                lpBaseAta: adminBaseAta,
+                lp_base_ata: adminBaseAta,
                 withdrawalRequest: withdrawalPda,
                 authority: admin.publicKey,
-                tokenProgram: TOKEN_PROGRAM,
-                systemProgram: SystemProgram.programId,
+                token_program: TOKEN_PROGRAM,
+                system_program: SystemProgram.programId,
               })
               .rpc();
             assert.fail("Should have failed — cooldown not elapsed");

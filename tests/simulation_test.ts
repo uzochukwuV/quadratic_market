@@ -166,13 +166,13 @@ describe("simulation — Full Protocol Run", () => {
         new anchor.BN(500_000_000)  // max_market_exposure
       )
       .accounts({
-        globalConfig: globalConfigPda,
-        lpMint: lpMintPda,
+        global_config: globalConfigPda,
+        lp_mint: lpMintPda,
         treasury: treasuryPda,
         baseMint,
         admin: admin.publicKey,
-        tokenProgram: TOKEN_PROGRAM,
-        systemProgram: SystemProgram.programId,
+        token_program: TOKEN_PROGRAM,
+        system_program: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
@@ -181,7 +181,7 @@ describe("simulation — Full Protocol Run", () => {
     await program.methods
       .addOperator(marketCreator.publicKey)
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         admin: admin.publicKey,
       })
       .signers([admin])
@@ -238,18 +238,18 @@ describe("simulation — Full Protocol Run", () => {
       await program.methods
         .addLiquidity(new anchor.BN(lpDepositAmounts[i]))
         .accounts({
-          globalConfig: globalConfigPda,
-          lpMint: lpMintPda,
+          global_config: globalConfigPda,
+          lp_mint: lpMintPda,
           treasury: treasuryPda,
           treasuryBaseAta,
-          providerBaseAta: baseAta,
-          providerLpAta: lpAta,
+          provider_base_ata: baseAta,
+          provider_lp_ata: lpAta,
           baseMint,
-          pendingLiquidity: pendingPda,
+          pending_liquidity: pendingPda,
           provider: lp.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([lp])
         .rpc();
@@ -315,10 +315,10 @@ describe("simulation — Full Protocol Run", () => {
           null
         )
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPda,
           authority: authority.publicKey,
-          systemProgram: SystemProgram.programId,
+          system_program: SystemProgram.programId,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([authority])
@@ -340,12 +340,12 @@ describe("simulation — Full Protocol Run", () => {
         await program.methods
           .initOutcomeMint(new anchor.BN(marketId), o)
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPda,
-            outcomeMint: mintPda,
+            outcome_mint: mintPda,
             payer: payer.publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            system_program: SystemProgram.programId,
             rent: SYSVAR_RENT_PUBKEY,
           })
           .rpc();
@@ -423,18 +423,18 @@ describe("simulation — Full Protocol Run", () => {
         await program.methods
           .buyShares(outcomeId, new anchor.BN(numShares), new anchor.BN(maxPayment))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPdas[m],
             treasury: treasuryPda,
-            buyerBaseAta: userBaseAtas[u],
+            buyer_base_ata: userBaseAtas[u],
             treasuryBaseAta,
-            buyerOutcomeAta: userOutcomeAtas[u][m][outcomeId],
-            outcomeMint: outcomeMints[m][outcomeId],
+            buyer_outcome_ata: userOutcomeAtas[u][m][outcomeId],
+            outcome_mint: outcomeMints[m][outcomeId],
             baseMint,
             buyer: users[u].publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([users[u]])
           .rpc();
@@ -459,17 +459,17 @@ describe("simulation — Full Protocol Run", () => {
         await program.methods
           .sellShares(outcomeId, new anchor.BN(sellAmount), new anchor.BN(1))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPdas[m],
             treasury: treasuryPda,
-            sellerOutcomeAta: ata,
-            sellerBaseAta: userBaseAtas[u],
+            seller_outcome_ata: ata,
+            seller_base_ata: userBaseAtas[u],
             treasuryBaseAta,
-            outcomeMint: outcomeMints[m][outcomeId],
+            outcome_mint: outcomeMints[m][outcomeId],
             baseMint,
             seller: users[u].publicKey,
-            tokenProgram: TOKEN_PROGRAM,
-            associatedTokenProgram: ATA_PROGRAM,
+            token_program: TOKEN_PROGRAM,
+            associated_token_program: ATA_PROGRAM,
           })
           .signers([users[u]])
           .rpc();
@@ -491,7 +491,7 @@ describe("simulation — Full Protocol Run", () => {
     await program.methods
       .suspendMarket()
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         market: marketPdas[0],
         authority: admin.publicKey,
       })
@@ -501,7 +501,7 @@ describe("simulation — Full Protocol Run", () => {
     await program.methods
       .suspendMarket()
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         market: marketPdas[1],
         authority: marketCreator.publicKey,
       })
@@ -531,7 +531,7 @@ describe("simulation — Full Protocol Run", () => {
         null                // oracle_pubkey
       )
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         admin: admin.publicKey,
       })
       .signers([admin])
@@ -553,11 +553,11 @@ describe("simulation — Full Protocol Run", () => {
       await program.methods
         .proposeResult(new anchor.BN(marketId), winningOutcomes[m])
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPdas[m],
           dispute: disputePda,
           oracle: oracleKeypair.publicKey,
-          systemProgram: SystemProgram.programId,
+          system_program: SystemProgram.programId,
         })
         .signers([oracleKeypair])
         .rpc();
@@ -582,7 +582,7 @@ describe("simulation — Full Protocol Run", () => {
       await program.methods
         .finalizeResult(new anchor.BN(marketId))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPdas[m],
           dispute: disputePda,
           caller: payer.publicKey,
@@ -599,7 +599,7 @@ describe("simulation — Full Protocol Run", () => {
     await program.methods
       .voidMarket()
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         market: marketPdas[2], // Market 3 — no suspension needed before void
         admin: admin.publicKey,
       })
@@ -648,17 +648,17 @@ describe("simulation — Full Protocol Run", () => {
       await program.methods
         .claimPayout(new anchor.BN(testSettleMarketId))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPdas[testSettleM],
           treasury: treasuryPda,
           claimerOutcomeAta: userSettleAta,
           claimerBaseAta: userBaseAtas[0],
           treasuryBaseAta,
-          outcomeMint: testWinningMint,
+          outcome_mint: testWinningMint,
           baseMint,
           claimer: users[0].publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
         })
         .signers([users[0]])
         .rpc();
@@ -676,7 +676,7 @@ describe("simulation — Full Protocol Run", () => {
         await program.methods
           .closeMarket(new anchor.BN(marketId))
           .accounts({
-            globalConfig: globalConfigPda,
+            global_config: globalConfigPda,
             market: marketPdas[m],
             authority: payer.publicKey,
           })
@@ -693,7 +693,7 @@ describe("simulation — Full Protocol Run", () => {
       await program.methods
         .closeMarket(new anchor.BN(marketIds[2]))
         .accounts({
-          globalConfig: globalConfigPda,
+          global_config: globalConfigPda,
           market: marketPdas[2],
           authority: payer.publicKey,
         })
@@ -715,7 +715,7 @@ describe("simulation — Full Protocol Run", () => {
         null, null
       )
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         admin: admin.publicKey,
       })
       .signers([admin])
@@ -766,19 +766,19 @@ describe("simulation — Full Protocol Run", () => {
       await program.methods
         .requestWithdraw(new anchor.BN(withdrawShares))
         .accounts({
-          globalConfig: globalConfigPda,
-          lpMint: lpMintPda,
+          global_config: globalConfigPda,
+          lp_mint: lpMintPda,
           treasury: treasuryPda,
           treasuryBaseAta,
           treasuryLpAta,
-          lpLpAta: lpAta,
-          pendingLiquidity: pendingPda,
+          lp_lp_ata: lpAta,
+          pending_liquidity: pendingPda,
           withdrawalRequest: withdrawalPda,
           baseMint,
           lp: lp.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([lp])
         .rpc();
@@ -786,16 +786,16 @@ describe("simulation — Full Protocol Run", () => {
       await program.methods
         .processWithdrawal()
         .accounts({
-          globalConfig: globalConfigPda,
-          lpMint: lpMintPda,
+          global_config: globalConfigPda,
+          lp_mint: lpMintPda,
           treasury: treasuryPda,
           treasuryBaseAta,
           treasuryLpAta,
-          lpBaseAta: lpBaseAtas[withdrawLpIdx],
+          lp_base_ata: lpBaseAtas[withdrawLpIdx],
           withdrawalRequest: withdrawalPda,
           authority: payer.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .rpc();
 

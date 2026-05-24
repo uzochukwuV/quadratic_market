@@ -176,13 +176,13 @@ describe("quadratic_market — Happy Path", () => {
         new anchor.BN(500_000_000)
       )
       .accounts({
-        globalConfig: globalConfigPda,
-        lpMint: lpMintPda,
+        global_config: globalConfigPda,
+        lp_mint: lpMintPda,
         treasury: treasuryPda,
-        baseMint,
+        base_mint: baseMint,
         admin: payer.publicKey,
-        tokenProgram: TOKEN_PROGRAM,
-        systemProgram: SystemProgram.programId,
+        token_program: TOKEN_PROGRAM,
+        system_program: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
@@ -222,18 +222,18 @@ describe("quadratic_market — Happy Path", () => {
     await program.methods
       .addLiquidity(new anchor.BN(depositAmount))
       .accounts({
-        globalConfig: globalConfigPda,
-        lpMint: lpMintPda,
+        global_config: globalConfigPda,
+        lp_mint: lpMintPda,
         treasury: treasuryPda,
-        treasuryBaseAta,
-        providerBaseAta: lp1BaseAta,
-        providerLpAta: lp1LpAta,
-        baseMint,
-        pendingLiquidity: pendingLiquidityPda,
+        treasury_base_ata: treasuryBaseAta,
+        provider_base_ata: lp1BaseAta,
+        provider_lp_ata: lp1LpAta,
+        base_mint: baseMint,
+        pending_liquidity: pendingLiquidityPda,
         provider: lp1.publicKey,
-        tokenProgram: TOKEN_PROGRAM,
-        associatedTokenProgram: ATA_PROGRAM,
-        systemProgram: SystemProgram.programId,
+        token_program: TOKEN_PROGRAM,
+        associated_token_program: ATA_PROGRAM,
+        system_program: SystemProgram.programId,
       })
       .signers([lp1])
       .rpc();
@@ -264,6 +264,11 @@ describe("quadratic_market — Happy Path", () => {
       program.programId
     );
 
+    const [epochPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
+
     const startTime = Math.floor(Date.now() / 1000) + 3600; // 1 hour in future
 
     await program.methods
@@ -277,10 +282,11 @@ describe("quadratic_market — Happy Path", () => {
         null
       )
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         market: tradingMarketPda,
+        epoch: epochPda,
         authority: payer.publicKey, // admin is authorized
-        systemProgram: SystemProgram.programId,
+        system_program: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
@@ -319,10 +325,11 @@ describe("quadratic_market — Happy Path", () => {
         null
       )
       .accounts({
-        globalConfig: globalConfigPda,
+        global_config: globalConfigPda,
         market: settlementMarketPda,
+        epoch: epochPda,
         authority: payer.publicKey,
-        systemProgram: SystemProgram.programId,
+        system_program: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
