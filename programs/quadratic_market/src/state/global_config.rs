@@ -80,8 +80,11 @@ impl GlobalConfig {
         + 8;  // next_epoch_start
 
     pub fn free_liquidity(&self, treasury_balance: u64) -> u64 {
-        if treasury_balance > self.locked_payouts {
-            treasury_balance - self.locked_payouts
+        let total_locked = self
+            .locked_payouts
+            .saturating_add(self.order_collateral_locked);
+        if treasury_balance > total_locked {
+            treasury_balance - total_locked
         } else {
             0
         }
@@ -119,5 +122,15 @@ impl GlobalConfig {
         } else {
             0
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_config_len_matches_expected() {
+        assert_eq!(GlobalConfig::LEN, 614);
     }
 }
