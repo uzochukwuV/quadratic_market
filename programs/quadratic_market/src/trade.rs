@@ -233,14 +233,21 @@ pub fn sell_shares_handler(
     let now = Clock::get()?.unix_timestamp;
     require!(now < market.start_time, QuadraticMarketError::MarketExpired);
 
-    let payout = lmsr_sell_payout(
+    let gross_payout = lmsr_sell_payout(
         &market.q_values, market.num_outcomes, outcome_id, num_shares, market.lmsr_b,
     )?;
+
+    // Apply sell fee — goes to treasury/LP revenue (same as buy fee)
+    let sell_fee = gross_payout
+        .checked_mul(config.sell_fee_bps)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10_000;
+    let payout = gross_payout.checked_sub(sell_fee).ok_or(QuadraticMarketError::MathUnderflow)?;
 
     require!(payout >= min_payout, QuadraticMarketError::LmsrSellBelowMin);
 
     let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(free_liquidity >= payout, QuadraticMarketError::InsufficientLiquidity);
+    require!(free_liquidity >= gross_payout, QuadraticMarketError::InsufficientLiquidity);
 
     // Burn outcome tokens
     token::burn(
@@ -255,7 +262,7 @@ pub fn sell_shares_handler(
         num_shares,
     )?;
 
-    // Transfer payout from treasury
+    // Transfer net payout (gross - fee) from treasury to seller; fee stays in treasury
     let treasury_seeds = &[seeds::TREASURY, &[config.treasury_bump]];
     token::transfer(
         CpiContext::new_with_signer(
@@ -273,7 +280,7 @@ pub fn sell_shares_handler(
     market.q_values[outcome_id as usize] = market.q_values[outcome_id as usize]
         .checked_sub(num_shares)
         .ok_or(QuadraticMarketError::MathUnderflow)?;
-    let profit_exposure_reduction = num_shares.saturating_sub(payout);
+    let profit_exposure_reduction = num_shares.saturating_sub(gross_payout);
     market.exposure = market.exposure.saturating_sub(profit_exposure_reduction);
     config.locked_payouts = config.locked_payouts.saturating_sub(num_shares);
 
@@ -520,7 +527,7 @@ pub fn sell_shares_correlated_handler<'info>(
     let now = Clock::get()?.unix_timestamp;
     require!(now < market.start_time, QuadraticMarketError::MarketExpired);
 
-    let payout = if let Some(ref mut group) = ctx.accounts.market_group {
+    let gross_payout = if let Some(ref mut group) = ctx.accounts.market_group {
         if !group.correlation_locked { group.correlation_locked = true; }
 
         let correlated_q = assemble_correlated_q_values(
@@ -535,12 +542,18 @@ pub fn sell_shares_correlated_handler<'info>(
         lmsr_sell_payout(&market.q_values, market.num_outcomes, outcome_id, num_shares, market.lmsr_b)?
     };
 
+    let sell_fee = gross_payout
+        .checked_mul(config.sell_fee_bps)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10_000;
+    let payout = gross_payout.checked_sub(sell_fee).ok_or(QuadraticMarketError::MathUnderflow)?;
+
     require!(payout >= min_payout, QuadraticMarketError::LmsrSellBelowMin);
 
     let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(free_liquidity >= payout, QuadraticMarketError::InsufficientLiquidity);
+    require!(free_liquidity >= gross_payout, QuadraticMarketError::InsufficientLiquidity);
 
-    let profit_exposure_reduction = num_shares.saturating_sub(payout);
+    let profit_exposure_reduction = num_shares.saturating_sub(gross_payout);
     if let Some(ref mut group) = ctx.accounts.market_group {
         group.total_group_exposure = group.total_group_exposure.saturating_sub(profit_exposure_reduction);
     } else {

@@ -478,7 +478,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
           .updateConfig(
             null, null, null, null, null,
             null, null, null, null, null,
-            null, null
+            null, null, null, null, null
           )
           .accounts({
             global_config: globalConfigPda,
@@ -1047,7 +1047,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         .updateConfig(
           null, new anchor.BN(60), null, null, null,
           null, null, null, null, null,
-          null, null
+          null, null, null, null, null
         )
         .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
         .rpc();
@@ -1824,7 +1824,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
           null,                        // max_single_bet
           null,                        // min_outcome_price_bps
           null,                        // buy_fee_bps
-          null                         // oracle_pubkey
+          null,                        // oracle_pubkey
+          null,                        // cash_out_margin_bps
+          null,                        // sell_fee_bps
+          null                         // slip_listing_fee_bps
         )
         .accounts({
           global_config: globalConfigPda,
@@ -1842,7 +1845,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
           new anchor.BN(500_000_000),
           null, null, null, null, null,
           null, null, null, null, null,
-          null
+          null, null, null, null
         )
         .accounts({
           global_config: globalConfigPda,
@@ -1865,7 +1868,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         .updateConfig(
           null, null, null, null, null,
           null, null, null, null, null,
-          null, newOracleBytes
+          null, newOracleBytes, null, null, null
         )
         .accounts({
           global_config: globalConfigPda,
@@ -1885,7 +1888,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         .updateConfig(
           null, null, null, null, null,
           null, null, null, null, null,
-          null, origOracleBytes
+          null, origOracleBytes, null, null, null
         )
         .accounts({
           global_config: globalConfigPda,

@@ -528,7 +528,10 @@ describe("simulation — Full Protocol Run", () => {
         null,               // max_single_bet
         null,               // min_outcome_price_bps
         null,               // buy_fee_bps
-        null                // oracle_pubkey
+        null,               // oracle_pubkey
+        null,               // cash_out_margin_bps
+        null,               // sell_fee_bps
+        null                // slip_listing_fee_bps
       )
       .accounts({
         global_config: globalConfigPda,
@@ -712,7 +715,7 @@ describe("simulation — Full Protocol Run", () => {
       .updateConfig(
         null, null, null, null, null,
         null, null, new anchor.BN(0), null, null,
-        null, null
+        null, null, null, null, null
       )
       .accounts({
         global_config: globalConfigPda,

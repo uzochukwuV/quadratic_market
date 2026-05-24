@@ -39,6 +39,7 @@ pub mod seeds {
     pub const PENDING: &[u8] = b"pending";
     pub const ORDER: &[u8] = b"order";
     pub const EPOCH: &[u8] = b"epoch";
+    pub const SLIP_LISTING: &[u8] = b"slip_listing";
 }
 
 // Correlated markets
@@ -67,3 +68,9 @@ pub const MAX_OPERATORS: usize = 8;
 
 // Cash-out
 pub const DEFAULT_CASH_OUT_MARGIN_BPS: u64 = 500; // 5%
+
+// Cancel buy (sell back to pool fee for Trading mode)
+pub const DEFAULT_SELL_FEE_BPS: u64 = 100; // 1% fee on selling shares back to pool
+
+// Slip listing (auction)
+pub const DEFAULT_SLIP_LISTING_FEE_BPS: u64 = 100; // 1% protocol fee on slip auction fills

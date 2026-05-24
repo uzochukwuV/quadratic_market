@@ -154,6 +154,12 @@ pub enum QuadraticMarketError {
     #[msg("Bet slip has already been cashed out")]
     SlipAlreadyCashedOut = 724,
 
+    // 726-799: Slip listing / auction errors
+    #[msg("Slip listing has expired")]
+    ListingExpired = 726,
+    #[msg("Slip listing not found or seller mismatch")]
+    ListingNotFound = 727,
+
     // 800-899: Epoch errors
     #[msg("Epoch has not completed — not all markets are settled")]
     EpochNotComplete = 800,

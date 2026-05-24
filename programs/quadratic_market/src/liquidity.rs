@@ -449,6 +449,13 @@ pub struct ProcessWithdrawal<'info> {
     )]
     pub withdrawal_request: Account<'info, WithdrawalRequest>,
 
+    /// Only the LP or admin can process a withdrawal to prevent griefing via
+    /// strategic timing (processing when share price dips below snapshot).
+    #[account(
+        constraint = authority.key() == withdrawal_request.lp
+            || authority.key() == global_config.admin
+            @ QuadraticMarketError::Unauthorized
+    )]
     pub authority: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,

@@ -276,14 +276,17 @@ pub fn void_market_handler(ctx: Context<VoidMarket>) -> Result<()> {
     let market = &mut ctx.accounts.market;
     let config = &mut ctx.accounts.global_config;
     let epoch = &mut ctx.accounts.epoch;
-    // Release the full outstanding share liability (sum of all q_values), not
-    // market.exposure. locked_payouts was incremented by num_shares per buy;
-    // market.exposure is the LP net-risk delta (num_shares - cost), which is
-    // always less. Using exposure left the difference permanently frozen.
-    let total_locked: u64 = (0..market.num_outcomes as usize)
-        .map(|i| market.q_values[i])
-        .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    // For Trading mode: locked_payouts = sum(q_values), so release all on void.
+    // For FixedOdds mode: locked_payouts holds only bonus_gaps from slips.
+    //   Subtracting q_values would underflow it. Each slip handles its own
+    //   locked_payouts cleanup when claimed (claim_slip refunds total_stake and
+    //   reduces locked_payouts by locked_amount for voided slips).
+    if market.market_mode == MarketMode::Trading {
+        let total_locked: u64 = (0..market.num_outcomes as usize)
+            .map(|i| market.q_values[i])
+            .fold(0u64, |acc, v| acc.saturating_add(v));
+        config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    }
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
         epoch.num_settled_markets = epoch.num_settled_markets
@@ -340,11 +343,13 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     require!(now > deadline, QuadraticMarketError::SettlementDeadlineNotPassed);
 
-    // Same fix as void_market: release sum(q_values), not market.exposure.
-    let total_locked: u64 = (0..market.num_outcomes as usize)
-        .map(|i| market.q_values[i])
-        .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    // Same fix as void_market: only release q_values for Trading mode markets.
+    if market.market_mode == MarketMode::Trading {
+        let total_locked: u64 = (0..market.num_outcomes as usize)
+            .map(|i| market.q_values[i])
+            .fold(0u64, |acc, v| acc.saturating_add(v));
+        config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    }
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
         epoch.num_settled_markets = epoch.num_settled_markets

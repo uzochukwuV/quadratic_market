@@ -6,7 +6,8 @@ use crate::constants::{
     DEFAULT_EPOCH_DURATION_SECONDS, DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS,
     DEFAULT_CHALLENGE_WINDOW, DEFAULT_SETTLEMENT_DEADLINE,
     DEFAULT_MAX_SINGLE_BET, DEFAULT_MIN_OUTCOME_PRICE_BPS, DEFAULT_BUY_FEE_BPS,
-    MAX_OPERATORS, DEFAULT_CASH_OUT_MARGIN_BPS,
+    MAX_OPERATORS, DEFAULT_CASH_OUT_MARGIN_BPS, DEFAULT_SELL_FEE_BPS,
+    DEFAULT_SLIP_LISTING_FEE_BPS,
 };
 use crate::state::GlobalConfig;
 
@@ -89,6 +90,9 @@ pub fn handler(
     // Epoch state: start unpaused, epoch 0, next epoch starts one duration from now
     config.epoch_paused = false;
     config.next_epoch_start = 0; // will be set when first epoch is initialized
+    config.sell_fee_bps = DEFAULT_SELL_FEE_BPS;
+    config.slip_listing_fee_bps = DEFAULT_SLIP_LISTING_FEE_BPS;
+    config.next_listing_id = 1;
 
     Ok(())
 }

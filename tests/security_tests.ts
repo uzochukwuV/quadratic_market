@@ -214,7 +214,7 @@ describe("Security: fixed vulnerabilities", () => {
       await program.methods
         .updateConfig(
           new anchor.BN(1), // max_market_exposure = 1 lamport
-          null, null, null, null, null, null, null, null, null, null, null
+          null, null, null, null, null, null, null, null, null, null, null, null, null
         )
         .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
         .signers([admin]).rpc();
@@ -241,7 +241,7 @@ describe("Security: fixed vulnerabilities", () => {
       } finally {
         // Restore a generous cap
         await program.methods
-          .updateConfig(new anchor.BN(500_000_000), null, null, null, null, null, null, null, null, null, null, null)
+          .updateConfig(new anchor.BN(500_000_000), null, null, null, null, null, null, null, null, null, null, null, null, null, null)
           .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
       }
@@ -423,7 +423,7 @@ describe("Security: fixed vulnerabilities", () => {
     it("challenge_window_seconds = 0 is rejected", async () => {
       try {
         await program.methods
-          .updateConfig(null, new anchor.BN(0), null, null, null, null, null, null, null, null, null, null)
+          .updateConfig(null, new anchor.BN(0), null, null, null, null, null, null, null, null, null, null, null, null, null)
           .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
         assert.fail("Should have rejected challenge_window=0");
@@ -436,7 +436,7 @@ describe("Security: fixed vulnerabilities", () => {
     it("epoch_duration_seconds = 0 is rejected (prevents div-by-zero)", async () => {
       try {
         await program.methods
-          .updateConfig(null, null, null, null, null, null, new anchor.BN(0), null, null, null, null, null)
+          .updateConfig(null, null, null, null, null, null, new anchor.BN(0), null, null, null, null, null, null, null, null)
           .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
         assert.fail("Should have rejected epoch_duration=0");
@@ -449,7 +449,7 @@ describe("Security: fixed vulnerabilities", () => {
     it("buy_fee_bps = 10000 (100%) is rejected", async () => {
       try {
         await program.methods
-          .updateConfig(null, null, null, null, null, null, null, null, null, null, new anchor.BN(10_000), null)
+          .updateConfig(null, null, null, null, null, null, null, null, null, null, new anchor.BN(10_000), null, null, null, null)
           .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
         assert.fail("Should have rejected buy_fee_bps=10000");
@@ -462,7 +462,7 @@ describe("Security: fixed vulnerabilities", () => {
     it("settlement_deadline_seconds = 0 is rejected", async () => {
       try {
         await program.methods
-          .updateConfig(null, null, new anchor.BN(0), null, null, null, null, null, null, null, null, null)
+          .updateConfig(null, null, new anchor.BN(0), null, null, null, null, null, null, null, null, null, null, null, null)
           .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
         assert.fail("Should have rejected settlement_deadline=0");
@@ -478,7 +478,7 @@ describe("Security: fixed vulnerabilities", () => {
         .updateConfig(
           new anchor.BN(500_000_000), // max_market_exposure
           new anchor.BN(300),         // challenge_window = 5 min (>= 60)
-          null, null, null, null, null, null, null, null, null, null
+          null, null, null, null, null, null, null, null, null, null, null, null, null
         )
         .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
         .signers([admin]).rpc();

@@ -21,6 +21,7 @@ pub mod market_group;
 pub mod slip;
 pub mod orders;
 pub mod epoch_ops;
+pub mod slip_listing_ops;
 
 // Bring all account structs into scope so Anchor's #[program]
 // macro references them directly
@@ -36,6 +37,7 @@ use market_group::*;
 use slip::*;
 use orders::*;
 use epoch_ops::*;
+use slip_listing_ops::*;
 use crate::state::market_group::CorrelationPair;
 use crate::state::bet_slip::SlipLeg;
 use crate::state::market::MarketMode;
@@ -84,8 +86,10 @@ pub mod quadratic_market {
         buy_fee_bps: Option<u64>,
         oracle_pubkey: Option<[u8; 32]>,
         cash_out_margin_bps: Option<u64>,
+        sell_fee_bps: Option<u64>,
+        slip_listing_fee_bps: Option<u64>,
     ) -> Result<()> {
-        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, settlement_deadline_seconds, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds, max_single_bet, min_outcome_price_bps, buy_fee_bps, oracle_pubkey, cash_out_margin_bps)
+        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, settlement_deadline_seconds, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds, max_single_bet, min_outcome_price_bps, buy_fee_bps, oracle_pubkey, cash_out_margin_bps, sell_fee_bps, slip_listing_fee_bps)
     }
 
     pub fn add_operator(ctx: Context<AddOperator>, operator: Pubkey) -> Result<()> {
@@ -385,5 +389,39 @@ pub mod quadratic_market {
     /// Normally auto-triggered when the last market in the epoch settles.
     pub fn close_epoch(ctx: Context<CloseEpoch>) -> Result<()> {
         close_epoch_handler(ctx)
+    }
+
+    // ─── Slip Listing / Auction (Polymarket-style) ─────────────────
+
+    /// List a bet slip for sale at a fixed asking price.
+    /// The seller retains the slip until a buyer fills the listing.
+    pub fn list_slip(
+        ctx: Context<ListSlip>,
+        slip_id: u64,
+        asking_price: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        list_slip_handler(ctx, slip_id, asking_price, expires_at)
+    }
+
+    /// Cancel a slip listing — slip ownership stays with the original seller.
+    pub fn cancel_listing(ctx: Context<CancelListing>, slip_id: u64) -> Result<()> {
+        cancel_listing_handler(ctx, slip_id)
+    }
+
+    /// Buy a listed slip. Pays asking_price (minus protocol fee) to the seller
+    /// and transfers slip ownership to the buyer.
+    pub fn buy_listed_slip(ctx: Context<BuyListedSlip>, slip_id: u64) -> Result<()> {
+        buy_listed_slip_handler(ctx, slip_id)
+    }
+
+    /// Update an active listing's asking price or expiry.
+    pub fn update_listing(
+        ctx: Context<UpdateListing>,
+        slip_id: u64,
+        new_asking_price: u64,
+        new_expires_at: i64,
+    ) -> Result<()> {
+        update_listing_handler(ctx, slip_id, new_asking_price, new_expires_at)
     }
 }

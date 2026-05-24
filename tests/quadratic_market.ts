@@ -545,7 +545,10 @@ describe("quadratic_market — Happy Path", () => {
         null,                  // max_single_bet
         null,                  // min_outcome_price_bps
         null,                  // buy_fee_bps
-        null                   // oracle_pubkey
+        null,                  // oracle_pubkey
+        null,                  // cash_out_margin_bps
+        null,                  // sell_fee_bps
+        null                   // slip_listing_fee_bps
       )
       .accounts({
         globalConfig: globalConfigPda,

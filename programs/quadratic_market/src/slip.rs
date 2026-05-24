@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, BetSlip, SlipLeg, Market, MarketGroup, MarketStatus};
+use crate::state::{GlobalConfig, BetSlip, SlipLeg, Market, MarketGroup, MarketMode, MarketStatus};
 use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, MAX_SLIP_LEGS, MAX_OUTCOMES, SCALE};
 use crate::math::lmsr::{lmsr_buy_cost, lmsr_price};
@@ -105,6 +105,11 @@ pub fn place_slip_handler<'info>(
         drop(market_data);
 
         require!(market.status == MarketStatus::Open, QuadraticMarketError::MarketNotOpen);
+        // Slips are only valid on FixedOdds markets — Trading mode markets use buy_shares/sell_shares
+        require!(
+            market.market_mode == MarketMode::FixedOdds,
+            QuadraticMarketError::DirectTradingDisabled
+        );
 
         // Betting stops when match starts
         let now = Clock::get()?.unix_timestamp;

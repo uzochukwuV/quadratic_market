@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, Dispute, DisputeStatus, Epoch};
+use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode, Dispute, DisputeStatus, Epoch};
 use crate::errors::QuadraticMarketError;
 use crate::constants::seeds;
 
@@ -218,14 +216,19 @@ pub fn finalize_result_handler(
     market.status = MarketStatus::Settled;
     dispute.status = DisputeStatus::Settled;
 
-    // Release locked_payouts for all LOSING outcomes — their shares will never be claimed.
-    // winning outcome shares remain locked until claimed individually via claim_payout.
-    // Using market.exposure here would be wrong: exposure = LP net-risk delta, not losing shares.
-    let losing_total: u64 = (0..market.num_outcomes as usize)
-        .filter(|&i| i != winning)
-        .map(|i| market.q_values[i])
-        .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(losing_total);
+    // Release locked_payouts for losing outcome shares.
+    // For Trading mode: each buy locked num_shares in locked_payouts, so we free the losing side.
+    // For FixedOdds mode: locked_payouts only holds the bonus_gap per slip (not full q_values).
+    //   The slip claim handlers (claim_slip) reduce locked_payouts when each slip settles.
+    //   Subtracting q_values here would underflow locked_payouts and inflate free_liquidity,
+    //   allowing LPs to drain funds intended for winning slip payouts before users claim.
+    if market.market_mode == MarketMode::Trading {
+        let losing_total: u64 = (0..market.num_outcomes as usize)
+            .filter(|&i| i != winning)
+            .map(|i| market.q_values[i])
+            .fold(0u64, |acc, v| acc.saturating_add(v));
+        config.locked_payouts = config.locked_payouts.saturating_sub(losing_total);
+    }
 
     // Update epoch settlement tracking (only once per market)
     if !market.settled_in_epoch {

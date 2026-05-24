@@ -41,6 +41,12 @@ pub struct GlobalConfig {
     // Epoch controls
     pub epoch_paused: bool,                     // 1  — prevents new deposits/withdrawals for current epoch
     pub next_epoch_start: i64,                  // 8  — timestamp when next epoch begins
+    // Cancel buy / sell fee (Trading mode)
+    pub sell_fee_bps: u64,                      // 8  — house fee on sell_shares (cancel buy)
+    // Slip listing / auction fee
+    pub slip_listing_fee_bps: u64,              // 8  — protocol fee on slip auction fills
+    // Next slip listing id
+    pub next_listing_id: u64,                   // 8
 }
 
 impl GlobalConfig {
@@ -77,7 +83,10 @@ impl GlobalConfig {
         + 8   // next_order_id
         + 8   // order_collateral_locked
         + 1   // epoch_paused
-        + 8;  // next_epoch_start
+        + 8   // next_epoch_start
+        + 8   // sell_fee_bps
+        + 8   // slip_listing_fee_bps
+        + 8;  // next_listing_id
 
     pub fn free_liquidity(&self, treasury_balance: u64) -> u64 {
         let total_locked = self
@@ -131,6 +140,6 @@ mod tests {
 
     #[test]
     fn global_config_len_matches_expected() {
-        assert_eq!(GlobalConfig::LEN, 614);
+        assert_eq!(GlobalConfig::LEN, 629);
     }
 }

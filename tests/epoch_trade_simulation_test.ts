@@ -279,14 +279,16 @@ describe("epoch_trade_simulation — full epoch lifecycle with 2 markets", () =>
         null,                       // min_outcome_price_bps
         null,                       // buy_fee_bps
         null,                       // oracle_pubkey
-        null                        // cash_out_margin_bps
+        null,                       // cash_out_margin_bps
+        null,                       // sell_fee_bps
+        null                        // slip_listing_fee_bps
       )
       .accounts({ globalConfig, admin: admin.publicKey })
       .signers([admin])
       .rpc();
 
     const cfg = await program.account.globalConfig.fetch(globalConfig);
-    assert.equal(cfg.challengeWindowSeconds.toNumber(), 0);
+    // challenge_window stays at default (>= 60s); we use adminOverride for instant finalization
     assert.equal(cfg.withdrawalCooldownSeconds.toNumber(), 0);
     console.log("    ✓ Operator added, config tuned (challenge_window=0, cooldown=0)");
   });
@@ -645,12 +647,24 @@ describe("epoch_trade_simulation — full epoch lifecycle with 2 markets", () =>
       .signers([oracle])
       .rpc();
 
+    // Admin override (same outcome) → dispute becomes Overridden → finalizable immediately
+    await program.methods
+      .adminOverride(new anchor.BN(market1Id), 0)
+      .accounts({
+        globalConfig,
+        market: market1,
+        dispute: dispute1,
+        admin: admin.publicKey,
+      })
+      .signers([admin])
+      .rpc();
+
     const m = await program.account.market.fetch(market1);
     assert.deepEqual(m.status, { proposed: {} });
-    console.log("    ✓ Market 1 suspended + result proposed (outcome 0 = Team A wins)");
+    console.log("    ✓ Market 1 suspended + result proposed + admin confirmed (outcome 0 = Team A wins)");
   });
 
-  it("Phase 6b: Finalizes Market 1 (challenge_window = 0 → immediate)", async () => {
+  it("Phase 6b: Finalizes Market 1 (admin override → immediate)", async () => {
     if (skipSuite) { console.log("  SKIPPED"); return; }
 
     await program.methods
@@ -696,9 +710,21 @@ describe("epoch_trade_simulation — full epoch lifecycle with 2 markets", () =>
       .signers([oracle])
       .rpc();
 
+    // Admin override (same outcome) → finalizable immediately
+    await program.methods
+      .adminOverride(new anchor.BN(market2Id), 1)
+      .accounts({
+        globalConfig,
+        market: market2,
+        dispute: dispute2,
+        admin: admin.publicKey,
+      })
+      .signers([admin])
+      .rpc();
+
     const m = await program.account.market.fetch(market2);
     assert.deepEqual(m.status, { proposed: {} });
-    console.log("    ✓ Market 2 suspended + result proposed (outcome 1 = Team D wins)");
+    console.log("    ✓ Market 2 suspended + result proposed + admin confirmed (outcome 1 = Team D wins)");
   });
 
   it("Phase 6d: Finalizes Market 2 — epoch auto-closes since all markets settled", async () => {

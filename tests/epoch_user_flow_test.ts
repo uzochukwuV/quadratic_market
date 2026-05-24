@@ -131,7 +131,7 @@ describe("epoch user flow integration", () => {
     await program.methods
       .updateConfig(
         null, new anchor.BN(60), new anchor.BN(60), null, null, null, new anchor.BN(60), new anchor.BN(0),
-        null, null, null, null, null
+        null, null, null, null, null, null, null
       )
       .accounts(accounts_updateConfig)
       .signers([admin])

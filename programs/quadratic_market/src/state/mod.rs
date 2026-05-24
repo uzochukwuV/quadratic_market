@@ -7,6 +7,7 @@ pub mod bet_slip;
 pub mod pending_liquidity;
 pub mod order;
 pub mod epoch;
+pub mod slip_listing;
 
 pub use global_config::*;
 pub use market::*;
@@ -17,3 +18,4 @@ pub use bet_slip::*;
 pub use pending_liquidity::*;
 pub use order::*;
 pub use epoch::*;
+pub use slip_listing::*;
