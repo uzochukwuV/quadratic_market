@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-midnight-canvas: #000000;
+  --color-frost-white: #ffffff;
+  --color-deep-shadow: #181818;
+  --color-whisper-gray: #6d6d6d;
+  --color-misty-gray: #636363;
+  --gradient-deep-ocean: linear-gradient(90deg, rgb(160, 224, 171), rgb(255, 172, 46) 50%, rgb(165, 45, 37));
+  --page-max-width: 1078px;
+  --section-gap: 46px;
+  --card-padding: 34px;
+  --element-gap: 14px;
+  --radius-cards: 10px;
+  --radius-buttons: 75.024px;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: #000000;
+  color: #ffffff;
+  font-family: 'Roobert', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #000; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+/* ─── Dialect Blinks overrides ──────────────────────────── */
+.blink.x-dark {
+  --blink-button: #ffffff;
+  --blink-button-hover: #e0e0e0;
+  --blink-text-button: #000000;
+  --blink-stroke-primary: rgba(255,255,255,0.15);
+  --blink-text-brand: #ffffff;
+  --blink-bg-default: rgba(0,0,0,0.6);
+  --blink-shadow-container: 0 0 0 1px rgba(255,255,255,0.08);
+  --blink-border-radius-rounded-lg: 10px;
+  --blink-border-radius-rounded-2xl: 10px;
+  --blink-border-radius-rounded-button: 75.024px;
+}
+
+/* ─── Gradient text ──────────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(90deg, rgb(160, 224, 171), rgb(255, 172, 46) 50%, rgb(165, 45, 37));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Glass card ─────────────────────────────────────────── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-card-hover {
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.glass-card-hover:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+/* ─── Animated gradient background ──────────────────────── */
+.gradient-bg {
+  background: linear-gradient(135deg, rgb(160, 224, 171), rgb(255, 172, 46) 50%, rgb(165, 45, 37));
+  background-size: 200% 200%;
+  animation: gradientShift 8s ease-in-out infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ─── Orb blobs ──────────────────────────────────────────── */
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+/* ─── Ticker ─────────────────────────────────────────────── */
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-inner {
+  animation: ticker 40s linear infinite;
+  white-space: nowrap;
+}
+
+/* ─── Wallet adapter overrides ───────────────────────────── */
+.wallet-adapter-button {
+  background: rgba(255,255,255,0.08) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+  border-radius: 75.024px !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  color: #ffffff !important;
+  padding: 9px 20px !important;
+  height: auto !important;
+  transition: background 0.2s ease, border-color 0.2s ease !important;
+}
+.wallet-adapter-button:hover {
+  background: rgba(255,255,255,0.14) !important;
+  border-color: rgba(255,255,255,0.28) !important;
+}
+.wallet-adapter-button-trigger {
+  background: rgba(255,255,255,0.08) !important;
+}
+.wallet-adapter-modal-wrapper {
+  background: #0d0d0d !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  border-radius: 16px !important;
+}
+.wallet-adapter-modal-title {
+  color: #fff !important;
+  font-family: inherit !important;
+}
+.wallet-adapter-modal-list li { margin-bottom: 6px; }
