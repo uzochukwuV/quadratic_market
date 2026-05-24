@@ -2,9 +2,13 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { MARKETS, MY_POSITIONS, getMarketPrices } from "@/lib/mockData";
+import { useBuyShares, useSellShares } from "@/hooks/useContract";
+import { deriveMarket, getProgramAddress } from "@/lib/client";
 
 function MarketOverview({ market, yesPrice, noPrice }: any) {
+  const programAddress = getProgramAddress();
   return (
     <div className="card">
       <div className="flex items-center gap-2 mb-4">
@@ -18,7 +22,8 @@ function MarketOverview({ market, yesPrice, noPrice }: any) {
       </div>
 
       <h1 className="text-heading text-white font-medium mb-2">{market.title}</h1>
-      <p className="text-body text-silver-text mb-6">{market.category}</p>
+      <p className="text-body text-silver-text mb-2">{market.category}</p>
+      <p className="text-caption text-silver-text font-mono mb-6">Contract: {programAddress.slice(0, 16)}...</p>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-dark-granite rounded-md p-4">
@@ -47,13 +52,50 @@ function MarketOverview({ market, yesPrice, noPrice }: any) {
 }
 
 function TradePanel({ market, yesPrice, noPrice }: any) {
+  const { connected, publicKey } = useWallet();
+  const { buyShares, loading: buying, error: buyError } = useBuyShares();
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [shares, setShares] = useState("100");
+  const [txStatus, setTxStatus] = useState<string | null>(null);
+
   const price = side === "yes" ? yesPrice : noPrice;
   const sharesNum = parseFloat(shares) || 0;
   const cost = sharesNum * price;
   const potentialWin = sharesNum * (1 - price);
   const roi = ((1 / price) - 1) * 100;
+
+  const handleBuy = async () => {
+    if (!connected || !publicKey) {
+      setTxStatus("Please connect your wallet first");
+      return;
+    }
+
+    setTxStatus("Confirm transaction in wallet...");
+    const outcomeId = side === "yes" ? 0 : 1;
+    const maxPayment = Math.ceil(cost * 1.1);
+    
+    const result = await buyShares(market.market_id, outcomeId, sharesNum, maxPayment);
+    if (result) {
+      setTxStatus(`Transaction confirmed: ${result.slice(0, 8)}...${result.slice(-4)}`);
+    } else {
+      setTxStatus(buyError || "Transaction failed");
+    }
+  };
+
+  if (!connected) {
+    return (
+      <div className="card text-center py-12">
+        <div className="w-12 h-12 rounded-full bg-dark-granite mx-auto mb-4 flex items-center justify-center">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-silver-text">
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="M3 10h18" />
+          </svg>
+        </div>
+        <p className="text-body text-silver-text mb-2">Connect wallet to trade</p>
+        <p className="text-caption text-silver-text/60">Use the wallet button in the navbar to connect</p>
+      </div>
+    );
+  }
 
   if (market.status !== "Open") {
     return (
@@ -69,18 +111,25 @@ function TradePanel({ market, yesPrice, noPrice }: any) {
       <div className="flex items-center gap-2 mb-6">
         <span className="w-2 h-2 rounded-full bg-cadmium-green pulse-dot" />
         <span className="font-mono text-caption text-silver-text uppercase">Trade</span>
+        <span className="ml-auto text-caption text-silver-text/60 font-mono">
+          {publicKey?.toBase58().slice(0, 8)}...
+        </span>
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-6">
         <button
           onClick={() => setSide("yes")}
-          className={`py-3 rounded-full font-mono text-body transition-all ${side === "yes" ? "bg-cadmium-green text-true-black" : "bg-dark-granite text-silver-text hover:text-white"}`}
+          className={`py-3 rounded-full font-mono text-body transition-all ${
+            side === "yes" ? "bg-cadmium-green text-true-black" : "bg-dark-granite text-silver-text hover:text-white"
+          }`}
         >
           YES · {(yesPrice * 100).toFixed(0)}¢
         </button>
         <button
           onClick={() => setSide("no")}
-          className={`py-3 rounded-full font-mono text-body transition-all ${side === "no" ? "bg-white text-true-black" : "bg-dark-granite text-silver-text hover:text-white"}`}
+          className={`py-3 rounded-full font-mono text-body transition-all ${
+            side === "no" ? "bg-white text-true-black" : "bg-dark-granite text-silver-text hover:text-white"
+          }`}
         >
           NO · {(noPrice * 100).toFixed(0)}¢
         </button>
@@ -88,10 +137,19 @@ function TradePanel({ market, yesPrice, noPrice }: any) {
 
       <div className="mb-4">
         <label className="text-caption text-silver-text font-mono uppercase mb-2 block">Shares</label>
-        <input type="number" value={shares} onChange={(e) => setShares(e.target.value)} className="input-field font-mono" />
+        <input 
+          type="number" 
+          value={shares} 
+          onChange={(e) => setShares(e.target.value)} 
+          className="input-field font-mono" 
+        />
         <div className="flex gap-2 mt-2">
           {["50", "100", "250", "500"].map((v) => (
-            <button key={v} onClick={() => setShares(v)} className="flex-1 py-1.5 rounded-md text-caption font-mono bg-dark-granite text-silver-text hover:text-white transition-all">
+            <button 
+              key={v} 
+              onClick={() => setShares(v)} 
+              className="flex-1 py-1.5 rounded-md text-caption font-mono bg-dark-granite text-silver-text hover:text-white transition-all"
+            >
               {v}
             </button>
           ))}
@@ -117,9 +175,20 @@ function TradePanel({ market, yesPrice, noPrice }: any) {
         </div>
       </div>
 
-      <button className="btn-primary w-full py-4 font-mono">
-        Buy {side.toUpperCase()} · ${cost.toFixed(2)}
+      <button 
+        onClick={handleBuy}
+        disabled={buying || sharesNum === 0}
+        className="btn-primary w-full py-4 font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {buying ? "Confirming..." : `Buy ${side.toUpperCase()} · $${cost.toFixed(2)}`}
       </button>
+
+      {txStatus && (
+        <p className={`text-caption text-center mt-3 ${txStatus.includes("confirmed") ? "text-cadmium-green" : "text-silver-text"}`}>
+          {txStatus}
+        </p>
+      )}
+
       <p className="text-caption text-silver-text text-center mt-3">Instant settlement on Solana</p>
     </div>
   );
@@ -127,6 +196,20 @@ function TradePanel({ market, yesPrice, noPrice }: any) {
 
 function PositionsTable({ marketId }: { marketId: number }) {
   const position = MY_POSITIONS.find((p) => p.market_id === marketId);
+  const { sellShares, loading: selling } = useSellShares();
+  const [txStatus, setTxStatus] = useState<string | null>(null);
+
+  const handleSell = async () => {
+    if (!position) return;
+    setTxStatus("Confirm sell in wallet...");
+    const result = await sellShares(marketId, position.outcome_id, position.shares, 0);
+    if (result) {
+      setTxStatus(`Sold: ${result.slice(0, 8)}...`);
+    } else {
+      setTxStatus("Sell failed");
+    }
+  };
+
   if (!position) {
     return (
       <div className="card text-center py-8">
@@ -135,34 +218,61 @@ function PositionsTable({ marketId }: { marketId: number }) {
       </div>
     );
   }
+
   const pnlColor = position.pnl >= 0 ? "text-cadmium-green" : "text-[#f47067]";
+
   return (
-    <div className="table-container">
-      <div className="table-header grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
-        <div>Outcome</div><div>Shares</div><div>Avg Cost</div><div>Value</div><div>P&L</div>
+    <div className="card">
+      <h3 className="text-subheading text-white font-medium mb-4">Your Position</h3>
+      <div className="table-container">
+        <div className="table-header grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
+          <div>Outcome</div><div>Shares</div><div>Avg Cost</div><div>Value</div><div>P&L</div>
+        </div>
+        <div className="grid table-row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
+          <div className="table-cell">
+            <span className={`font-mono ${position.outcome_id === 0 ? "text-cadmium-green" : "text-white"}`}>
+              {position.outcome_label}
+            </span>
+          </div>
+          <div className="table-cell font-mono">{position.shares.toLocaleString()}</div>
+          <div className="table-cell font-mono">{(position.avg_price * 100).toFixed(0)}¢</div>
+          <div className="table-cell font-mono">${position.value.toFixed(2)}</div>
+          <div className={`table-cell font-mono ${pnlColor}`}>
+            {position.pnl >= 0 ? "+" : ""}${position.pnl.toFixed(2)}
+          </div>
+        </div>
       </div>
-      <div className="grid table-row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
-        <div className="table-cell"><span className={`font-mono ${position.outcome_id === 0 ? "text-cadmium-green" : "text-white"}`}>{position.outcome_label}</span></div>
-        <div className="table-cell font-mono">{position.shares.toLocaleString()}</div>
-        <div className="table-cell font-mono">{(position.avg_price * 100).toFixed(0)}¢</div>
-        <div className="table-cell font-mono">${position.value.toFixed(2)}</div>
-        <div className={`table-cell font-mono ${pnlColor}`}>{position.pnl >= 0 ? "+" : ""}${position.pnl.toFixed(2)}</div>
-      </div>
+      
+      <button 
+        onClick={handleSell}
+        disabled={selling}
+        className="btn-secondary w-full mt-4"
+      >
+        {selling ? "Selling..." : "Sell Position"}
+      </button>
+      
+      {txStatus && (
+        <p className="text-caption text-center mt-2 text-silver-text">{txStatus}</p>
+      )}
     </div>
   );
 }
 
 function MarketDetails({ market }: any) {
+  const marketPubkey = deriveMarket(market.market_id);
+  
   return (
     <div className="card">
       <h3 className="text-subheading text-white font-medium mb-4">Market Details</h3>
       <div className="space-y-2">
         {[
           { label: "Market ID", value: `#${market.market_id}` },
+          { label: "Contract PDA", value: `${marketPubkey.toBase58().slice(0, 12)}...` },
           { label: "Epoch", value: `#${market.epoch_id}` },
           { label: "Category", value: market.category },
           { label: "Mode", value: market.market_mode },
           { label: "Outcomes", value: `${market.num_outcomes} (Binary)` },
+          { label: "LMSR B", value: `${(market.lmsr_b / 1e6).toFixed(0)}M` },
           { label: "Settlement", value: new Date(market.settlement_time * 1000).toLocaleDateString() },
         ].map((r) => (
           <div key={r.label} className="flex justify-between text-body border-b border-graphite pb-2">
