@@ -38,6 +38,9 @@ pub struct GlobalConfig {
     // Peer-to-peer order book
     pub next_order_id: u64,                     // 8
     pub order_collateral_locked: u64,           // 8  — USDC locked for open buy orders (separate from LP)
+    // Epoch controls
+    pub epoch_paused: bool,                     // 1  — prevents new deposits/withdrawals for current epoch
+    pub next_epoch_start: i64,                  // 8  — timestamp when next epoch begins
 }
 
 impl GlobalConfig {
@@ -72,7 +75,9 @@ impl GlobalConfig {
         + 1   // bump
         + 8   // cash_out_margin_bps
         + 8   // next_order_id
-        + 8;  // order_collateral_locked
+        + 8   // order_collateral_locked
+        + 1   // epoch_paused
+        + 8;  // next_epoch_start
 
     pub fn free_liquidity(&self, treasury_balance: u64) -> u64 {
         if treasury_balance > self.locked_payouts {
@@ -95,5 +100,24 @@ impl GlobalConfig {
     /// Converts the stored oracle bytes to a Pubkey for comparison.
     pub fn oracle_pubkey(&self) -> Pubkey {
         Pubkey::from(self.oracle_pubkey)
+    }
+
+    /// Check if we're in an active epoch and deposits/withdrawals are allowed.
+    pub fn can_modify_liquidity(&self, now: i64) -> bool {
+        // If epoch is paused, no liquidity modifications allowed
+        if self.epoch_paused {
+            return false;
+        }
+        // Can only modify liquidity before next epoch starts
+        now < self.next_epoch_start
+    }
+
+    /// Get the current epoch number based on time
+    pub fn get_epoch_for_time(&self, now: i64) -> u64 {
+        if self.epoch_duration_seconds > 0 {
+            (now / self.epoch_duration_seconds) as u64
+        } else {
+            0
+        }
     }
 }
