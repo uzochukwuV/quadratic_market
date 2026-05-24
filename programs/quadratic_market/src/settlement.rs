@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, Dispute, DisputeStatus};
+use crate::state::{GlobalConfig, Market, MarketStatus, Dispute, DisputeStatus, Epoch};
 use crate::errors::QuadraticMarketError;
 use crate::constants::seeds;
 
@@ -147,6 +147,8 @@ pub fn admin_override_handler(
 // Callable by anyone after the challenge window expires.
 // Settles the market with whatever outcome is in the dispute record
 // (either oracle's original or admin's override).
+// Also updates the epoch's settled-market counter and enables LP withdrawals
+// once all markets in the epoch have settled.
 
 #[derive(Accounts)]
 #[instruction(market_id: u64)]
@@ -172,6 +174,17 @@ pub struct FinalizeResult<'info> {
         bump = dispute.bump,
     )]
     pub dispute: Account<'info, Dispute>,
+
+    /// Epoch the market belongs to. Must match market.epoch_id.
+    /// Updated here to track settled-market count and unlock LP withdrawals
+    /// once all markets in the epoch are settled.
+    #[account(
+        mut,
+        seeds = [seeds::EPOCH, market.epoch_id.to_le_bytes().as_ref()],
+        bump = epoch.bump,
+        constraint = epoch.epoch_id == market.epoch_id @ QuadraticMarketError::EpochAccountMismatch,
+    )]
+    pub epoch: Account<'info, Epoch>,
 
     pub caller: Signer<'info>,
 }
@@ -213,6 +226,23 @@ pub fn finalize_result_handler(
         .map(|i| market.q_values[i])
         .fold(0u64, |acc, v| acc.saturating_add(v));
     config.locked_payouts = config.locked_payouts.saturating_sub(losing_total);
+
+    // Update epoch settlement tracking (only once per market)
+    if !market.settled_in_epoch {
+        market.settled_in_epoch = true;
+        let epoch = &mut ctx.accounts.epoch;
+        epoch.num_settled_markets = epoch.num_settled_markets
+            .checked_add(1)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+
+        // When all markets in the epoch are settled, record LP supply and
+        // enable withdrawals so LPs can exit at the correct NAV.
+        if epoch.num_markets > 0 && epoch.num_settled_markets >= epoch.num_markets {
+            epoch.all_markets_settled = true;
+            epoch.lp_shares_at_close = config.total_lp_supply;
+            epoch.withdrawals_enabled = true;
+        }
+    }
 
     Ok(())
 }

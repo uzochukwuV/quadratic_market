@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode};
+use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode, Epoch};
 use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, MAX_OUTCOMES, MAX_TITLE_LEN, MAX_DESCRIPTION_LEN, BASE_MINT_DECIMALS};
 
@@ -25,6 +25,17 @@ pub struct CreateMarket<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    /// Epoch account for the current epoch — must match global_config.current_epoch.
+    /// Markets are always created under the active epoch so the epoch can track
+    /// how many markets need to settle before LP withdrawals are unlocked.
+    #[account(
+        mut,
+        seeds = [seeds::EPOCH, global_config.current_epoch.to_le_bytes().as_ref()],
+        bump = epoch.bump,
+        constraint = epoch.epoch_id == global_config.current_epoch @ QuadraticMarketError::EpochAccountMismatch,
+    )]
+    pub epoch: Account<'info, Epoch>,
+
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -45,6 +56,8 @@ pub fn create_market_handler(
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);
+    // Epoch must not be paused — no new markets during inter-epoch gap
+    require!(!config.epoch_paused, QuadraticMarketError::EpochPaused);
     require!(
         config.is_authorized(&ctx.accounts.authority.key()),
         QuadraticMarketError::Unauthorized
@@ -74,6 +87,8 @@ pub fn create_market_handler(
         );
     }
 
+    let current_epoch_id = config.current_epoch;
+
     let market = &mut ctx.accounts.market;
     market.market_id = config.next_market_id;
     market.creator = ctx.accounts.authority.key();
@@ -100,8 +115,17 @@ pub fn create_market_handler(
     market.group_id = None;
     market.group_market_index = 0;
     market.market_mode = market_mode;
+    // Bind market to the current epoch
+    market.epoch_id = current_epoch_id;
+    market.settled_in_epoch = false;
 
     config.next_market_id = config.next_market_id
+        .checked_add(1)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+
+    // Register this market in the epoch so settlement tracking is accurate
+    let epoch = &mut ctx.accounts.epoch;
+    epoch.num_markets = epoch.num_markets
         .checked_add(1)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 

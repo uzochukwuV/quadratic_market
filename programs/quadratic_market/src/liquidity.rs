@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, WithdrawalRequest, PendingLiquidity};
+use crate::state::{GlobalConfig, WithdrawalRequest, PendingLiquidity, Epoch};
 use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, SCALE};
 
@@ -134,6 +134,8 @@ pub fn init_pending_liquidity_handler(
 pub fn add_liquidity_handler(ctx: Context<AddLiquidity>, amount: u64) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);
+    // No deposits while epoch is paused (between epochs, during settlement)
+    require!(!config.epoch_paused, QuadraticMarketError::EpochPaused);
     require!(amount > 0, QuadraticMarketError::InvalidAmount);
 
     let now = Clock::get()?.unix_timestamp;
@@ -286,6 +288,14 @@ pub struct RequestWithdraw<'info> {
     )]
     pub base_mint: Account<'info, Mint>,
 
+    /// Epoch account for the current epoch. Withdrawals are only permitted
+    /// once all markets in the epoch have settled (withdrawals_enabled == true).
+    #[account(
+        seeds = [seeds::EPOCH, global_config.current_epoch.to_le_bytes().as_ref()],
+        bump = epoch.bump,
+    )]
+    pub epoch: Account<'info, Epoch>,
+
     #[account(mut)]
     pub lp: Signer<'info>,
     pub token_program: Program<'info, Token>,
@@ -296,6 +306,12 @@ pub struct RequestWithdraw<'info> {
 pub fn request_withdraw_handler(ctx: Context<RequestWithdraw>, shares: u64) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);
+    // Epoch must not be paused and withdrawals must be enabled for this epoch
+    require!(!config.epoch_paused, QuadraticMarketError::EpochPaused);
+    require!(
+        ctx.accounts.epoch.withdrawals_enabled,
+        QuadraticMarketError::EpochWithdrawalsNotEnabled
+    );
     require!(shares > 0, QuadraticMarketError::InvalidAmount);
     require!(
         ctx.accounts.lp_lp_ata.amount >= shares,

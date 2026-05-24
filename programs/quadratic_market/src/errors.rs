@@ -151,4 +151,20 @@ pub enum QuadraticMarketError {
     FillExceedsOrder = 723,
     #[msg("Bet slip has already been cashed out")]
     SlipAlreadyCashedOut = 724,
+
+    // 800-899: Epoch errors
+    #[msg("Epoch has not completed — not all markets are settled")]
+    EpochNotComplete = 800,
+    #[msg("Withdrawals are not yet enabled for this epoch")]
+    EpochWithdrawalsNotEnabled = 801,
+    #[msg("Epoch is paused — no deposits or withdrawals allowed")]
+    EpochPaused = 802,
+    #[msg("Market does not belong to the specified epoch")]
+    MarketEpochMismatch = 803,
+    #[msg("Epoch account does not match the market's epoch")]
+    EpochAccountMismatch = 804,
+    #[msg("No active epoch — call init_epoch first")]
+    NoActiveEpoch = 805,
+    #[msg("Bet is not refundable — protocol is not paused")]
+    NotPaused = 806,
 }
