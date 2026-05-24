@@ -106,55 +106,80 @@ describe("epoch user flow integration", () => {
     await mintTo(provider.connection, admin, baseMint, lpBaseAta, mintAuth, 1_000_000_000);
     await mintTo(provider.connection, admin, baseMint, traderBaseAta, mintAuth, 500_000_000);
 
+    // Initialize accounts with proper snake_case names
+    const accounts_initialize = {
+      global_config: globalConfig,
+      lp_mint: lpMint,
+      treasury: treasury,
+      base_mint: baseMint,
+      admin: admin.publicKey,
+      token_program: TOKEN_PROGRAM,
+      system_program: SystemProgram.programId,
+      rent: SYSVAR_RENT_PUBKEY,
+    };
     await program.methods
       .initialize(Array.from(oracle.publicKey.toBytes()) as unknown as number[] & { length: 32 }, new anchor.BN(2_000_000_000))
-      .accounts({
-        globalConfig,
-        lpMint,
-        treasury,
-        baseMint,
-        admin: admin.publicKey,
-        tokenProgram: TOKEN_PROGRAM,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
+      .accounts(accounts_initialize)
       .rpc();
 
-    await program.methods.addOperator(operator.publicKey).accounts({ globalConfig, admin: admin.publicKey }).signers([admin]).rpc();
+    await program.methods.addOperator(operator.publicKey).accounts({ global_config: globalConfig, admin: admin.publicKey }).signers([admin]).rpc();
 
+    const accounts_updateConfig = {
+      global_config: globalConfig,
+      admin: admin.publicKey
+    };
     await program.methods
       .updateConfig(
         null, new anchor.BN(60), new anchor.BN(60), null, null, null, new anchor.BN(60), new anchor.BN(0),
         null, null, null, null, null
       )
-      .accounts({ globalConfig, admin: admin.publicKey })
+      .accounts(accounts_updateConfig)
       .signers([admin])
       .rpc();
 
+    const accounts_initEpoch = {
+      global_config: globalConfig,
+      epoch: epoch,
+      authority: operator.publicKey,
+      system_program: SystemProgram.programId,
+    };
     await program.methods
       .initEpoch()
-      .accounts({ globalConfig, epoch, authority: operator.publicKey, systemProgram: SystemProgram.programId })
+      .accounts(accounts_initEpoch)
       .signers([operator])
       .rpc();
 
+    const accounts_addLiquidity = {
+      global_config: globalConfig,
+      lp_mint: lpMint,
+      treasury: treasury,
+      treasury_base_ata: treasuryBaseAta,
+      provider_base_ata: lpBaseAta,
+      provider_lp_ata: lpLpAta,
+      base_mint: baseMint,
+      pending_liquidity: pendingLiquidity,
+      provider: lp.publicKey,
+      token_program: TOKEN_PROGRAM,
+      associated_token_program: ATA_PROGRAM,
+      system_program: SystemProgram.programId,
+    };
     await program.methods
       .addLiquidity(new anchor.BN(300_000_000))
-      .accounts({
-        globalConfig, lpMint, treasury, treasuryBaseAta, providerBaseAta: lpBaseAta, providerLpAta: lpLpAta, baseMint,
-        pendingLiquidity, provider: lp.publicKey, tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM, systemProgram: SystemProgram.programId
-      })
+      .accounts(accounts_addLiquidity)
       .signers([lp])
       .rpc();
 
     const startTime = new anchor.BN(Math.floor(Date.now() / 1000) + 600);
+    const accounts_createMarket = {
+      global_config: globalConfig,
+      market: market,
+      epoch: epoch,
+      creator: operator.publicKey,
+      system_program: SystemProgram.programId,
+    };
     await program.methods
-      .createMarket(startTime, 2, "Epoch Flow Market 1", "Integration flow one", "sports", null, null, { trading: {} })
-      .accounts({ globalConfig, market: market1, epoch, creator: operator.publicKey, systemProgram: SystemProgram.programId })
-      .signers([operator])
-      .rpc();
-    await program.methods
-      .createMarket(startTime, 2, "Epoch Flow Market 2", "Integration flow two", "sports", null, null, { trading: {} })
-      .accounts({ globalConfig, market: market2, epoch, creator: operator.publicKey, systemProgram: SystemProgram.programId })
+      .createMarket(startTime, 2, "Epoch Flow Market", "Integration flow", "sports", null, null, { trading: {} })
+      .accounts(accounts_createMarket)
       .signers([operator])
       .rpc();
 
@@ -175,32 +200,46 @@ describe("epoch user flow integration", () => {
       program.programId
     );
 
-    await program.methods.initOutcomeMint(new anchor.BN(marketId1), 0).accounts({
-      globalConfig, market: market1, outcomeMint: outcomeMint0, payer: admin.publicKey, tokenProgram: TOKEN_PROGRAM,
-      systemProgram: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY
-    }).signers([admin]).rpc();
-    await program.methods.initOutcomeMint(new anchor.BN(marketId1), 1).accounts({
-      globalConfig, market: market1, outcomeMint: outcomeMint1, payer: admin.publicKey, tokenProgram: TOKEN_PROGRAM,
-      systemProgram: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY
-    }).signers([admin]).rpc();
-    await program.methods.initOutcomeMint(new anchor.BN(marketId2), 0).accounts({
-      globalConfig, market: market2, outcomeMint: outcomeMint20, payer: admin.publicKey, tokenProgram: TOKEN_PROGRAM,
-      systemProgram: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY
-    }).signers([admin]).rpc();
-    await program.methods.initOutcomeMint(new anchor.BN(marketId2), 1).accounts({
-      globalConfig, market: market2, outcomeMint: outcomeMint21, payer: admin.publicKey, tokenProgram: TOKEN_PROGRAM,
-      systemProgram: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY
-    }).signers([admin]).rpc();
+    const accounts_initOutcomeMint0 = {
+      global_config: globalConfig,
+      market: market,
+      outcome_mint: outcomeMint0,
+      payer: admin.publicKey,
+      token_program: TOKEN_PROGRAM,
+      system_program: SystemProgram.programId,
+      rent: SYSVAR_RENT_PUBKEY,
+    };
+    const accounts_initOutcomeMint1 = {
+      global_config: globalConfig,
+      market: market,
+      outcome_mint: outcomeMint1,
+      payer: admin.publicKey,
+      token_program: TOKEN_PROGRAM,
+      system_program: SystemProgram.programId,
+      rent: SYSVAR_RENT_PUBKEY,
+    };
+    await program.methods.initOutcomeMint(new anchor.BN(marketId), 0).accounts(accounts_initOutcomeMint0).signers([admin]).rpc();
+    await program.methods.initOutcomeMint(new anchor.BN(marketId), 1).accounts(accounts_initOutcomeMint1).signers([admin]).rpc();
 
     traderOutcomeAta = await createAta(provider, outcomeMint0, trader.publicKey);
     const traderOutcomeAta2 = await createAta(provider, outcomeMint20, trader.publicKey);
 
+    const accounts_buyShares = {
+      global_config: globalConfig,
+      market: market,
+      treasury: treasury,
+      buyer_base_ata: traderBaseAta,
+      treasury_base_ata: treasuryBaseAta,
+      buyer_outcome_ata: traderOutcomeAta,
+      outcome_mint: outcomeMint0,
+      buyer: trader.publicKey,
+      token_program: TOKEN_PROGRAM,
+      associated_token_program: ATA_PROGRAM,
+      system_program: SystemProgram.programId,
+    };
     await program.methods
-      .buyShares(new anchor.BN(marketId1), 0, new anchor.BN(50_000_000), new anchor.BN(40_000_000))
-      .accounts({
-        globalConfig, market: market1, treasury, buyerBaseAta: traderBaseAta, treasuryBaseAta, buyerOutcomeAta: traderOutcomeAta,
-        outcomeMint: outcomeMint0, buyer: trader.publicKey, tokenProgram: TOKEN_PROGRAM
-      })
+      .buyShares(new anchor.BN(marketId), 0, new anchor.BN(50_000_000), new anchor.BN(40_000_000))
+      .accounts(accounts_buyShares)
       .signers([trader])
       .rpc();
     await program.methods
@@ -212,41 +251,71 @@ describe("epoch user flow integration", () => {
       .signers([trader])
       .rpc();
 
-    await program.methods.suspendMarket().accounts({ globalConfig, market: market1, authority: operator.publicKey }).signers([operator]).rpc();
-    await program.methods.suspendMarket().accounts({ globalConfig, market: market2, authority: operator.publicKey }).signers([operator]).rpc();
-    await program.methods.proposeResult(new anchor.BN(marketId1), 0).accounts({
-      globalConfig, market: market1, dispute: dispute1, oracle: oracle.publicKey, systemProgram: SystemProgram.programId
-    }).signers([oracle]).rpc();
-    await program.methods.proposeResult(new anchor.BN(marketId2), 0).accounts({
-      globalConfig, market: market2, dispute: dispute2, oracle: oracle.publicKey, systemProgram: SystemProgram.programId
-    }).signers([oracle]).rpc();
-    await program.methods.finalizeResult(new anchor.BN(marketId1)).accounts({
-      globalConfig, market: market1, dispute: dispute1, epoch, authority: operator.publicKey
-    }).signers([operator]).rpc();
-    await program.methods.finalizeResult(new anchor.BN(marketId2)).accounts({
-      globalConfig, market: market2, dispute: dispute2, epoch, authority: operator.publicKey
-    }).signers([operator]).rpc();
+    const accounts_suspendMarket = {
+      global_config: globalConfig,
+      market: market,
+      authority: operator.publicKey,
+    };
+    await program.methods.suspendMarket().accounts(accounts_suspendMarket).signers([operator]).rpc();
+    
+    const accounts_proposeResult = {
+      global_config: globalConfig,
+      market: market,
+      dispute: dispute,
+      oracle: oracle.publicKey,
+      system_program: SystemProgram.programId,
+    };
+    await program.methods.proposeResult(new anchor.BN(marketId), 0).accounts(accounts_proposeResult).signers([oracle]).rpc();
+    
+    const accounts_finalizeResult = {
+      global_config: globalConfig,
+      market: market,
+      dispute: dispute,
+      epoch: epoch,
+      authority: operator.publicKey,
+    };
+    await program.methods.finalizeResult(new anchor.BN(marketId)).accounts(accounts_finalizeResult).signers([operator]).rpc();
 
     const epochAcc = await program.account.epoch.fetch(epoch);
     assert.equal(epochAcc.withdrawalsEnabled, true);
 
+    const accounts_requestWithdraw = {
+      global_config: globalConfig,
+      lp_mint: lpMint,
+      treasury: treasury,
+      treasury_base_ata: treasuryBaseAta,
+      lp_lp_ata: lpLpAta,
+      treasury_lp_ata: treasuryLpAta,
+      pending_liquidity: pendingLiquidity,
+      withdrawal_request: withdrawReq,
+      epoch: epoch,
+      lp: lp.publicKey,
+      token_program: TOKEN_PROGRAM,
+      associated_token_program: ATA_PROGRAM,
+      system_program: SystemProgram.programId,
+    };
     await program.methods
       .requestWithdraw(new anchor.BN(50_000_000))
-      .accounts({
-        globalConfig, lpMint, treasury, treasuryBaseAta, lpLpAta, treasuryLpAta, pendingLiquidity,
-        withdrawalRequest: withdrawReq, epoch, lp: lp.publicKey, tokenProgram: TOKEN_PROGRAM,
-        associatedTokenProgram: ATA_PROGRAM, systemProgram: SystemProgram.programId
-      })
+      .accounts(accounts_requestWithdraw)
       .signers([lp])
       .rpc();
 
+    const accounts_processWithdrawal = {
+      global_config: globalConfig,
+      lp_mint: lpMint,
+      treasury: treasury,
+      treasury_base_ata: treasuryBaseAta,
+      treasury_lp_ata: treasuryLpAta,
+      lp_base_ata: lpBaseAta,
+      base_mint: baseMint,
+      withdrawal_request: withdrawReq,
+      authority: lp.publicKey,
+      token_program: TOKEN_PROGRAM,
+      system_program: SystemProgram.programId,
+    };
     await program.methods
       .processWithdrawal()
-      .accounts({
-        globalConfig, lpMint, treasury, treasuryBaseAta, treasuryLpAta, lpBaseAta, baseMint,
-        withdrawalRequest: withdrawReq, authority: lp.publicKey, tokenProgram: TOKEN_PROGRAM,
-        systemProgram: SystemProgram.programId
-      })
+      .accounts(accounts_processWithdrawal)
       .signers([lp])
       .rpc();
 
