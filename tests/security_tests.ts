@@ -50,7 +50,7 @@ async function fundFromAdmin(provider: anchor.AnchorProvider, kp: Keypair, mint:
 describe("Security: fixed vulnerabilities", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.QuadraticMarket as Program<QuadraticMarket>;
+  const program = anchor.workspace.quadraticMarket as Program<QuadraticMarket>;
 
   // Protocol-level PDAs
   const [globalConfigPda] = PublicKey.findProgramAddressSync([Buffer.from("global_config")], program.programId);
@@ -114,11 +114,11 @@ describe("Security: fixed vulnerabilities", () => {
     );
     await program.methods.addLiquidity(new anchor.BN(20_000_000))
       .accounts({
-        globalConfig: globalConfigPda, lpMint: lpMintPda, treasury: treasuryPda,
-        treasuryBaseAta, providerBaseAta: lp1BaseAta, providerLpAta: lp1LpAta,
-        baseMint, pendingLiquidity: pendingPda, provider: lp1.publicKey,
-        tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM,
-        systemProgram: SystemProgram.programId,
+        global_config: globalConfigPda, lp_mint: lpMintPda, treasury: treasuryPda,
+        treasury_base_ata: treasuryBaseAta, provider_base_ata: lp1BaseAta, provider_lp_ata: lp1LpAta,
+        base_mint: baseMint, pending_liquidity: pendingPda, provider: lp1.publicKey,
+        token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
+        system_program: SystemProgram.programId,
       })
       .signers([lp1]).rpc();
 
@@ -129,12 +129,17 @@ describe("Security: fixed vulnerabilities", () => {
       [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
       program.programId
     );
+    // Get epoch PDA
+    const [epochPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
     const startTime = Math.floor(Date.now() / 1000) + 3600;
     await program.methods
       .createMarket(new anchor.BN(startTime), 2, "Security Test Market", "sec", 0, null, null)
       .accounts({
-        globalConfig: globalConfigPda, market: marketPda,
-        authority: admin.publicKey, systemProgram: SystemProgram.programId,
+        global_config: globalConfigPda, market: marketPda, epoch: epochPda,
+        authority: admin.publicKey, system_program: SystemProgram.programId,
       })
       .signers([admin]).rpc();
 
@@ -150,9 +155,9 @@ describe("Security: fixed vulnerabilities", () => {
     for (const [oid, mint] of [[0, outcomeMint0], [1, outcomeMint1]] as [number, PublicKey][]) {
       await program.methods.initOutcomeMint(new anchor.BN(marketId), oid)
         .accounts({
-          globalConfig: globalConfigPda, market: marketPda, outcomeMint: mint,
-          payer: admin.publicKey, tokenProgram: TOKEN_PROGRAM,
-          systemProgram: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY,
+          global_config: globalConfigPda, market: marketPda, outcome_mint: mint,
+          payer: admin.publicKey, token_program: TOKEN_PROGRAM,
+          system_program: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([admin]).rpc();
     }
@@ -173,13 +178,13 @@ describe("Security: fixed vulnerabilities", () => {
       await program.methods
         .buyShares(0, new anchor.BN(numShares), new anchor.BN(maxPayment))
         .accounts({
-          globalConfig: globalConfigPda, market: marketPda,
+          global_config: globalConfigPda, market: marketPda,
           treasury: treasuryPda,
-          buyerBaseAta: traderBaseAta, treasuryBaseAta,
-          buyerOutcomeAta: traderOutcomeAta, outcomeMint: outcomeMint0,
-          baseMint, buyer: trader.publicKey,
-          tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          buyer_base_ata: traderBaseAta, treasuryBaseAta,
+          buyer_outcome_ata: traderOutcomeAta, outcome_mint: outcomeMint0,
+          base_mint: baseMint, buyer: trader.publicKey,
+          token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([trader]).rpc();
 
@@ -211,20 +216,20 @@ describe("Security: fixed vulnerabilities", () => {
           new anchor.BN(1), // max_market_exposure = 1 lamport
           null, null, null, null, null, null, null, null, null, null, null
         )
-        .accounts({ globalConfig: globalConfigPda, admin: admin.publicKey })
+        .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
         .signers([admin]).rpc();
 
       try {
         await program.methods
           .buyShares(0, new anchor.BN(1_000_000), new anchor.BN(2_000_000))
           .accounts({
-            globalConfig: globalConfigPda, market: marketPda,
+            global_config: globalConfigPda, market: marketPda,
             treasury: treasuryPda,
-            buyerBaseAta: traderBaseAta, treasuryBaseAta,
-            buyerOutcomeAta: traderOutcomeAta, outcomeMint: outcomeMint0,
-            baseMint, buyer: trader.publicKey,
-            tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM,
-            systemProgram: SystemProgram.programId,
+            buyer_base_ata: traderBaseAta, treasuryBaseAta,
+            buyer_outcome_ata: traderOutcomeAta, outcome_mint: outcomeMint0,
+            base_mint: baseMint, buyer: trader.publicKey,
+            token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
+            system_program: SystemProgram.programId,
           })
           .signers([trader]).rpc();
         assert.fail("Should have failed with MaxExposureReached");
@@ -237,7 +242,7 @@ describe("Security: fixed vulnerabilities", () => {
         // Restore a generous cap
         await program.methods
           .updateConfig(new anchor.BN(500_000_000), null, null, null, null, null, null, null, null, null, null, null)
-          .accounts({ globalConfig: globalConfigPda, admin: admin.publicKey })
+          .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
       }
     });
@@ -258,11 +263,11 @@ describe("Security: fixed vulnerabilities", () => {
       const nowBefore = Math.floor(Date.now() / 1000);
       await program.methods.addLiquidity(new anchor.BN(5_000_000))
         .accounts({
-          globalConfig: globalConfigPda, lpMint: lpMintPda, treasury: treasuryPda,
-          treasuryBaseAta, providerBaseAta: lp2BaseAta, providerLpAta: lp2LpAta,
-          baseMint, pendingLiquidity: lp2Pending, provider: lp2.publicKey,
-          tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          global_config: globalConfigPda, lp_mint: lpMintPda, treasury: treasuryPda,
+          treasury_base_ata: treasuryBaseAta, provider_base_ata: lp2BaseAta, provider_lp_ata: lp2LpAta,
+          base_mint: baseMint, pending_liquidity: lp2Pending, provider: lp2.publicKey,
+          token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([lp2]).rpc();
 
@@ -296,11 +301,11 @@ describe("Security: fixed vulnerabilities", () => {
       // Deposit legitimately
       await program.methods.addLiquidity(new anchor.BN(5_000_000))
         .accounts({
-          globalConfig: globalConfigPda, lpMint: lpMintPda, treasury: treasuryPda,
-          treasuryBaseAta, providerBaseAta: lp3BaseAta, providerLpAta: lp3LpAta,
-          baseMint, pendingLiquidity: lp3Pending, provider: lp3.publicKey,
-          tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          global_config: globalConfigPda, lp_mint: lpMintPda, treasury: treasuryPda,
+          treasury_base_ata: treasuryBaseAta, provider_base_ata: lp3BaseAta, provider_lp_ata: lp3LpAta,
+          base_mint: baseMint, pending_liquidity: lp3Pending, provider: lp3.publicKey,
+          token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([lp3]).rpc();
 
@@ -314,10 +319,10 @@ describe("Security: fixed vulnerabilities", () => {
           new anchor.BN(999_999_999)
         )
         .accounts({
-          globalConfig: globalConfigPda,
-          pendingLiquidity: lp3Pending,
+          global_config: globalConfigPda,
+          pending_liquidity: lp3Pending,
           provider: lp3.publicKey,
-          systemProgram: SystemProgram.programId,
+          system_program: SystemProgram.programId,
         })
         .signers([lp3]).rpc();
 
@@ -351,8 +356,8 @@ describe("Security: fixed vulnerabilities", () => {
       await program.methods
         .createMarket(new anchor.BN(futureStart), 2, "Void Test", "void", 0, null, null)
         .accounts({
-          globalConfig: globalConfigPda, market: voidMarketPda,
-          authority: admin.publicKey, systemProgram: SystemProgram.programId,
+          global_config: globalConfigPda, market: voidMarketPda,
+          authority: admin.publicKey, system_program: SystemProgram.programId,
         })
         .signers([admin]).rpc();
 
@@ -367,9 +372,9 @@ describe("Security: fixed vulnerabilities", () => {
       for (const [oid, mint] of [[0, vm0], [1, vm1]] as [number, PublicKey][]) {
         await program.methods.initOutcomeMint(new anchor.BN(voidMarketId), oid)
           .accounts({
-            globalConfig: globalConfigPda, market: voidMarketPda, outcomeMint: mint,
-            payer: admin.publicKey, tokenProgram: TOKEN_PROGRAM,
-            systemProgram: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY,
+            global_config: globalConfigPda, market: voidMarketPda, outcome_mint: mint,
+            payer: admin.publicKey, token_program: TOKEN_PROGRAM,
+            system_program: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY,
           })
           .signers([admin]).rpc();
       }
@@ -380,13 +385,13 @@ describe("Security: fixed vulnerabilities", () => {
       await program.methods
         .buyShares(0, new anchor.BN(numShares), new anchor.BN(4_000_000))
         .accounts({
-          globalConfig: globalConfigPda, market: voidMarketPda,
+          global_config: globalConfigPda, market: voidMarketPda,
           treasury: treasuryPda,
-          buyerBaseAta: traderBaseAta, treasuryBaseAta,
-          buyerOutcomeAta, outcomeMint: vm0, baseMint,
+          buyer_base_ata: traderBaseAta, treasuryBaseAta,
+          buyer_outcome_ata: buyerOutcomeAta, outcome_mint: vm0, baseMint,
           buyer: trader.publicKey,
-          tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM,
-          systemProgram: SystemProgram.programId,
+          token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
         })
         .signers([trader]).rpc();
 
@@ -398,7 +403,7 @@ describe("Security: fixed vulnerabilities", () => {
       // Void the market
       await program.methods.voidMarket()
         .accounts({
-          globalConfig: globalConfigPda, market: voidMarketPda, admin: admin.publicKey,
+          global_config: globalConfigPda, market: voidMarketPda, admin: admin.publicKey,
         })
         .signers([admin]).rpc();
 
@@ -419,7 +424,7 @@ describe("Security: fixed vulnerabilities", () => {
       try {
         await program.methods
           .updateConfig(null, new anchor.BN(0), null, null, null, null, null, null, null, null, null, null)
-          .accounts({ globalConfig: globalConfigPda, admin: admin.publicKey })
+          .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
         assert.fail("Should have rejected challenge_window=0");
       } catch (err: any) {
@@ -432,7 +437,7 @@ describe("Security: fixed vulnerabilities", () => {
       try {
         await program.methods
           .updateConfig(null, null, null, null, null, null, new anchor.BN(0), null, null, null, null, null)
-          .accounts({ globalConfig: globalConfigPda, admin: admin.publicKey })
+          .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
         assert.fail("Should have rejected epoch_duration=0");
       } catch (err: any) {
@@ -445,7 +450,7 @@ describe("Security: fixed vulnerabilities", () => {
       try {
         await program.methods
           .updateConfig(null, null, null, null, null, null, null, null, null, null, new anchor.BN(10_000), null)
-          .accounts({ globalConfig: globalConfigPda, admin: admin.publicKey })
+          .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
         assert.fail("Should have rejected buy_fee_bps=10000");
       } catch (err: any) {
@@ -458,7 +463,7 @@ describe("Security: fixed vulnerabilities", () => {
       try {
         await program.methods
           .updateConfig(null, null, new anchor.BN(0), null, null, null, null, null, null, null, null, null)
-          .accounts({ globalConfig: globalConfigPda, admin: admin.publicKey })
+          .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
           .signers([admin]).rpc();
         assert.fail("Should have rejected settlement_deadline=0");
       } catch (err: any) {
@@ -475,7 +480,7 @@ describe("Security: fixed vulnerabilities", () => {
           new anchor.BN(300),         // challenge_window = 5 min (>= 60)
           null, null, null, null, null, null, null, null, null, null
         )
-        .accounts({ globalConfig: globalConfigPda, admin: admin.publicKey })
+        .accounts({ global_config: globalConfigPda, admin: admin.publicKey })
         .signers([admin]).rpc();
 
       const cfg = await program.account.globalConfig.fetch(globalConfigPda);
@@ -498,19 +503,19 @@ describe("Security: fixed vulnerabilities", () => {
       await program.methods
         .createMarket(new anchor.BN(Math.floor(Date.now() / 1000) + 3600), 2, "Close Test", "close", 0, null, null)
         .accounts({
-          globalConfig: globalConfigPda, market: closePda,
-          authority: admin.publicKey, systemProgram: SystemProgram.programId,
+          global_config: globalConfigPda, market: closePda,
+          authority: admin.publicKey, system_program: SystemProgram.programId,
         })
         .signers([admin]).rpc();
 
       // Void it first so it can be closed
       await program.methods.voidMarket()
-        .accounts({ globalConfig: globalConfigPda, market: closePda, admin: admin.publicKey })
+        .accounts({ global_config: globalConfigPda, market: closePda, admin: admin.publicKey })
         .signers([admin]).rpc();
 
       await program.methods.closeMarket(new anchor.BN(closeId))
         .accounts({
-          globalConfig: globalConfigPda, market: closePda,
+          global_config: globalConfigPda, market: closePda,
           authority: admin.publicKey,
         })
         .signers([admin]).rpc();
