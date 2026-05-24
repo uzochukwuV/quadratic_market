@@ -31,7 +31,7 @@ pub struct PlaceOrder<'info> {
         seeds = [seeds::ORDER, global_config.next_order_id.to_le_bytes().as_ref()],
         bump,
     )]
-    pub order: Account<'info, LimitOrder>,
+    pub order: Box<Account<'info, LimitOrder>>,
 
     /// CHECK: Treasury PDA — holds USDC collateral for buy orders.
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
@@ -40,28 +40,28 @@ pub struct PlaceOrder<'info> {
     // For SELL orders: creator's outcome token ATA (tokens transferred to escrow).
     // For BUY orders:  not required — pass any account, it is ignored.
     #[account(mut)]
-    pub creator_outcome_ata: Option<Account<'info, TokenAccount>>,
+    pub creator_outcome_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     // Escrow ATA for SELL orders: must be owned by the order PDA so only the
     // order PDA can sign transfers out of it. Ownership is validated in the handler.
     // For BUY orders: not required.
     #[account(mut)]
-    pub escrow_outcome_ata: Option<Account<'info, TokenAccount>>,
+    pub escrow_outcome_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     // Outcome mint — needed to validate escrow ATA ownership for sell orders.
     #[account(mut)]
-    pub outcome_mint: Option<Account<'info, Mint>>,
+    pub outcome_mint: Option<Box<Account<'info, Mint>>>,
 
     // For BUY orders: creator's USDC ATA (collateral transferred to treasury).
     // For SELL orders: not required.
     #[account(mut)]
-    pub creator_base_ata: Option<Account<'info, TokenAccount>>,
+    pub creator_base_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     #[account(mut)]
     pub creator: Signer<'info>,
@@ -222,7 +222,7 @@ pub struct FillOrder<'info> {
         seeds = [seeds::ORDER, order_id.to_le_bytes().as_ref()],
         bump = order.bump,
     )]
-    pub order: Account<'info, LimitOrder>,
+    pub order: Box<Account<'info, LimitOrder>>,
 
     /// CHECK: Treasury PDA
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
@@ -230,29 +230,29 @@ pub struct FillOrder<'info> {
 
     // Filler's USDC ATA — used when filling a SELL order (filler pays USDC).
     #[account(mut)]
-    pub filler_base_ata: Option<Account<'info, TokenAccount>>,
+    pub filler_base_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     // Creator's USDC ATA — receives USDC when their SELL order is filled.
     #[account(mut)]
-    pub creator_base_ata: Option<Account<'info, TokenAccount>>,
+    pub creator_base_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     // Filler's outcome token ATA — used when filling a BUY order (filler provides tokens).
     #[account(mut)]
-    pub filler_outcome_ata: Option<Account<'info, TokenAccount>>,
+    pub filler_outcome_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     // Creator's outcome token ATA — receives tokens when their BUY order is filled.
     #[account(mut)]
-    pub creator_outcome_ata: Option<Account<'info, TokenAccount>>,
+    pub creator_outcome_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     // Escrow ATA holding tokens for SELL orders.
     #[account(mut)]
-    pub escrow_outcome_ata: Option<Account<'info, TokenAccount>>,
+    pub escrow_outcome_ata: Option<Box<Account<'info, TokenAccount>>>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     pub filler: Signer<'info>,
     pub token_program: Program<'info, Token>,
