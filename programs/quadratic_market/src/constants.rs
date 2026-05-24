@@ -38,6 +38,7 @@ pub mod seeds {
     pub const BET_SLIP: &[u8] = b"bet_slip";
     pub const PENDING: &[u8] = b"pending";
     pub const ORDER: &[u8] = b"order";
+    pub const EPOCH: &[u8] = b"epoch";
 }
 
 // Correlated markets

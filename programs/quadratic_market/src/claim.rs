@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus};
+use crate::state::{GlobalConfig, Market, MarketStatus, BetSlip};
 use crate::errors::QuadraticMarketError;
 use crate::constants::seeds;
 
@@ -101,6 +101,91 @@ pub fn claim_payout_handler(ctx: Context<ClaimPayout>, _market_id: u64) -> Resul
 
     config.locked_payouts = config.locked_payouts.saturating_sub(amount);
 
+    Ok(())
+}
+
+// ─── Claim Paused Bet ──────────────────────────────────────────
+// When the protocol is paused (global_config.paused == true), users can
+// reclaim their original stake from an unclaimed BetSlip. This prevents
+// funds from being permanently locked if the protocol is emergency-paused.
+// The slip's locked_amount is returned 1:1 and the slip is closed.
+
+#[derive(Accounts)]
+#[instruction(slip_id: u64)]
+pub struct ClaimPausedBet<'info> {
+    #[account(
+        mut,
+        seeds = [seeds::GLOBAL_CONFIG],
+        bump = global_config.bump,
+    )]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        mut,
+        seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
+        bump = bet_slip.bump,
+        constraint = bet_slip.creator == claimer.key() @ QuadraticMarketError::Unauthorized,
+        close = claimer,
+    )]
+    pub bet_slip: Account<'info, BetSlip>,
+
+    /// CHECK: Treasury PDA
+    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
+    pub treasury: SystemAccount<'info>,
+
+    #[account(
+        mut,
+        associated_token::mint = base_mint,
+        associated_token::authority = treasury,
+    )]
+    pub treasury_base_ata: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        associated_token::mint = base_mint,
+        associated_token::authority = claimer,
+    )]
+    pub claimer_base_ata: Account<'info, TokenAccount>,
+
+    #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
+    pub base_mint: Account<'info, Mint>,
+
+    pub claimer: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn claim_paused_bet_handler(ctx: Context<ClaimPausedBet>, _slip_id: u64) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+
+    // Only available when the protocol is paused
+    require!(config.paused, QuadraticMarketError::NotPaused);
+
+    let slip = &ctx.accounts.bet_slip;
+    require!(!slip.claimed, QuadraticMarketError::SlipAlreadyClaimed);
+
+    let refund = slip.total_stake;
+    require!(refund > 0, QuadraticMarketError::InvalidAmount);
+
+    // Release the locked payout that was reserved for this slip
+    config.locked_payouts = config.locked_payouts.saturating_sub(slip.locked_amount);
+
+    let treasury_seeds = &[seeds::TREASURY, &[config.treasury_bump]];
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.treasury_base_ata.to_account_info(),
+                to: ctx.accounts.claimer_base_ata.to_account_info(),
+                authority: ctx.accounts.treasury.to_account_info(),
+            },
+            &[treasury_seeds],
+        ),
+        refund,
+    )?;
+
+    // Slip account is closed via `close = claimer` — rent returned to user.
     Ok(())
 }
 

@@ -86,6 +86,9 @@ pub fn handler(
     config.cash_out_margin_bps = DEFAULT_CASH_OUT_MARGIN_BPS;
     config.next_order_id = 1;
     config.order_collateral_locked = 0;
+    // Epoch state: start unpaused, epoch 0, next epoch starts one duration from now
+    config.epoch_paused = false;
+    config.next_epoch_start = 0; // will be set when first epoch is initialized
 
     Ok(())
 }

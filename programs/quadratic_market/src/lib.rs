@@ -20,6 +20,7 @@ pub mod claim;
 pub mod market_group;
 pub mod slip;
 pub mod orders;
+pub mod epoch_ops;
 
 // Bring all account structs into scope so Anchor's #[program]
 // macro references them directly
@@ -34,6 +35,7 @@ use claim::*;
 use market_group::*;
 use slip::*;
 use orders::*;
+use epoch_ops::*;
 use crate::state::market_group::CorrelationPair;
 use crate::state::bet_slip::SlipLeg;
 use crate::state::market::MarketMode;
@@ -223,6 +225,11 @@ pub mod quadratic_market {
         close_market_handler(ctx, market_id)
     }
 
+    /// Refund a user's original stake when the protocol is paused.
+    pub fn claim_paused_bet(ctx: Context<ClaimPausedBet>, slip_id: u64) -> Result<()> {
+        claim_paused_bet_handler(ctx, slip_id)
+    }
+
     // ─── Market Group Operations ────────────────────────────────
 
     pub fn create_market_group(
@@ -347,5 +354,36 @@ pub mod quadratic_market {
         order_id: u64,
     ) -> Result<()> {
         expire_order_handler(ctx, order_id)
+    }
+
+    // ─── Epoch Management ─────────────────────────────────────────
+
+    /// Create the on-chain Epoch account for the current epoch.
+    /// Must be called before any markets can be created in a new epoch.
+    pub fn init_epoch(ctx: Context<InitEpoch>) -> Result<()> {
+        init_epoch_handler(ctx)
+    }
+
+    /// Advance to the next epoch. Requires all markets in the current epoch
+    /// to be settled. Unpauses the epoch gate for the new epoch.
+    pub fn advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
+        advance_epoch_handler(ctx)
+    }
+
+    /// Pause epoch — blocks deposits, withdrawals, and market creation.
+    /// Admin can pause at any time (e.g. between epochs or for emergency).
+    pub fn pause_epoch(ctx: Context<PauseEpoch>) -> Result<()> {
+        pause_epoch_handler(ctx)
+    }
+
+    /// Unpause epoch — re-enables deposits, withdrawals, and market creation.
+    pub fn unpause_epoch(ctx: Context<UnpauseEpoch>) -> Result<()> {
+        unpause_epoch_handler(ctx)
+    }
+
+    /// Manually close an epoch and enable LP withdrawals.
+    /// Normally auto-triggered when the last market in the epoch settles.
+    pub fn close_epoch(ctx: Context<CloseEpoch>) -> Result<()> {
+        close_epoch_handler(ctx)
     }
 }
