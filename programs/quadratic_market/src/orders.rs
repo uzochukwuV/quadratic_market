@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, LimitOrder, OrderSide, OrderStatus};
+use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode, LimitOrder, OrderSide, OrderStatus};
 use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, SCALE};
 
@@ -85,6 +85,10 @@ pub fn place_order_handler(
     let market = &ctx.accounts.market;
     require!(market.status == MarketStatus::Open, QuadraticMarketError::MarketNotOpen);
     require!(
+        market.market_mode == MarketMode::FixedOdds,
+        QuadraticMarketError::DirectTradingDisabled
+    );
+    require!(
         (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
     );
@@ -121,6 +125,14 @@ pub fn place_order_handler(
                 escrow_ata.owner == ctx.accounts.order.key(),
                 QuadraticMarketError::InvalidRemainingAccount
             );
+            let expected_outcome_mint = market.outcome_mints[outcome_id as usize];
+            require!(expected_outcome_mint != Pubkey::default(), QuadraticMarketError::WrongOutcomeToken);
+            let outcome_mint = ctx.accounts.outcome_mint
+                .as_ref()
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+            require!(outcome_mint.key() == expected_outcome_mint, QuadraticMarketError::WrongOutcomeToken);
+            require!(creator_ata.mint == expected_outcome_mint, QuadraticMarketError::WrongOutcomeToken);
+            require!(escrow_ata.mint == expected_outcome_mint, QuadraticMarketError::WrongOutcomeToken);
 
             require!(creator_ata.amount >= num_shares, QuadraticMarketError::InsufficientShares);
 
@@ -272,7 +284,7 @@ pub fn fill_order_handler(
 
     let now = Clock::get()?.unix_timestamp;
     if order_expires_at > 0 {
-        require!(now < order_expires_at, QuadraticMarketError::OrderNotExpired);
+        require!(now < order_expires_at, QuadraticMarketError::OrderExpired);
     }
 
     // USDC value for this fill: fill_shares × price_per_share
@@ -346,6 +358,16 @@ pub fn fill_order_handler(
             let creator_outcome = ctx.accounts.creator_outcome_ata
                 .as_ref()
                 .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+            let (expected_mint_pda, _) = Pubkey::find_program_address(
+                &[
+                    seeds::OUTCOME_MINT,
+                    ctx.accounts.order.market_id.to_le_bytes().as_ref(),
+                    ctx.accounts.order.outcome_id.to_le_bytes().as_ref(),
+                ],
+                &crate::ID,
+            );
+            require!(filler_outcome.mint == expected_mint_pda, QuadraticMarketError::WrongOutcomeToken);
+            require!(creator_outcome.mint == expected_mint_pda, QuadraticMarketError::WrongOutcomeToken);
 
             // 1. Filler transfers outcome tokens to creator
             token::transfer(
