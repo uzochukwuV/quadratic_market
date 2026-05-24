@@ -61,14 +61,17 @@ describe("epoch user flow integration", () => {
   let lpLpAta: PublicKey;
   let pendingLiquidity: PublicKey;
   let withdrawReq: PublicKey;
-  let market: PublicKey;
+  let market1: PublicKey;
+  let market2: PublicKey;
   let epoch: PublicKey;
-  let dispute: PublicKey;
+  let dispute1: PublicKey;
+  let dispute2: PublicKey;
   let traderBaseAta: PublicKey;
   let traderOutcomeAta: PublicKey;
   let outcomeMint0: PublicKey;
 
-  const marketId = 1;
+  const marketId1 = 1;
+  const marketId2 = 2;
 
   it("runs epoch lifecycle from init -> trading -> settlement -> lp withdraw", async () => {
     [globalConfig] = PublicKey.findProgramAddressSync([Buffer.from("global_config")], program.programId);
@@ -76,9 +79,11 @@ describe("epoch user flow integration", () => {
     [treasury] = PublicKey.findProgramAddressSync([Buffer.from("treasury")], program.programId);
     [pendingLiquidity] = PublicKey.findProgramAddressSync([Buffer.from("pending"), lp.publicKey.toBuffer()], program.programId);
     [withdrawReq] = PublicKey.findProgramAddressSync([Buffer.from("withdrawal"), lp.publicKey.toBuffer()], program.programId);
-    [market] = PublicKey.findProgramAddressSync([Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)], program.programId);
+    [market1] = PublicKey.findProgramAddressSync([Buffer.from("market"), new anchor.BN(marketId1).toArrayLike(Buffer, "le", 8)], program.programId);
+    [market2] = PublicKey.findProgramAddressSync([Buffer.from("market"), new anchor.BN(marketId2).toArrayLike(Buffer, "le", 8)], program.programId);
     [epoch] = PublicKey.findProgramAddressSync([Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)], program.programId);
-    [dispute] = PublicKey.findProgramAddressSync([Buffer.from("dispute"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)], program.programId);
+    [dispute1] = PublicKey.findProgramAddressSync([Buffer.from("dispute"), new anchor.BN(marketId1).toArrayLike(Buffer, "le", 8)], program.programId);
+    [dispute2] = PublicKey.findProgramAddressSync([Buffer.from("dispute"), new anchor.BN(marketId2).toArrayLike(Buffer, "le", 8)], program.programId);
 
     // If already initialized by another suite, skip to avoid PDA collisions.
     try {
@@ -179,11 +184,19 @@ describe("epoch user flow integration", () => {
       .rpc();
 
     const [outcomeMint1] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8), Buffer.from([1])],
+      [Buffer.from("outcome_mint"), new anchor.BN(marketId1).toArrayLike(Buffer, "le", 8), Buffer.from([1])],
       program.programId
     );
     [outcomeMint0] = PublicKey.findProgramAddressSync(
-      [Buffer.from("outcome_mint"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8), Buffer.from([0])],
+      [Buffer.from("outcome_mint"), new anchor.BN(marketId1).toArrayLike(Buffer, "le", 8), Buffer.from([0])],
+      program.programId
+    );
+    const [outcomeMint20] = PublicKey.findProgramAddressSync(
+      [Buffer.from("outcome_mint"), new anchor.BN(marketId2).toArrayLike(Buffer, "le", 8), Buffer.from([0])],
+      program.programId
+    );
+    const [outcomeMint21] = PublicKey.findProgramAddressSync(
+      [Buffer.from("outcome_mint"), new anchor.BN(marketId2).toArrayLike(Buffer, "le", 8), Buffer.from([1])],
       program.programId
     );
 
@@ -209,6 +222,7 @@ describe("epoch user flow integration", () => {
     await program.methods.initOutcomeMint(new anchor.BN(marketId), 1).accounts(accounts_initOutcomeMint1).signers([admin]).rpc();
 
     traderOutcomeAta = await createAta(provider, outcomeMint0, trader.publicKey);
+    const traderOutcomeAta2 = await createAta(provider, outcomeMint20, trader.publicKey);
 
     const accounts_buyShares = {
       global_config: globalConfig,
@@ -226,6 +240,14 @@ describe("epoch user flow integration", () => {
     await program.methods
       .buyShares(new anchor.BN(marketId), 0, new anchor.BN(50_000_000), new anchor.BN(40_000_000))
       .accounts(accounts_buyShares)
+      .signers([trader])
+      .rpc();
+    await program.methods
+      .buyShares(new anchor.BN(marketId2), 0, new anchor.BN(30_000_000), new anchor.BN(25_000_000))
+      .accounts({
+        globalConfig, market: market2, treasury, buyerBaseAta: traderBaseAta, treasuryBaseAta, buyerOutcomeAta: traderOutcomeAta2,
+        outcomeMint: outcomeMint20, buyer: trader.publicKey, tokenProgram: TOKEN_PROGRAM
+      })
       .signers([trader])
       .rpc();
 
