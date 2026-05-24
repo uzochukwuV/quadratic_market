@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { MARKETS, EPOCHS } from "@/lib/mockData";
-import { formatPrice } from "@/lib/types";
+
 
 function formatVol(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
