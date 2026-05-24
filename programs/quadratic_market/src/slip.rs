@@ -722,9 +722,9 @@ pub fn cash_out_slip_handler<'info>(
     require!(!slip.claimed, QuadraticMarketError::SlipAlreadyClaimed);
     require!(slip.num_legs > 0, QuadraticMarketError::SlipNoLegs);
 
-    // remaining_accounts: one Market per leg, in leg order
+    // remaining_accounts layout: [market, outcome_mint, claimer_outcome_ata] per leg, in leg order
     require!(
-        ctx.remaining_accounts.len() >= slip.num_legs as usize,
+        ctx.remaining_accounts.len() >= (slip.num_legs as usize) * 3,
         QuadraticMarketError::InvalidRemainingAccount
     );
 
@@ -734,7 +734,9 @@ pub fn cash_out_slip_handler<'info>(
 
     for leg_idx in 0..num_legs as usize {
         let leg = &slip.legs[leg_idx];
-        let market_info = &ctx.remaining_accounts[leg_idx];
+        let market_info = &ctx.remaining_accounts[leg_idx * 3];
+        let outcome_mint_info = &ctx.remaining_accounts[leg_idx * 3 + 1];
+        let outcome_ata_info = &ctx.remaining_accounts[leg_idx * 3 + 2];
 
         // Validate market PDA
         let (expected_pda, _) = Pubkey::find_program_address(
@@ -764,6 +766,32 @@ pub fn cash_out_slip_handler<'info>(
             market.lmsr_b,
         )?;
         leg_prices.push(price);
+
+        let (expected_mint_pda, _) = Pubkey::find_program_address(
+            &[seeds::OUTCOME_MINT, leg.market_id.to_le_bytes().as_ref(), leg.outcome_id.to_le_bytes().as_ref()],
+            &crate::ID,
+        );
+        require!(
+            outcome_mint_info.key() == expected_mint_pda,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+
+        let ata_data = outcome_ata_info.data.borrow();
+        let ata: TokenAccount = TokenAccount::try_deserialize(&mut ata_data.as_ref())
+            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+        drop(ata_data);
+        require!(
+            ata.owner == ctx.accounts.claimer.key(),
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+        require!(
+            ata.mint == expected_mint_pda,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+        require!(
+            ata.amount >= leg.num_shares,
+            QuadraticMarketError::InsufficientShares
+        );
     }
 
     // Current fair value = stake × current_combined_odds (with original margin + bonus)
@@ -810,10 +838,27 @@ pub fn cash_out_slip_handler<'info>(
         cash_out_payout,
     )?;
 
-    // Slip PDA is closed via `close = claimer` — rent returned to claimer.
-    // Outcome tokens minted at placement remain in the user's wallet but are
-    // orphaned (no slip PDA to claim against). V1 known limitation: document
-    // in client that outcome tokens should be burned after cash-out.
+    // Burn outcome tokens for each leg to prevent double-claim via claim_payout.
+    for leg_idx in 0..num_legs as usize {
+        let leg = &slip.legs[leg_idx];
+        let outcome_mint_info = &ctx.remaining_accounts[leg_idx * 3 + 1];
+        let outcome_ata_info = &ctx.remaining_accounts[leg_idx * 3 + 2];
+        let ata_data = outcome_ata_info.data.borrow();
+        let _ata: TokenAccount = TokenAccount::try_deserialize(&mut ata_data.as_ref())
+            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+        drop(ata_data);
+        token::burn(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token::Burn {
+                    mint: outcome_mint_info.clone(),
+                    from: outcome_ata_info.clone(),
+                    authority: ctx.accounts.claimer.to_account_info(),
+                },
+            ),
+            leg.num_shares,
+        )?;
+    }
 
     Ok(())
 }
