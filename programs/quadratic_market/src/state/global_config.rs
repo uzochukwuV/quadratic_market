@@ -80,8 +80,11 @@ impl GlobalConfig {
         + 8;  // next_epoch_start
 
     pub fn free_liquidity(&self, treasury_balance: u64) -> u64 {
-        if treasury_balance > self.locked_payouts {
-            treasury_balance - self.locked_payouts
+        let total_locked = self
+            .locked_payouts
+            .saturating_add(self.order_collateral_locked);
+        if treasury_balance > total_locked {
+            treasury_balance - total_locked
         } else {
             0
         }

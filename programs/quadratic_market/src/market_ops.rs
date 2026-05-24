@@ -128,6 +128,9 @@ pub fn create_market_handler(
     epoch.num_markets = epoch.num_markets
         .checked_add(1)
         .ok_or(QuadraticMarketError::MathOverflow)?;
+    epoch.all_markets_settled = false;
+    epoch.withdrawals_enabled = false;
+    epoch.lp_shares_at_close = 0;
 
     Ok(())
 }
@@ -250,6 +253,13 @@ pub struct VoidMarket<'info> {
     #[account(mut, seeds = [seeds::MARKET, market.market_id.to_le_bytes().as_ref()], bump = market.bump)]
     pub market: Account<'info, Market>,
 
+    #[account(
+        mut,
+        seeds = [seeds::EPOCH, market.epoch_id.to_le_bytes().as_ref()],
+        bump = epoch.bump,
+    )]
+    pub epoch: Account<'info, Epoch>,
+
     pub admin: Signer<'info>,
 }
 
@@ -265,6 +275,7 @@ pub fn void_market_handler(ctx: Context<VoidMarket>) -> Result<()> {
     );
     let market = &mut ctx.accounts.market;
     let config = &mut ctx.accounts.global_config;
+    let epoch = &mut ctx.accounts.epoch;
     // Release the full outstanding share liability (sum of all q_values), not
     // market.exposure. locked_payouts was incremented by num_shares per buy;
     // market.exposure is the LP net-risk delta (num_shares - cost), which is
@@ -273,6 +284,17 @@ pub fn void_market_handler(ctx: Context<VoidMarket>) -> Result<()> {
         .map(|i| market.q_values[i])
         .fold(0u64, |acc, v| acc.saturating_add(v));
     config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    if !market.settled_in_epoch {
+        market.settled_in_epoch = true;
+        epoch.num_settled_markets = epoch.num_settled_markets
+            .checked_add(1)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+        if epoch.num_markets > 0 && epoch.num_settled_markets >= epoch.num_markets {
+            epoch.all_markets_settled = true;
+            epoch.lp_shares_at_close = config.total_lp_supply;
+            epoch.withdrawals_enabled = true;
+        }
+    }
     market.status = MarketStatus::Voided;
     Ok(())
 }
@@ -288,11 +310,19 @@ pub struct VoidIfExpired<'info> {
 
     #[account(mut, seeds = [seeds::MARKET, market.market_id.to_le_bytes().as_ref()], bump = market.bump)]
     pub market: Account<'info, Market>,
+
+    #[account(
+        mut,
+        seeds = [seeds::EPOCH, market.epoch_id.to_le_bytes().as_ref()],
+        bump = epoch.bump,
+    )]
+    pub epoch: Account<'info, Epoch>,
 }
 
 pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
     let market = &mut ctx.accounts.market;
     let config = &mut ctx.accounts.global_config;
+    let epoch = &mut ctx.accounts.epoch;
 
     // Only Suspended markets can be auto-voided. An Open market is still accepting
     // bets and must be explicitly suspended by an operator before it can be voided.
@@ -315,6 +345,17 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
         .map(|i| market.q_values[i])
         .fold(0u64, |acc, v| acc.saturating_add(v));
     config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    if !market.settled_in_epoch {
+        market.settled_in_epoch = true;
+        epoch.num_settled_markets = epoch.num_settled_markets
+            .checked_add(1)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+        if epoch.num_markets > 0 && epoch.num_settled_markets >= epoch.num_markets {
+            epoch.all_markets_settled = true;
+            epoch.lp_shares_at_close = config.total_lp_supply;
+            epoch.withdrawals_enabled = true;
+        }
+    }
     market.status = MarketStatus::Voided;
 
     Ok(())

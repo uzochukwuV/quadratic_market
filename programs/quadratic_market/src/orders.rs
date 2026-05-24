@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, LimitOrder, OrderSide, OrderStatus};
+use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode, LimitOrder, OrderSide, OrderStatus};
 use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, SCALE};
 
@@ -84,6 +84,10 @@ pub fn place_order_handler(
 
     let market = &ctx.accounts.market;
     require!(market.status == MarketStatus::Open, QuadraticMarketError::MarketNotOpen);
+    require!(
+        market.market_mode == MarketMode::FixedOdds,
+        QuadraticMarketError::DirectTradingDisabled
+    );
     require!(
         (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
