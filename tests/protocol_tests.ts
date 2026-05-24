@@ -88,11 +88,13 @@ async function createTestMarket(
   program: Program<QuadraticMarket>,
   provider: anchor.AnchorProvider,
   globalConfigPda: PublicKey,
+  epochPda: PublicKey,
   authority: Keypair,
   startTime: number,
   numOutcomes: number,
   title: string,
-  desc: string
+  desc: string,
+  marketMode: any
 ): Promise<{ marketId: number; marketPda: PublicKey }> {
   const config = await program.account.globalConfig.fetch(globalConfigPda);
   const marketId = config.nextMarketId.toNumber();
@@ -109,11 +111,13 @@ async function createTestMarket(
       desc,
       0,
       null,
-      null
+      null,
+      marketMode
     )
     .accounts({
       globalConfig: globalConfigPda,
       market: marketPda,
+      epoch: epochPda,
       authority: authority.publicKey,
       systemProgram: SystemProgram.programId,
       rent: SYSVAR_RENT_PUBKEY,
@@ -132,6 +136,7 @@ async function createStartedMarket(
   program: Program<QuadraticMarket>,
   provider: anchor.AnchorProvider,
   globalConfigPda: PublicKey,
+  epochPda: PublicKey,
   authority: Keypair,
   numOutcomes: number,
   title: string,
@@ -139,7 +144,7 @@ async function createStartedMarket(
 ): Promise<{ marketId: number; marketPda: PublicKey }> {
   const nearFuture = Math.floor(Date.now() / 1000) + 3;
   const result = await createTestMarket(
-    program, provider, globalConfigPda, authority, nearFuture, numOutcomes, title, desc
+    program, provider, globalConfigPda, epochPda, authority, nearFuture, numOutcomes, title, desc, { settlement: {} }
   );
   // Wait until the validator's clock has passed start_time
   await new Promise(resolve => setTimeout(resolve, 4_000));
@@ -195,6 +200,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
   let lpMintPda: PublicKey;
   let treasuryPda: PublicKey;
   let treasuryBaseAta: PublicKey;
+  let epochPda: PublicKey;
 
   // Test accounts
   let baseMint: PublicKey;
@@ -301,6 +307,22 @@ describe("protocol_tests — Security & Edge Cases", () => {
       })
       .rpc();
 
+    const cfgAfterInit = await program.account.globalConfig.fetch(globalConfigPda);
+    [epochPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch"), new anchor.BN(cfgAfterInit.currentEpoch.toNumber()).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
+    await program.methods
+      .initEpoch()
+      .accounts({
+        globalConfig: globalConfigPda,
+        epoch: epochPda,
+        authority: admin.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([admin])
+      .rpc();
+
     // 2. Add marketCreator as operator
     await program.methods
       .addOperator(marketCreator.publicKey)
@@ -357,9 +379,16 @@ describe("protocol_tests — Security & Edge Cases", () => {
     // 3. Create initial test market (using marketCreator as operator)
     const startTime = Math.floor(Date.now() / 1000) + 3600;
     const result = await createTestMarket(
-      program, provider, globalConfigPda,
-      marketCreator, startTime, 2,
-      "Test Market", "Test market for security tests"
+      program,
+      provider,
+      globalConfigPda,
+      epochPda,
+      marketCreator,
+      startTime,
+      2,
+      "Test Market",
+      "Test market for security tests",
+      { trading: {} }
     );
     marketId = result.marketId;
     marketPda = result.marketPda;
@@ -673,7 +702,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
 
       // Create a market whose start_time is in the past (oracle can now propose)
       const { marketId: testMarketId, marketPda: testMarketPda } = await createStartedMarket(
-        program, provider, globalConfigPda,
+        program, provider, globalConfigPda, epochPda,
         admin, 2,
         "Invalid Outcome Test", "Test"
       );
@@ -709,9 +738,10 @@ describe("protocol_tests — Security & Edge Cases", () => {
 
       const startTime = Math.floor(Date.now() / 1000) + 3600;
       const { marketPda: testMarketPda } = await createTestMarket(
-        program, provider, globalConfigPda,
+        program, provider, globalConfigPda, epochPda,
         admin, startTime, 2,
-        "Void Test Market", "Test"
+        "Void Test Market", "Test",
+        { trading: {} }
       );
 
       // First void succeeds
@@ -720,6 +750,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
         .accounts({
           globalConfig: globalConfigPda,
           market: testMarketPda,
+          epoch: epochPda,
           admin: admin.publicKey,
         })
         .signers([admin])
@@ -735,6 +766,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
           .accounts({
             globalConfig: globalConfigPda,
             market: testMarketPda,
+            epoch: epochPda,
             admin: admin.publicKey,
           })
           .signers([admin])
@@ -750,7 +782,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
 
       // Create a market whose start_time is now in the past
       const { marketId: pastMarketId, marketPda: pastMarketPda } = await createStartedMarket(
-        program, provider, globalConfigPda,
+        program, provider, globalConfigPda, epochPda,
         admin, 2,
         "Past Start Market", "Betting should be blocked"
       );
@@ -818,7 +850,7 @@ describe("protocol_tests — Security & Edge Cases", () => {
 
       // Create a market whose start_time is now in the past
       const { marketId: testMarketId, marketPda: testMarketPda } = await createStartedMarket(
-        program, provider, globalConfigPda,
+        program, provider, globalConfigPda, epochPda,
         admin, 2,
         "Oracle Settlement Test", "Non-oracle should fail"
       );

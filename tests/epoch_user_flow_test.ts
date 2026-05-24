@@ -148,13 +148,27 @@ describe("epoch user flow integration", () => {
 
     const startTime = new anchor.BN(Math.floor(Date.now() / 1000) + 600);
     await program.methods
-      .createMarket(startTime, 2, "Epoch Flow Market 1", "Integration flow one", "sports", null, null, { trading: {} })
-      .accounts({ globalConfig, market: market1, epoch, creator: operator.publicKey, systemProgram: SystemProgram.programId })
+      .createMarket(startTime, 2, "Epoch Flow Market 1", "Integration flow one", 0, null, null, { trading: {} })
+      .accounts({
+        globalConfig,
+        market: market1,
+        epoch,
+        authority: operator.publicKey,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
       .signers([operator])
       .rpc();
     await program.methods
-      .createMarket(startTime, 2, "Epoch Flow Market 2", "Integration flow two", "sports", null, null, { trading: {} })
-      .accounts({ globalConfig, market: market2, epoch, creator: operator.publicKey, systemProgram: SystemProgram.programId })
+      .createMarket(startTime, 2, "Epoch Flow Market 2", "Integration flow two", 0, null, null, { trading: {} })
+      .accounts({
+        globalConfig,
+        market: market2,
+        epoch,
+        authority: operator.publicKey,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
       .signers([operator])
       .rpc();
 
@@ -196,18 +210,20 @@ describe("epoch user flow integration", () => {
     const traderOutcomeAta2 = await createAta(provider, outcomeMint20, trader.publicKey);
 
     await program.methods
-      .buyShares(new anchor.BN(marketId1), 0, new anchor.BN(50_000_000), new anchor.BN(40_000_000))
+      .buyShares(0, new anchor.BN(50_000_000), new anchor.BN(40_000_000))
       .accounts({
         globalConfig, market: market1, treasury, buyerBaseAta: traderBaseAta, treasuryBaseAta, buyerOutcomeAta: traderOutcomeAta,
-        outcomeMint: outcomeMint0, buyer: trader.publicKey, tokenProgram: TOKEN_PROGRAM
+        outcomeMint: outcomeMint0, baseMint, buyer: trader.publicKey, tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM,
+        systemProgram: SystemProgram.programId
       })
       .signers([trader])
       .rpc();
     await program.methods
-      .buyShares(new anchor.BN(marketId2), 0, new anchor.BN(30_000_000), new anchor.BN(25_000_000))
+      .buyShares(0, new anchor.BN(30_000_000), new anchor.BN(25_000_000))
       .accounts({
         globalConfig, market: market2, treasury, buyerBaseAta: traderBaseAta, treasuryBaseAta, buyerOutcomeAta: traderOutcomeAta2,
-        outcomeMint: outcomeMint20, buyer: trader.publicKey, tokenProgram: TOKEN_PROGRAM
+        outcomeMint: outcomeMint20, baseMint, buyer: trader.publicKey, tokenProgram: TOKEN_PROGRAM, associatedTokenProgram: ATA_PROGRAM,
+        systemProgram: SystemProgram.programId
       })
       .signers([trader])
       .rpc();
@@ -221,10 +237,10 @@ describe("epoch user flow integration", () => {
       globalConfig, market: market2, dispute: dispute2, oracle: oracle.publicKey, systemProgram: SystemProgram.programId
     }).signers([oracle]).rpc();
     await program.methods.finalizeResult(new anchor.BN(marketId1)).accounts({
-      globalConfig, market: market1, dispute: dispute1, epoch, authority: operator.publicKey
+      globalConfig, market: market1, dispute: dispute1, epoch, caller: operator.publicKey
     }).signers([operator]).rpc();
     await program.methods.finalizeResult(new anchor.BN(marketId2)).accounts({
-      globalConfig, market: market2, dispute: dispute2, epoch, authority: operator.publicKey
+      globalConfig, market: market2, dispute: dispute2, epoch, caller: operator.publicKey
     }).signers([operator]).rpc();
 
     const epochAcc = await program.account.epoch.fetch(epoch);
@@ -234,7 +250,7 @@ describe("epoch user flow integration", () => {
       .requestWithdraw(new anchor.BN(50_000_000))
       .accounts({
         globalConfig, lpMint, treasury, treasuryBaseAta, lpLpAta, treasuryLpAta, pendingLiquidity,
-        withdrawalRequest: withdrawReq, epoch, lp: lp.publicKey, tokenProgram: TOKEN_PROGRAM,
+        withdrawalRequest: withdrawReq, baseMint, epoch, lp: lp.publicKey, tokenProgram: TOKEN_PROGRAM,
         associatedTokenProgram: ATA_PROGRAM, systemProgram: SystemProgram.programId
       })
       .signers([lp])

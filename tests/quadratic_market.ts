@@ -78,6 +78,7 @@ describe("quadratic_market — Happy Path", () => {
   let globalConfigPda: PublicKey;
   let lpMintPda: PublicKey;
   let treasuryPda: PublicKey;
+  let epochPda: PublicKey;
 
   // Keypairs
   let oracleKeypair: Keypair;
@@ -193,6 +194,20 @@ describe("quadratic_market — Happy Path", () => {
     assert.equal(config.maxMarketExposure.toNumber(), 500_000_000);
     assert.equal(config.nextMarketId.toNumber(), 1);
 
+    [epochPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch"), new anchor.BN(config.currentEpoch.toNumber()).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
+    await program.methods
+      .initEpoch()
+      .accounts({
+        globalConfig: globalConfigPda,
+        epoch: epochPda,
+        authority: payer.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
     // Create LP ATA for lp1 (mint is now live)
     lp1LpAta = getAssociatedTokenAddressSync(
       lpMintPda, lp1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM
@@ -274,11 +289,13 @@ describe("quadratic_market — Happy Path", () => {
         "Binary market for Arsenal match",
         0,
         null,
-        null
+        null,
+        { trading: {} }
       )
       .accounts({
         globalConfig: globalConfigPda,
         market: tradingMarketPda,
+        epoch: epochPda,
         authority: payer.publicKey, // admin is authorized
         systemProgram: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
@@ -306,7 +323,7 @@ describe("quadratic_market — Happy Path", () => {
       program.programId
     );
 
-    const startTime = Math.floor(Date.now() / 1000) - 3600; // 1 hour in past
+    const startTime = Math.floor(Date.now() / 1000) + 3;
 
     await program.methods
       .createMarket(
@@ -316,16 +333,20 @@ describe("quadratic_market — Happy Path", () => {
         "Market created for settlement testing",
         0,
         null,
-        null
+        null,
+        { settlement: {} }
       )
       .accounts({
         globalConfig: globalConfigPda,
         market: settlementMarketPda,
+        epoch: epochPda,
         authority: payer.publicKey,
         systemProgram: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
+
+    await new Promise(resolve => setTimeout(resolve, 4_000));
 
     // Init outcome mints on settlement market
     for (const oid of [0, 1]) {
