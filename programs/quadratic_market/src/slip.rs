@@ -788,6 +788,10 @@ pub fn cash_out_slip_handler<'info>(
             ata.mint == expected_mint_pda,
             QuadraticMarketError::InvalidRemainingAccount
         );
+        require!(
+            ata.amount >= leg.num_shares,
+            QuadraticMarketError::InsufficientShares
+        );
     }
 
     // Current fair value = stake × current_combined_odds (with original margin + bonus)
@@ -840,24 +844,20 @@ pub fn cash_out_slip_handler<'info>(
         let outcome_mint_info = &ctx.remaining_accounts[leg_idx * 3 + 1];
         let outcome_ata_info = &ctx.remaining_accounts[leg_idx * 3 + 2];
         let ata_data = outcome_ata_info.data.borrow();
-        let ata: TokenAccount = TokenAccount::try_deserialize(&mut ata_data.as_ref())
+        let _ata: TokenAccount = TokenAccount::try_deserialize(&mut ata_data.as_ref())
             .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        let burn_amount = ata.amount.min(leg.num_shares);
         drop(ata_data);
-
-        if burn_amount > 0 {
-            token::burn(
-                CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    token::Burn {
-                        mint: outcome_mint_info.clone(),
-                        from: outcome_ata_info.clone(),
-                        authority: ctx.accounts.claimer.to_account_info(),
-                    },
-                ),
-                burn_amount,
-            )?;
-        }
+        token::burn(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token::Burn {
+                    mint: outcome_mint_info.clone(),
+                    from: outcome_ata_info.clone(),
+                    authority: ctx.accounts.claimer.to_account_info(),
+                },
+            ),
+            leg.num_shares,
+        )?;
     }
 
     Ok(())
