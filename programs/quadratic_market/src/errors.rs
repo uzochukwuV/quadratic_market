@@ -145,6 +145,8 @@ pub enum QuadraticMarketError {
     OrderNotCancellable = 720,
     #[msg("Order has not expired")]
     OrderNotExpired = 721,
+    #[msg("Order has expired")]
+    OrderExpired = 725,
     #[msg("Order is not open for filling")]
     OrderNotFillable = 722,
     #[msg("Fill amount exceeds remaining order quantity")]

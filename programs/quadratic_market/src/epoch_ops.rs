@@ -63,9 +63,9 @@ pub fn init_epoch_handler(ctx: Context<InitEpoch>) -> Result<()> {
         epoch.total_liquidity_removed = 0;
         epoch.num_markets = 0;
         epoch.num_settled_markets = 0;
-        epoch.all_markets_settled = false;
-        epoch.withdrawals_enabled = false;
-        epoch.lp_shares_at_close = 0;
+        epoch.all_markets_settled = true;
+        epoch.withdrawals_enabled = true;
+        epoch.lp_shares_at_close = config.total_lp_supply;
         epoch.bump = ctx.bumps.epoch;
 
         if epoch_duration > 0 {
