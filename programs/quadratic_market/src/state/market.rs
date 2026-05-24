@@ -71,6 +71,9 @@ pub struct Market {
     pub group_id: Option<u64>,                   // 9 (1 tag + 8 value)
     pub group_market_index: u8,                  // 1
     pub market_mode: MarketMode,                 // 1 (enum tag)
+    // Epoch tracking
+    pub epoch_id: u64,                           // 8 — epoch this market belongs to
+    pub settled_in_epoch: bool,                  // 1 — true when market settlement is counted in epoch
 }
 
 impl Market {
@@ -93,7 +96,9 @@ impl Market {
         + 9   // group_id (Option<u64>: 1 tag + 8 value)
         + 1   // group_market_index
         + 1   // market_mode
-        + 5;  // padding to align to 8
+        + 8   // epoch_id
+        + 1   // settled_in_epoch
+        + 3;  // padding to align to 8
 
     pub fn active_q_values(&self) -> Vec<u64> {
         self.q_values[..self.num_outcomes as usize].to_vec()
