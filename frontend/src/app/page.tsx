@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { MARKETS, EPOCHS } from "@/lib/mockData";
+import { MARKETS, EPOCHS, getMarketPrices } from "@/lib/mockData";
 
 
 function formatVol(n: number): string {
@@ -21,69 +21,63 @@ function getStatusBadge(status: string) {
   }
 }
 
-function getMarketPrices(marketId: number) {
-  // Mock prices based on market ID
-  const base = 0.3 + (marketId % 7) * 0.08;
-  return [base, 1 - base];
-}
-
 export default function LandingPage() {
   const liveMarkets = MARKETS.filter((m) => m.status === "Open");
   const recentSettled = MARKETS.filter((m) => m.status === "Settled").slice(0, 5);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-rich-black">
       {/* ── HEADER / HERO ─────────────────────────────────── */}
-      <div className="border-b border-graphite">
-        <div className="max-w-content mx-auto px-6 py-8">
-          <div className="flex items-center justify-between">
+      <section className="border-b border-graphite">
+        <div className="max-w-content mx-auto px-6 py-12 md:py-16">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
             <div>
-              <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-center gap-3 mb-4">
                 <span className="w-2 h-2 rounded-full bg-cadmium-green pulse-dot" />
                 <span className="font-mono text-caption text-silver-text uppercase tracking-widest">
                   Live Protocol
                 </span>
               </div>
-              <h1 className="text-heading text-white font-medium tracking-tight">
+              <h1 className="text-heading md:text-display text-white font-medium tracking-tight">
                 Prediction Markets
               </h1>
-              <p className="text-body text-silver-text mt-1">
+              <p className="text-body text-silver-text mt-2 md:mt-3">
                 {liveMarkets.length} active markets · {MARKETS.length} total
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <Link href="/markets" className="btn-secondary">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-shrink-0">
+              <Link href="/markets" className="btn-secondary w-full sm:w-auto text-center">
                 All Markets
               </Link>
-              <Link href="/liquidity" className="btn-primary">
+              <Link href="/liquidity" className="btn-primary w-full sm:w-auto text-center">
                 Provide Liquidity
               </Link>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* ── LIVE MARKETS TABLE ──────────────────────────────── */}
-      <div className="max-w-content mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
+      <section className="max-w-content mx-auto px-6 py-12">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <h2 className="text-subheading text-white font-medium">Live Markets</h2>
-          <span className="font-mono text-caption text-silver-text">{liveMarkets.length} markets</span>
+          <span className="font-mono text-caption text-silver-text">{liveMarkets.length} active</span>
         </div>
 
-        <div className="table-container">
+        <div className="table-container overflow-x-auto">
           {/* Table Header */}
-          <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 120px" }}>
+          <div className="grid min-w-full" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 120px" }}>
             <div className="table-header">Market</div>
             <div className="table-header">Category</div>
             <div className="table-header">Yes</div>
             <div className="table-header">No</div>
             <div className="table-header">Volume</div>
-            <div className="table-header">Action</div>
+            <div className="table-header text-right pr-4">Action</div>
           </div>
 
           {/* Table Rows */}
-          {liveMarkets.slice(0, 10).map((market, idx) => {
-            const prices = getMarketPrices(market.market_id);
+          {liveMarkets.slice(0, 10).map((market) => {
+            const prices = getMarketPrices(market);
             const yesPrice = prices[0];
             const noPrice = prices[1];
 
@@ -91,7 +85,7 @@ export default function LandingPage() {
               <Link
                 key={market.market_id}
                 href={`/trade?market=${market.market_id}`}
-                className="grid table-row animate-fade-in hover:bg-white/[0.02]"
+                className="grid min-w-full table-row animate-fade-in hover:bg-white/[0.02]"
                 style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 120px" }}
               >
                 <div className="table-cell">
@@ -124,8 +118,8 @@ export default function LandingPage() {
                 <div className="table-cell">
                   <span className="font-mono">{formatVol(market.exposure * 12)}</span>
                 </div>
-                <div className="table-cell">
-                  <button className="btn-secondary text-caption px-3 py-1.5">
+                <div className="table-cell flex justify-end pr-4">
+                  <button className="btn-secondary text-caption px-3 py-1.5 whitespace-nowrap">
                     Trade →
                   </button>
                 </div>
@@ -135,17 +129,17 @@ export default function LandingPage() {
         </div>
 
         {liveMarkets.length > 10 && (
-          <div className="mt-4 text-center">
+          <div className="mt-6 text-center">
             <Link href="/markets" className="btn-ghost text-body text-silver-text hover:text-white">
               View all {liveMarkets.length} markets →
             </Link>
           </div>
         )}
-      </div>
+      </section>
 
       {/* ── STATS ROW ──────────────────────────────────────── */}
-      <div className="border-t border-graphite">
-        <div className="max-w-content mx-auto px-6 py-8">
+      <section className="border-t border-graphite">
+        <div className="max-w-content mx-auto px-6 py-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: "Total Volume", value: "$14.2M", sub: "All-time" },
@@ -155,25 +149,25 @@ export default function LandingPage() {
             ].map((stat) => (
               <div key={stat.label} className="card text-center">
                 <div className="font-mono text-heading text-cadmium-green">{stat.value}</div>
-                <div className="text-caption text-silver-text mt-1">{stat.label}</div>
-                <div className="text-caption text-silver-text/60">{stat.sub}</div>
+                <div className="text-caption text-silver-text mt-2">{stat.label}</div>
+                <div className="text-caption text-silver-text/60 mt-0.5">{stat.sub}</div>
               </div>
             ))}
           </div>
         </div>
-      </div>
+      </section>
 
       {/* ── RECENTLY SETTLED ──────────────────────────────── */}
-      <div className="max-w-content mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
+      <section className="max-w-content mx-auto px-6 py-12">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <h2 className="text-subheading text-white font-medium">Recently Settled</h2>
           <Link href="/markets?status=Settled" className="btn-ghost text-caption text-silver-text hover:text-white">
             View all →
           </Link>
         </div>
 
-        <div className="table-container">
-          <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
+        <div className="table-container overflow-x-auto">
+          <div className="grid min-w-full" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
             <div className="table-header">Market</div>
             <div className="table-header">Result</div>
             <div className="table-header">Winning</div>
@@ -183,7 +177,7 @@ export default function LandingPage() {
           {recentSettled.map((market) => (
             <div
               key={market.market_id}
-              className="grid table-row"
+              className="grid min-w-full table-row"
               style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr" }}
             >
               <div className="table-cell">
@@ -209,12 +203,12 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
       {/* ── PROTOCOL FEATURES ─────────────────────────────── */}
-      <div className="border-t border-graphite">
-        <div className="max-w-content mx-auto px-6 py-8">
-          <h2 className="text-subheading text-white font-medium mb-6">How It Works</h2>
+      <section className="border-t border-graphite">
+        <div className="max-w-content mx-auto px-6 py-12">
+          <h2 className="text-subheading text-white font-medium mb-8">How It Works</h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
               { step: "01", title: "Connect", desc: "Link your Solana wallet (Phantom, Backpack, Solflare) in one click." },
@@ -223,18 +217,18 @@ export default function LandingPage() {
               { step: "04", title: "Win", desc: "When oracle resolves, claim your share. Fully non-custodial." },
             ].map((item) => (
               <div key={item.step} className="card">
-                <div className="font-mono text-display text-graphite/40 mb-3">{item.step}</div>
-                <h3 className="text-body text-white font-medium mb-1">{item.title}</h3>
-                <p className="text-caption text-silver-text">{item.desc}</p>
+                <div className="font-mono text-display text-graphite/40 mb-4">{item.step}</div>
+                <h3 className="text-body text-white font-medium mb-2">{item.title}</h3>
+                <p className="text-caption text-silver-text leading-relaxed">{item.desc}</p>
               </div>
             ))}
           </div>
         </div>
-      </div>
+      </section>
 
       {/* ── FOOTER ─────────────────────────────────────────── */}
       <footer className="border-t border-graphite py-8">
-        <div className="max-w-content mx-auto px-6 flex items-center justify-between">
+        <div className="max-w-content mx-auto px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
           <div className="flex items-center gap-3">
             <div className="w-4 h-4 rounded-full bg-cadmium-green" />
             <span className="font-mono text-caption text-silver-text">
