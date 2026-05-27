@@ -28,10 +28,10 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/markets"
+              href="/dashboard"
               className="btn-primary px-8 py-4 text-body font-medium whitespace-nowrap"
             >
-              Start Trading
+              Launch App
             </Link>
             <Link
               href="/liquidity"
