@@ -66,13 +66,12 @@ export default function LandingPage() {
 
         <div className="table-container overflow-x-auto">
           {/* Table Header */}
-          <div className="grid min-w-full" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 120px" }}>
+          <div className="grid min-w-full" style={{ gridTemplateColumns: "2.5fr 1.2fr 1.2fr 1fr 100px" }}>
             <div className="table-header">Market</div>
-            <div className="table-header">Category</div>
-            <div className="table-header">Yes</div>
-            <div className="table-header">No</div>
+            <div className="table-header text-center">Yes Odds</div>
+            <div className="table-header text-center">No Odds</div>
             <div className="table-header">Volume</div>
-            <div className="table-header text-right pr-4">Action</div>
+            <div className="table-header text-center">Trade</div>
           </div>
 
           {/* Table Rows */}
@@ -80,47 +79,60 @@ export default function LandingPage() {
             const prices = getMarketPrices(market);
             const yesPrice = prices[0];
             const noPrice = prices[1];
+            
+            // Convert decimal odds to American odds
+            const yesOdds = yesPrice > 0 ? Math.round((-100 * yesPrice) / (1 - yesPrice)) : -200;
+            const noOdds = noPrice > 0 ? Math.round((-100 * noPrice) / (1 - noPrice)) : -200;
 
             return (
               <Link
                 key={market.market_id}
                 href={`/trade?market=${market.market_id}`}
-                className="grid min-w-full table-row animate-fade-in hover:bg-white/[0.02]"
-                style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 120px" }}
+                className="grid min-w-full table-row animate-fade-in hover:bg-white/[0.02] group"
+                style={{ gridTemplateColumns: "2.5fr 1.2fr 1.2fr 1fr 100px" }}
               >
+                {/* Market Info */}
                 <div className="table-cell">
-                  <div className="text-white font-medium truncate">{market.title}</div>
-                  <div className="text-caption text-silver-text mt-0.5">
-                    Epoch #{market.epoch_id} · {market.market_mode === "Trading" ? "LMSR" : "Fixed Odds"}
+                  <div className="text-white font-medium truncate group-hover:text-cadmium-green transition-colors">
+                    {market.title}
+                  </div>
+                  <div className="text-caption text-silver-text mt-1 flex items-center gap-2">
+                    <span className="inline-block px-2 py-0.5 rounded text-caption bg-white/[0.04] border border-graphite">
+                      {market.category}
+                    </span>
+                    <span>Epoch #{market.epoch_id}</span>
                   </div>
                 </div>
-                <div className="table-cell">
-                  <span className="inline-block px-2 py-0.5 rounded-full text-caption bg-white/[0.04] text-silver-text border border-graphite">
-                    {market.category}
-                  </span>
-                </div>
-                <div className="table-cell">
-                  <div className="text-cadmium-green font-mono">
-                    {(yesPrice * 100).toFixed(1)}¢
+
+                {/* Yes Odds - Sportsbook style */}
+                <div className="table-cell flex flex-col items-center gap-1">
+                  <div className="px-3 py-1.5 rounded-md bg-cadmium-green/10 border border-cadmium-green/30 w-full text-center">
+                    <div className="text-white font-mono font-bold text-sm">
+                      {yesOdds > 0 ? "+" : ""}{yesOdds}
+                    </div>
                   </div>
-                  <div className="text-caption text-silver-text mt-0.5">
-                    ${(1 / yesPrice).toFixed(2)}x
-                  </div>
+                  <span className="text-caption text-silver-text">{(yesPrice * 100).toFixed(0)}¢</span>
                 </div>
-                <div className="table-cell">
-                  <div className="text-white font-mono">
-                    {(noPrice * 100).toFixed(1)}¢
+
+                {/* No Odds - Sportsbook style */}
+                <div className="table-cell flex flex-col items-center gap-1">
+                  <div className="px-3 py-1.5 rounded-md bg-white/[0.03] border border-graphite w-full text-center">
+                    <div className="text-white font-mono font-bold text-sm">
+                      {noOdds > 0 ? "+" : ""}{noOdds}
+                    </div>
                   </div>
-                  <div className="text-caption text-silver-text mt-0.5">
-                    ${(1 / noPrice).toFixed(2)}x
-                  </div>
+                  <span className="text-caption text-silver-text">{(noPrice * 100).toFixed(0)}¢</span>
                 </div>
-                <div className="table-cell">
-                  <span className="font-mono">{formatVol(market.exposure * 12)}</span>
+
+                {/* Volume */}
+                <div className="table-cell flex items-center">
+                  <div className="font-mono text-white">{formatVol(market.exposure * 12)}</div>
                 </div>
-                <div className="table-cell flex justify-end pr-4">
-                  <button className="btn-secondary text-caption px-3 py-1.5 whitespace-nowrap">
-                    Trade →
+
+                {/* Trade Button */}
+                <div className="table-cell flex justify-center">
+                  <button className="btn-primary text-caption px-4 py-1.5 whitespace-nowrap">
+                    Trade
                   </button>
                 </div>
               </Link>
