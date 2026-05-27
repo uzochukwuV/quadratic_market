@@ -9,8 +9,9 @@ import { useBetSlip } from "./BetSlipDrawer";
 const NAV_LINKS = [
   { label: "Markets",   href: "/markets"   },
   { label: "Trade",     href: "/trade"     },
-  { label: "Liquidity", href: "/liquidity" },
+  { label: "Epochs",    href: "/epochs"    },
   { label: "Portfolio", href: "/portfolio" },
+  { label: "Liquidity", href: "/liquidity" },
 ];
 
 export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
