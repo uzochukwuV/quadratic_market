@@ -9,41 +9,56 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        "midnight-canvas": "#000000",
+        "rich-black": "#0a0a0a",
+        "graphite": "#27272a",
+        "ash-gray": "#3b3b3b",
+        "silver-text": "#9d9d9d",
+        "off-white": "#cecece",
         "frost-white": "#ffffff",
-        "deep-shadow": "#181818",
-        "whisper-gray": "#6d6d6d",
-        "misty-gray": "#636363",
+        "true-black": "#000000",
+        "dark-granite": "#18181b",
+        "cadmium-green": "#faff00",
+        // Legacy names
+        "midnight-canvas": "#0a0a0a",
+        "deep-shadow": "#18181b",
+        "whisper-gray": "#9d9d9d",
       },
       fontFamily: {
-        roobert: ["'Roobert'", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
-        raleway: ["'Raleway'", "ui-sans-serif", "system-ui", "sans-serif"],
+        outfit: ["Outfit", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
+        mono: ["IBM Plex Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        // Legacy names
+        roobert: ["Outfit", "ui-sans-serif", "system-ui", "sans-serif"],
+        raleway: ["Outfit", "ui-sans-serif", "system-ui", "sans-serif"],
+      },
+      fontSize: {
+        caption: ["10px", { lineHeight: "1.43" }],
+        body: ["14px", { lineHeight: "1.43" }],
+        subheading: ["18px", { lineHeight: "1.29" }],
+        heading: ["24px", { lineHeight: "1.17" }],
+        display: ["28px", { lineHeight: "1.33" }],
+      },
+      spacing: {
+        "8": "8px",
+        "16": "16px",
+        "24": "24px",
+        "32": "32px",
+        "40": "40px",
+        "48": "48px",
       },
       borderRadius: {
-        pill: "75.024px",
-        card: "10px",
+        "md": "6px",
+        "xl": "12px",
+        "full": "9999px",
+        "pill": "9999px",
+        "card": "12px",
       },
       maxWidth: {
-        content: "1078px",
+        content: "1200px",
       },
-      backgroundImage: {
-        "deep-ocean": "linear-gradient(90deg, rgb(160, 224, 171), rgb(255, 172, 46) 50%, rgb(165, 45, 37))",
-        "deep-ocean-diagonal": "linear-gradient(135deg, rgb(160, 224, 171) 0%, rgb(255, 172, 46) 50%, rgb(165, 45, 37) 100%)",
-      },
-      animation: {
-        "gradient-shift": "gradient-shift 8s ease-in-out infinite",
-        "float": "float 6s ease-in-out infinite",
-        "pulse-slow": "pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-      },
-      keyframes: {
-        "gradient-shift": {
-          "0%, 100%": { backgroundPosition: "0% 50%" },
-          "50%": { backgroundPosition: "100% 50%" },
-        },
-        "float": {
-          "0%, 100%": { transform: "translateY(0px)" },
-          "50%": { transform: "translateY(-20px)" },
-        },
+      boxShadow: {
+        subtle: "rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
+        "subtle-2": "rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px",
+        glow: "0 0 20px rgba(250, 255, 0, 0.15)",
       },
     },
   },

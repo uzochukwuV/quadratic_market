@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { AppWalletProvider } from "@/app/components/AppWalletProvider";
 import { Navbar } from "@/app/components/Navbar";
-import { EpochBanner } from "@/app/components/EpochBanner";
 import { BetSlipDrawer } from "@/app/components/BetSlipDrawer";
 import "./globals.css";
 
@@ -19,13 +18,12 @@ export default function RootLayout({
         <meta name="description" content="Trade prediction markets on Solana. AMM-powered, LMSR-priced, fully decentralized." />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500&display=swap" rel="stylesheet" />
       </head>
       <body>
         <AppWalletProvider>
           <Navbar onSlipOpen={() => setSlipOpen(true)} />
-          <EpochBanner />
-          <div className="pt-[calc(64px+40px)]">
+          <div className="pt-16">
             {children}
           </div>
           <BetSlipDrawer open={slipOpen} onClose={() => setSlipOpen(false)} />
