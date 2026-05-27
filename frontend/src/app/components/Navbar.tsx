@@ -9,8 +9,9 @@ import { useBetSlip } from "./BetSlipDrawer";
 const NAV_LINKS = [
   { label: "Markets",   href: "/markets"   },
   { label: "Trade",     href: "/trade"     },
-  { label: "Liquidity", href: "/liquidity" },
+  { label: "Epochs",    href: "/epochs"    },
   { label: "Portfolio", href: "/portfolio" },
+  { label: "Liquidity", href: "/liquidity" },
 ];
 
 export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
@@ -21,10 +22,10 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
   useEffect(() => { setMenuOpen(false); }, [pathname]);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 h-16 bg-rich-black border-b border-graphite">
-      <div className="h-full max-w-content mx-auto px-6 flex items-center justify-between">
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-rich-black border-b border-graphite">
+      <div className="max-w-content mx-auto px-6 flex items-center justify-between h-14">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-3 flex-shrink-0">
+        <Link href="/" className="flex items-center gap-3 flex-shrink-0 h-full">
           <div className="w-5 h-5 rounded-full bg-cadmium-green" />
           <span className="text-body text-white font-medium tracking-tight hidden sm:block">
             Quad<span className="text-silver-text font-normal">.market</span>
@@ -32,17 +33,17 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
         </Link>
 
         {/* Desktop nav */}
-        <div className="hidden md:flex items-center gap-1">
+        <div className="hidden md:flex items-center h-full gap-0">
           {NAV_LINKS.map((link) => {
             const active = pathname === link.href || pathname?.startsWith(link.href + "/");
             return (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`px-4 py-2 text-body rounded-md transition-all duration-150 font-outfit ${
+                className={`h-full px-4 flex items-center text-body transition-all duration-150 font-outfit border-b-2 ${
                   active
-                    ? "text-white bg-dark-granite"
-                    : "text-silver-text hover:text-white hover:bg-dark-granite/50"
+                    ? "text-white border-cadmium-green"
+                    : "text-silver-text hover:text-white border-transparent hover:border-ash-gray/50"
                 }`}
               >
                 {link.label}
@@ -52,9 +53,9 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 h-full">
           {/* Network badge */}
-          <span className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-caption font-mono text-silver-text border border-graphite rounded-full">
+          <span className="hidden sm:flex items-center gap-2 px-3 h-9 text-caption font-mono text-silver-text border border-graphite rounded-full bg-white/[0.02]">
             <span className="w-1.5 h-1.5 rounded-full bg-cadmium-green pulse-dot" />
             Devnet
           </span>
@@ -62,7 +63,7 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
           {/* Bet slip button */}
           <button
             onClick={onSlipOpen}
-            className="relative flex items-center gap-2 px-3 py-2 rounded-full border border-graphite text-silver-text hover:text-white hover:border-ash-gray transition-all"
+            className="relative flex items-center gap-2 px-3 h-9 rounded-full border border-graphite text-silver-text hover:text-white hover:border-ash-gray hover:bg-white/[0.02] transition-all"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
               <rect x="1.5" y="2" width="11" height="10" rx="1" />
@@ -76,12 +77,14 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
             )}
           </button>
 
-          {/* Wallet */}
-          <WalletMultiButton />
+          {/* Wallet - adjust height */}
+          <div className="h-9 flex items-center">
+            <WalletMultiButton />
+          </div>
 
           {/* Mobile menu toggle */}
           <button
-            className="md:hidden p-2 text-silver-text hover:text-white transition-colors"
+            className="md:hidden h-9 w-9 flex items-center justify-center text-silver-text hover:text-white transition-colors"
             onClick={() => setMenuOpen(!menuOpen)}
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">

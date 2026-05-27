@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { MARKETS, EPOCHS } from "@/lib/mockData";
+import { MARKETS, EPOCHS, getMarketPrices } from "@/lib/mockData";
 import type { MarketStatus, MarketMode } from "@/lib/types";
 import { deriveMarket, getProgramAddress } from "@/lib/client";
 
@@ -14,11 +14,6 @@ function formatVol(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
   return `$${n}`;
-}
-
-function getMarketPrices(marketId: number) {
-  const base = 0.3 + (marketId % 7) * 0.08;
-  return [base, 1 - base];
 }
 
 export default function MarketsPage() {
@@ -43,9 +38,9 @@ export default function MarketsPage() {
   const programAddress = getProgramAddress();
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-rich-black">
       <div className="border-b border-graphite">
-        <div className="max-w-content mx-auto px-6 py-8">
+        <div className="max-w-content mx-auto px-6 py-12">
           <div className="flex items-center justify-between">
             <div>
               <p className="font-mono text-caption text-silver-text uppercase tracking-widest mb-1">Browse</p>
@@ -70,8 +65,8 @@ export default function MarketsPage() {
         </div>
       </div>
 
-      <div className="max-w-content mx-auto px-6 py-8">
-        <div className="space-y-4 mb-8">
+      <div className="max-w-content mx-auto px-6 py-12">
+        <div className="space-y-4 mb-8 sticky top-20 bg-rich-black pb-4 z-10 border-b border-graphite">
           <div className="relative">
             <svg className="absolute left-4 top-1/2 -translate-y-1/2 text-silver-text" width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M6 10a4 4 0 100-8 4 4 0 000 8zM12 12l-2.5-2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
@@ -195,7 +190,7 @@ export default function MarketsPage() {
                     </div>
 
                     {markets.map((market) => {
-                      const prices = getMarketPrices(market.market_id);
+                      const prices = getMarketPrices(market);
                       const yesPrice = prices[0];
                       const noPrice = prices[1];
                       const marketPubkey = deriveMarket(market.market_id);

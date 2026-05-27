@@ -2,321 +2,208 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
+import Link from "next/link";
 import { MARKETS, MY_POSITIONS, getMarketPrices } from "@/lib/mockData";
-import { useBuyShares, useSellShares } from "@/hooks/useContract";
-import { deriveMarket, getProgramAddress } from "@/lib/client";
-
-function MarketOverview({ market, yesPrice, noPrice }: any) {
-  const programAddress = getProgramAddress();
-  return (
-    <div className="card">
-      <div className="flex items-center gap-2 mb-4">
-        <span className={`badge ${market.status === "Open" ? "badge-live" : "badge-closed"}`}>
-          {market.status}
-        </span>
-        <span className="badge" style={{ borderColor: "#a07bff", color: "#a07bff", background: "rgba(160, 122, 255, 0.08)" }}>
-          {market.market_mode === "Trading" ? "LMSR" : "Fixed"}
-        </span>
-        <span className="badge badge-closed">Epoch #{market.epoch_id}</span>
-      </div>
-
-      <h1 className="text-heading text-white font-medium mb-2">{market.title}</h1>
-      <p className="text-body text-silver-text mb-2">{market.category}</p>
-      <p className="text-caption text-silver-text font-mono mb-6">Contract: {programAddress.slice(0, 16)}...</p>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-dark-granite rounded-md p-4">
-          <div className="text-caption text-silver-text font-mono uppercase mb-1">YES</div>
-          <div className="text-display text-cadmium-green font-mono">{(yesPrice * 100).toFixed(0)}¢</div>
-          <div className="text-caption text-silver-text mt-1">${(1 / yesPrice).toFixed(2)}x</div>
-        </div>
-        <div className="bg-dark-granite rounded-md p-4">
-          <div className="text-caption text-silver-text font-mono uppercase mb-1">NO</div>
-          <div className="text-display text-white font-mono">{(noPrice * 100).toFixed(0)}¢</div>
-          <div className="text-caption text-silver-text mt-1">${(1 / noPrice).toFixed(2)}x</div>
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <div className="flex justify-between text-caption mb-1">
-          <span className="text-silver-text">Volume</span>
-          <span className="text-white font-mono">${((market.exposure * 12) / 1000).toFixed(0)}K</span>
-        </div>
-        <div className="progress-bar">
-          <div className="progress-fill" style={{ width: `${yesPrice * 100}%` }} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TradePanel({ market, yesPrice, noPrice }: any) {
-  const { connected, publicKey } = useWallet();
-  const { buyShares, loading: buying, error: buyError } = useBuyShares();
-  const [side, setSide] = useState<"yes" | "no">("yes");
-  const [shares, setShares] = useState("100");
-  const [txStatus, setTxStatus] = useState<string | null>(null);
-
-  const price = side === "yes" ? yesPrice : noPrice;
-  const sharesNum = parseFloat(shares) || 0;
-  const cost = sharesNum * price;
-  const potentialWin = sharesNum * (1 - price);
-  const roi = ((1 / price) - 1) * 100;
-
-  const handleBuy = async () => {
-    if (!connected || !publicKey) {
-      setTxStatus("Please connect your wallet first");
-      return;
-    }
-
-    setTxStatus("Confirm transaction in wallet...");
-    const outcomeId = side === "yes" ? 0 : 1;
-    const maxPayment = Math.ceil(cost * 1.1);
-    
-    const result = await buyShares(market.market_id, outcomeId, sharesNum, maxPayment);
-    if (result) {
-      setTxStatus(`Transaction confirmed: ${result.slice(0, 8)}...${result.slice(-4)}`);
-    } else {
-      setTxStatus(buyError || "Transaction failed");
-    }
-  };
-
-  if (!connected) {
-    return (
-      <div className="card text-center py-12">
-        <div className="w-12 h-12 rounded-full bg-dark-granite mx-auto mb-4 flex items-center justify-center">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-silver-text">
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <path d="M3 10h18" />
-          </svg>
-        </div>
-        <p className="text-body text-silver-text mb-2">Connect wallet to trade</p>
-        <p className="text-caption text-silver-text/60">Use the wallet button in the navbar to connect</p>
-      </div>
-    );
-  }
-
-  if (market.status !== "Open") {
-    return (
-      <div className="card text-center py-12">
-        <p className="text-body text-silver-text mb-2">Trading closed</p>
-        <p className="text-caption text-silver-text/60">This market is {market.status}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="card">
-      <div className="flex items-center gap-2 mb-6">
-        <span className="w-2 h-2 rounded-full bg-cadmium-green pulse-dot" />
-        <span className="font-mono text-caption text-silver-text uppercase">Trade</span>
-        <span className="ml-auto text-caption text-silver-text/60 font-mono">
-          {publicKey?.toBase58().slice(0, 8)}...
-        </span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 mb-6">
-        <button
-          onClick={() => setSide("yes")}
-          className={`py-3 rounded-full font-mono text-body transition-all ${
-            side === "yes" ? "bg-cadmium-green text-true-black" : "bg-dark-granite text-silver-text hover:text-white"
-          }`}
-        >
-          YES · {(yesPrice * 100).toFixed(0)}¢
-        </button>
-        <button
-          onClick={() => setSide("no")}
-          className={`py-3 rounded-full font-mono text-body transition-all ${
-            side === "no" ? "bg-white text-true-black" : "bg-dark-granite text-silver-text hover:text-white"
-          }`}
-        >
-          NO · {(noPrice * 100).toFixed(0)}¢
-        </button>
-      </div>
-
-      <div className="mb-4">
-        <label className="text-caption text-silver-text font-mono uppercase mb-2 block">Shares</label>
-        <input 
-          type="number" 
-          value={shares} 
-          onChange={(e) => setShares(e.target.value)} 
-          className="input-field font-mono" 
-        />
-        <div className="flex gap-2 mt-2">
-          {["50", "100", "250", "500"].map((v) => (
-            <button 
-              key={v} 
-              onClick={() => setShares(v)} 
-              className="flex-1 py-1.5 rounded-md text-caption font-mono bg-dark-granite text-silver-text hover:text-white transition-all"
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="bg-dark-granite rounded-md p-4 mb-4 space-y-2">
-        <div className="flex justify-between text-body">
-          <span className="text-silver-text">Price</span>
-          <span className="font-mono text-white">{(price * 100).toFixed(0)}¢</span>
-        </div>
-        <div className="flex justify-between text-body">
-          <span className="text-silver-text">Cost</span>
-          <span className="font-mono text-white">${cost.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between text-body">
-          <span className="text-silver-text">Potential win</span>
-          <span className="font-mono text-cadmium-green">+${potentialWin.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between text-body">
-          <span className="text-silver-text">ROI</span>
-          <span className="font-mono text-cadmium-green">+{roi.toFixed(0)}%</span>
-        </div>
-      </div>
-
-      <button 
-        onClick={handleBuy}
-        disabled={buying || sharesNum === 0}
-        className="btn-primary w-full py-4 font-mono disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {buying ? "Confirming..." : `Buy ${side.toUpperCase()} · $${cost.toFixed(2)}`}
-      </button>
-
-      {txStatus && (
-        <p className={`text-caption text-center mt-3 ${txStatus.includes("confirmed") ? "text-cadmium-green" : "text-silver-text"}`}>
-          {txStatus}
-        </p>
-      )}
-
-      <p className="text-caption text-silver-text text-center mt-3">Instant settlement on Solana</p>
-    </div>
-  );
-}
-
-function PositionsTable({ marketId }: { marketId: number }) {
-  const position = MY_POSITIONS.find((p) => p.market_id === marketId);
-  const { sellShares, loading: selling } = useSellShares();
-  const [txStatus, setTxStatus] = useState<string | null>(null);
-
-  const handleSell = async () => {
-    if (!position) return;
-    setTxStatus("Confirm sell in wallet...");
-    const result = await sellShares(marketId, position.outcome_id, position.shares, 0);
-    if (result) {
-      setTxStatus(`Sold: ${result.slice(0, 8)}...`);
-    } else {
-      setTxStatus("Sell failed");
-    }
-  };
-
-  if (!position) {
-    return (
-      <div className="card text-center py-8">
-        <p className="text-body text-silver-text">No position in this market</p>
-        <p className="text-caption text-silver-text/60 mt-1">Place a trade to open a position</p>
-      </div>
-    );
-  }
-
-  const pnlColor = position.pnl >= 0 ? "text-cadmium-green" : "text-[#f47067]";
-
-  return (
-    <div className="card">
-      <h3 className="text-subheading text-white font-medium mb-4">Your Position</h3>
-      <div className="table-container">
-        <div className="table-header grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
-          <div>Outcome</div><div>Shares</div><div>Avg Cost</div><div>Value</div><div>P&L</div>
-        </div>
-        <div className="grid table-row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
-          <div className="table-cell">
-            <span className={`font-mono ${position.outcome_id === 0 ? "text-cadmium-green" : "text-white"}`}>
-              {position.outcome_label}
-            </span>
-          </div>
-          <div className="table-cell font-mono">{position.shares.toLocaleString()}</div>
-          <div className="table-cell font-mono">{(position.avg_price * 100).toFixed(0)}¢</div>
-          <div className="table-cell font-mono">${position.value.toFixed(2)}</div>
-          <div className={`table-cell font-mono ${pnlColor}`}>
-            {position.pnl >= 0 ? "+" : ""}${position.pnl.toFixed(2)}
-          </div>
-        </div>
-      </div>
-      
-      <button 
-        onClick={handleSell}
-        disabled={selling}
-        className="btn-secondary w-full mt-4"
-      >
-        {selling ? "Selling..." : "Sell Position"}
-      </button>
-      
-      {txStatus && (
-        <p className="text-caption text-center mt-2 text-silver-text">{txStatus}</p>
-      )}
-    </div>
-  );
-}
-
-function MarketDetails({ market }: any) {
-  const marketPubkey = deriveMarket(market.market_id);
-  
-  return (
-    <div className="card">
-      <h3 className="text-subheading text-white font-medium mb-4">Market Details</h3>
-      <div className="space-y-2">
-        {[
-          { label: "Market ID", value: `#${market.market_id}` },
-          { label: "Contract PDA", value: `${marketPubkey.toBase58().slice(0, 12)}...` },
-          { label: "Epoch", value: `#${market.epoch_id}` },
-          { label: "Category", value: market.category },
-          { label: "Mode", value: market.market_mode },
-          { label: "Outcomes", value: `${market.num_outcomes} (Binary)` },
-          { label: "LMSR B", value: `${(market.lmsr_b / 1e6).toFixed(0)}M` },
-          { label: "Settlement", value: new Date(market.settlement_time * 1000).toLocaleDateString() },
-        ].map((r) => (
-          <div key={r.label} className="flex justify-between text-body border-b border-graphite pb-2">
-            <span className="text-silver-text">{r.label}</span>
-            <span className="font-mono text-white">{r.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+import { TradingChart } from "@/app/components/TradingChart";
+import { OrderBook } from "@/app/components/OrderBook";
+import { BuySellWidget } from "@/app/components/BuySellWidget";
+import { PoolFundsDisplay } from "@/app/components/PoolFundsDisplay";
+import { BetSlipPanel } from "@/app/components/BetSlipPanel";
 
 function TradeContent() {
-  const params = useSearchParams();
-  const marketIdStr = params.get("market") ?? "301";
-  const marketId = parseInt(marketIdStr);
-  const market = MARKETS.find((m) => m.market_id === marketId) ?? MARKETS[0];
-  const prices = getMarketPrices(market);
-  const yesPrice = prices[0];
-  const noPrice = prices[1] ?? 1 - yesPrice;
+  const searchParams = useSearchParams();
+  const marketId = parseInt(searchParams.get("market") || "301");
+  const market = MARKETS.find((m) => m.market_id === marketId);
+  const [selectedOutcome, setSelectedOutcome] = useState(0);
+  const [tradeTab, setTradeTab] = useState<"chart" | "book">("chart");
 
-  return (
-    <div className="min-h-screen">
-      <div className="border-b border-graphite">
-        <div className="max-w-content mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-mono text-caption text-silver-text uppercase tracking-widest mb-1">Trading</p>
-              <h1 className="text-heading text-white font-medium">{market.title}</h1>
-            </div>
-            <a href="/markets" className="btn-secondary text-caption">← Markets</a>
-          </div>
+  if (!market) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-white mb-4">Market not found</p>
+          <Link href="/markets" className="btn-primary">
+            Back to Markets
+          </Link>
         </div>
       </div>
+    );
+  }
 
-      <div className="max-w-content mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
-          <div className="space-y-6">
-            <MarketOverview market={market} yesPrice={yesPrice} noPrice={noPrice} />
-            <PositionsTable marketId={marketId} />
+  const prices = getMarketPrices(market);
+  const userPosition = MY_POSITIONS.find((p) => p.market_id === marketId);
+
+  return (
+    <div className="min-h-screen bg-rich-black">
+      <div className="max-w-content mx-auto px-6 py-6">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 mb-6 text-caption">
+          <Link href="/markets" className="text-silver-text hover:text-white transition-colors">
+            Markets
+          </Link>
+          <span className="text-silver-text">/</span>
+          <span className="text-white">Epoch #{market.epoch_id}</span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 auto-rows-max">
+          {/* ── LEFT COLUMN: Market Details (60%) ──────────── */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Header Card */}
+            <div className="card">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="badge badge-live">● Live</span>
+                    <span className="font-mono text-caption text-silver-text bg-white/[0.04] px-2 py-0.5 rounded border border-graphite">
+                      {market.market_mode === "Trading" ? "LMSR" : "Fixed Odds"}
+                    </span>
+                  </div>
+                  <h1 className="text-heading md:text-display text-white font-medium leading-tight">
+                    {market.title}
+                  </h1>
+                </div>
+              </div>
+
+              <p className="text-body text-silver-text mb-4">
+                {market.description}
+              </p>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="bg-white/[0.03] border border-graphite rounded-md p-3">
+                  <p className="text-caption text-silver-text mb-1">Category</p>
+                  <p className="text-body font-mono text-white">{market.category}</p>
+                </div>
+                <div className="bg-white/[0.03] border border-graphite rounded-md p-3">
+                  <p className="text-caption text-silver-text mb-1">Pool Size</p>
+                  <p className="text-body font-mono text-cadmium-green">${(market.exposure * 12 / 1_000_000).toFixed(2)}M</p>
+                </div>
+                <div className="bg-white/[0.03] border border-graphite rounded-md p-3">
+                  <p className="text-caption text-silver-text mb-1">Status</p>
+                  <p className="text-body font-mono text-white">{market.status}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Pool Funds */}
+            <PoolFundsDisplay market={market} />
+
+            {/* Trading Chart + Order Book Tabs */}
+            <div className="card">
+              <div className="flex items-center gap-2 border-b border-graphite mb-4">
+                <button
+                  onClick={() => setTradeTab("chart")}
+                  className={`px-4 py-3 text-body font-medium border-b-2 transition-colors ${
+                    tradeTab === "chart"
+                      ? "text-white border-cadmium-green"
+                      : "text-silver-text border-transparent hover:text-white"
+                  }`}
+                >
+                  Price Chart
+                </button>
+                <button
+                  onClick={() => setTradeTab("book")}
+                  className={`px-4 py-3 text-body font-medium border-b-2 transition-colors ${
+                    tradeTab === "book"
+                      ? "text-white border-cadmium-green"
+                      : "text-silver-text border-transparent hover:text-white"
+                  }`}
+                >
+                  Order Book
+                </button>
+              </div>
+
+              {tradeTab === "chart" ? (
+                <TradingChart market={market} />
+              ) : (
+                <OrderBook marketId={marketId} />
+              )}
+            </div>
+
+            {/* AI Suggestions */}
+            <div className="card">
+              <div className="flex items-center gap-2 mb-4">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.2" className="text-cadmium-green" />
+                  <path d="M8 4v4l3 2" stroke="currentColor" strokeWidth="1.2" className="text-cadmium-green" />
+                </svg>
+                <h3 className="text-body font-medium text-white">AI Insights</h3>
+              </div>
+              <div className="space-y-3">
+                <div className="p-3 bg-cadmium-green/10 border border-cadmium-green/30 rounded-md">
+                  <p className="text-caption text-silver-text mb-1">Market Signal</p>
+                  <p className="text-body text-white font-medium">Strong YES bias detected</p>
+                  <p className="text-caption text-silver-text mt-1">68% of recent trades favor YES. Price: 68¢</p>
+                </div>
+                <div className="p-3 bg-white/[0.03] border border-graphite rounded-md">
+                  <p className="text-caption text-silver-text mb-1">Implied Probability</p>
+                  <p className="text-body text-cadmium-green font-mono">YES: 68% · NO: 32%</p>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="space-y-6">
-            <TradePanel market={market} yesPrice={yesPrice} noPrice={noPrice} />
-            <MarketDetails market={market} />
+
+          {/* ── RIGHT COLUMN: Trading & Betslip (40%) ────── */}
+          <div className="lg:col-span-1 space-y-6 sticky top-20">
+            {/* User Position (if exists) */}
+            {userPosition && (
+              <div className="card border-cadmium-green/50">
+                <h3 className="text-body font-medium text-white mb-4">Your Position</h3>
+                <div className="space-y-3 text-caption">
+                  <div className="flex justify-between">
+                    <span className="text-silver-text">Shares Held</span>
+                    <span className="text-white font-mono">{userPosition.shares}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-silver-text">Avg Price</span>
+                    <span className="text-white font-mono">{(userPosition.avg_price * 100).toFixed(1)}¢</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-silver-text">Current Price</span>
+                    <span className="text-white font-mono">{(userPosition.current_price * 100).toFixed(1)}¢</span>
+                  </div>
+                  <div className="pt-2 border-t border-graphite flex justify-between">
+                    <span className="text-silver-text">P&L</span>
+                    <span className={userPosition.pnl > 0 ? "text-cadmium-green" : "text-red-400"}>
+                      {userPosition.pnl > 0 ? "+" : ""}{userPosition.pnl.toFixed(2)} SOL ({userPosition.pnl_pct > 0 ? "+" : ""}{userPosition.pnl_pct.toFixed(1)}%)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Outcome Selector */}
+            <div className="card">
+              <h3 className="text-body font-medium text-white mb-3">Select Outcome</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {["YES", "NO"].map((label, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedOutcome(idx)}
+                    className={`p-3 rounded-md border transition-all ${
+                      selectedOutcome === idx
+                        ? "bg-cadmium-green/20 border-cadmium-green text-white"
+                        : "bg-white/[0.03] border-graphite text-silver-text hover:text-white"
+                    }`}
+                  >
+                    <p className="text-caption font-mono mb-1 uppercase tracking-wider">{label}</p>
+                    <p className="text-heading text-cadmium-green font-mono">
+                      {(prices[idx] * 100).toFixed(1)}¢
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Buy/Sell Widget */}
+            <BuySellWidget
+              marketId={marketId}
+              outcomeId={selectedOutcome}
+              outcomeName={selectedOutcome === 0 ? "YES" : "NO"}
+              currentPrice={prices[selectedOutcome]}
+            />
+
+            {/* Bet Slip */}
+            <BetSlipPanel />
           </div>
         </div>
       </div>
