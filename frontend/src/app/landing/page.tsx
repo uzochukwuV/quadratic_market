@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-export default function HomePage() {
+export default function LandingPage() {
   return (
     <div className="min-h-screen bg-rich-black">
       {/* ── HERO SECTION ─────────────────────────────────────── */}
@@ -385,10 +385,10 @@ export default function HomePage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/dashboard"
+              href="/markets"
               className="btn-primary px-8 py-4 text-body font-medium whitespace-nowrap"
             >
-              Launch App
+              Explore Markets
             </Link>
             <Link
               href="/epochs"
