@@ -409,6 +409,7 @@ pub struct ClaimSlip<'info> {
         seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
         bump = bet_slip.bump,
         constraint = bet_slip.creator == claimer.key() @ QuadraticMarketError::Unauthorized,
+        close = claimer,
     )]
     pub bet_slip: Account<'info, BetSlip>,
 

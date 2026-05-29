@@ -226,7 +226,10 @@ pub mod quadratic_market {
     }
 
     /// Refund a user's original stake when the protocol is paused.
-    pub fn claim_paused_bet(ctx: Context<ClaimPausedBet>, slip_id: u64) -> Result<()> {
+    pub fn claim_paused_bet<'info>(
+        ctx: Context<'_, '_, '_, 'info, ClaimPausedBet<'info>>,
+        slip_id: u64,
+    ) -> Result<()> {
         claim_paused_bet_handler(ctx, slip_id)
     }
 
