@@ -1,0 +1,677 @@
+{
+  "version": "0.1.0",
+  "name": "quadratic_market",
+  "instructions": [
+    {
+      "name": "initialize",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "lp_mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "treasury",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "base_mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "rent",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "oracle_pubkey",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "max_market_exposure",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "init_epoch",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "epoch",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_market",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "epoch",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "rent",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "start_time",
+          "type": "i64"
+        },
+        {
+          "name": "num_outcomes",
+          "type": "u8"
+        },
+        {
+          "name": "title",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "type": "string"
+        },
+        {
+          "name": "category",
+          "type": "u8"
+        },
+        {
+          "name": "lmsr_b_override",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "initial_q_values",
+          "type": {
+            "option": {
+              "vec": "u64"
+            }
+          }
+        },
+        {
+          "name": "market_mode",
+          "type": {
+            "defined": "MarketMode"
+          }
+        }
+      ]
+    },
+    {
+      "name": "init_outcome_mint",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "outcome_mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "rent",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "market_id",
+          "type": "u64"
+        },
+        {
+          "name": "outcome_id",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "suspend_market",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "propose_result",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "dispute",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "oracle",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "market_id",
+          "type": "u64"
+        },
+        {
+          "name": "winning_outcome",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "finalize_result",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "dispute",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "caller",
+          "isMut": true,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "market_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "void_if_expired",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GlobalConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "publicKey"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "oracle_pubkey",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "max_market_exposure",
+            "type": "u64"
+          },
+          {
+            "name": "locked_payouts",
+            "type": "u64"
+          },
+          {
+            "name": "total_lp_supply",
+            "type": "u64"
+          },
+          {
+            "name": "lp_mint",
+            "type": "publicKey"
+          },
+          {
+            "name": "base_mint",
+            "type": "publicKey"
+          },
+          {
+            "name": "treasury",
+            "type": "publicKey"
+          },
+          {
+            "name": "treasury_bump",
+            "type": "u8"
+          },
+          {
+            "name": "next_market_id",
+            "type": "u64"
+          },
+          {
+            "name": "challenge_window_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "settlement_deadline_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "odds_basis",
+            "type": "u64"
+          },
+          {
+            "name": "lmsr_default_b",
+            "type": "u64"
+          },
+          {
+            "name": "min_first_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "slip_house_margin_bps",
+            "type": "u64"
+          },
+          {
+            "name": "max_slip_bonus_multiplier_bps",
+            "type": "u64"
+          },
+          {
+            "name": "next_slip_id",
+            "type": "u64"
+          },
+          {
+            "name": "current_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_duration_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "withdrawal_cooldown_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "max_single_bet",
+            "type": "u64"
+          },
+          {
+            "name": "min_outcome_price_bps",
+            "type": "u64"
+          },
+          {
+            "name": "buy_fee_bps",
+            "type": "u64"
+          },
+          {
+            "name": "operators",
+            "type": {
+              "array": [
+                "publicKey",
+                5
+              ]
+            }
+          },
+          {
+            "name": "num_operators",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "cash_out_margin_bps",
+            "type": "u64"
+          },
+          {
+            "name": "next_order_id",
+            "type": "u64"
+          },
+          {
+            "name": "order_collateral_locked",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_paused",
+            "type": "bool"
+          },
+          {
+            "name": "next_epoch_start",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "creator",
+            "type": "publicKey"
+          },
+          {
+            "name": "start_time",
+            "type": "i64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": "MarketStatus"
+            }
+          },
+          {
+            "name": "num_outcomes",
+            "type": "u8"
+          },
+          {
+            "name": "q_values",
+            "type": {
+              "array": [
+                "u64",
+                8
+              ]
+            }
+          },
+          {
+            "name": "exposure",
+            "type": "u64"
+          },
+          {
+            "name": "settlement_time",
+            "type": "i64"
+          },
+          {
+            "name": "winning_outcome",
+            "type": "u8"
+          },
+          {
+            "name": "outcome_mints",
+            "type": {
+              "array": [
+                "publicKey",
+                8
+              ]
+            }
+          },
+          {
+            "name": "lmsr_b",
+            "type": "u64"
+          },
+          {
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "name": "category",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "group_id",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "group_market_index",
+            "type": "u8"
+          },
+          {
+            "name": "market_mode",
+            "type": {
+              "defined": "MarketMode"
+            }
+          },
+          {
+            "name": "epoch_id",
+            "type": "u64"
+          },
+          {
+            "name": "settled_in_epoch",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Epoch",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch_id",
+            "type": "u64"
+          },
+          {
+            "name": "start_time",
+            "type": "i64"
+          },
+          {
+            "name": "end_time",
+            "type": "i64"
+          },
+          {
+            "name": "total_liquidity_added",
+            "type": "u64"
+          },
+          {
+            "name": "total_liquidity_removed",
+            "type": "u64"
+          },
+          {
+            "name": "num_markets",
+            "type": "u16"
+          },
+          {
+            "name": "num_settled_markets",
+            "type": "u16"
+          },
+          {
+            "name": "all_markets_settled",
+            "type": "bool"
+          },
+          {
+            "name": "withdrawals_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "lp_shares_at_close",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "MarketMode",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "FixedOdds"
+          },
+          {
+            "name": "Trading"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Suspended"
+          },
+          {
+            "name": "AwaitingResult"
+          },
+          {
+            "name": "Proposed"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Voided"
+          }
+        ]
+      }
+    }
+  ]
+}
