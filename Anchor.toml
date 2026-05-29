@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-quadratic_market = "Ag5ccPBKNJbw1JZiTaMEZ1fZpfcDFkMrrwXqCkQA5ji9"
+quadratic_market = "o2XYcavmsMZZgzhRzD8kU4MaymTgSCk28hDyJG2ykqX"
 
 [provider]
 cluster = "localnet"
