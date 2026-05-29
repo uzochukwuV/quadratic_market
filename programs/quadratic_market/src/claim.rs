@@ -108,7 +108,8 @@ pub fn claim_payout_handler(ctx: Context<ClaimPayout>, _market_id: u64) -> Resul
 // When the protocol is paused (global_config.paused == true), users can
 // reclaim their original stake from an unclaimed BetSlip. This prevents
 // funds from being permanently locked if the protocol is emergency-paused.
-// The slip's locked_amount is returned 1:1 and the slip is closed.
+// The slip's locked_amount is returned 1:1, outcome tokens are burned, and
+// the slip is closed.
 
 #[derive(Accounts)]
 #[instruction(slip_id: u64)]
@@ -156,7 +157,10 @@ pub struct ClaimPausedBet<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn claim_paused_bet_handler(ctx: Context<ClaimPausedBet>, _slip_id: u64) -> Result<()> {
+pub fn claim_paused_bet_handler<'info>(
+    ctx: Context<'_, '_, '_, 'info, ClaimPausedBet<'info>>,
+    _slip_id: u64,
+) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
 
     // Only available when the protocol is paused
@@ -168,9 +172,88 @@ pub fn claim_paused_bet_handler(ctx: Context<ClaimPausedBet>, _slip_id: u64) -> 
     let refund = slip.total_stake;
     require!(refund > 0, QuadraticMarketError::InvalidAmount);
 
+    // remaining_accounts layout: [Market, outcome_mint, claimer_outcome_ata] per leg
+    // burning tokens first prevents double-claim if markets settle normally after unpause
+    let num_legs = slip.num_legs;
+    let total_needed = (num_legs as usize) * 3;
+    require!(
+        ctx.remaining_accounts.len() >= total_needed,
+        QuadraticMarketError::InvalidRemainingAccount
+    );
+
+    // ── Phase 1: Validate remaining_accounts and collect burn info ──
+    // Clone AccountInfos to avoid lifetime conflicts with &mut ctx references.
+    // Burn amounts are just u64 values so no lifetime issue there.
+    let mut burn_data: Vec<(AccountInfo, AccountInfo, u64)> = Vec::with_capacity(num_legs as usize);
+
+    for leg_idx in 0..num_legs as usize {
+        let leg = &slip.legs[leg_idx];
+        let market_info = &ctx.remaining_accounts[leg_idx * 3];
+        let outcome_mint_info = &ctx.remaining_accounts[leg_idx * 3 + 1];
+        let outcome_ata_info = &ctx.remaining_accounts[leg_idx * 3 + 2];
+
+        // Validate market PDA
+        let (expected_pda, _) = Pubkey::find_program_address(
+            &[seeds::MARKET, leg.market_id.to_le_bytes().as_ref()],
+            &crate::ID,
+        );
+        require!(
+            market_info.key() == expected_pda,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+
+        // outcome_mint PDA must match the leg's outcome
+        let (expected_mint_pda, _) = Pubkey::find_program_address(
+            &[seeds::OUTCOME_MINT, leg.market_id.to_le_bytes().as_ref(), leg.outcome_id.to_le_bytes().as_ref()],
+            &crate::ID,
+        );
+        require!(
+            outcome_mint_info.key() == expected_mint_pda,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+
+        // Validate ATA ownership and mint
+        let ata_data = outcome_ata_info.data.borrow();
+        let ata: TokenAccount = TokenAccount::try_deserialize(&mut ata_data.as_ref())
+            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+        drop(ata_data);
+
+        require!(ata.owner == ctx.accounts.claimer.key(), QuadraticMarketError::InvalidRemainingAccount);
+        require!(ata.mint == expected_mint_pda, QuadraticMarketError::InvalidRemainingAccount);
+
+        // Clone AccountInfos for burn phase — owned copies have no lifetime constraints
+        burn_data.push((
+            outcome_mint_info.clone(),
+            outcome_ata_info.clone(),
+            ata.amount,
+        ));
+    }
+
     // Release the locked payout that was reserved for this slip
     config.locked_payouts = config.locked_payouts.saturating_sub(slip.locked_amount);
 
+    // ── Phase 2: Execute burns ──
+    // Burn all outcome tokens held by the claimer for each leg.
+    // This prevents double-claim: user cannot later call claim_payout for the
+    // same outcome tokens after receiving the stake refund.
+    let claimer_info = ctx.accounts.claimer.to_account_info();
+    for (outcome_mint_info, outcome_ata_info, burn_amount) in burn_data {
+        if burn_amount > 0 {
+            token::burn(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    token::Burn {
+                        mint: outcome_mint_info,
+                        from: outcome_ata_info,
+                        authority: claimer_info.clone(),
+                    },
+                ),
+                burn_amount,
+            )?;
+        }
+    }
+
+    // ── Phase 3: Transfer refund ──
     let treasury_seeds = &[seeds::TREASURY, &[config.treasury_bump]];
     token::transfer(
         CpiContext::new_with_signer(
