@@ -5,9 +5,12 @@ Free tier: 500 requests/month. The bot uses two endpoints:
   - /sports/{sport}/odds  — upcoming fixtures with odds (to create markets)
   - /sports/{sport}/scores — completed scores (to settle markets)
 
-Outcome mapping:
-  2-way markets (e.g. tennis): outcome_id 0 = home/player1, 1 = away/player2
-  3-way markets (e.g. soccer): outcome_id 0 = home, 1 = draw, 2 = away
+Supports multiple market types per fixture:
+  - h2h: 3-way (Home/Draw/Away) for soccer
+  - btts: Both Teams To Score (Yes/No)
+  - totals: Over/Under goals
+
+Odds are converted to LMSR q_values for market seeding.
 """
 
 from __future__ import annotations
@@ -25,14 +28,24 @@ BASE_URL = "https://api.the-odds-api.com/v4"
 
 
 @dataclass
+class MarketOdds:
+    """Odds for a single market type within a fixture."""
+    key: str          # Market key: "h2h", "btts", "totals"
+    home_odds: float # Decimal odds for first outcome
+    away_odds: float  # Decimal odds for second outcome (or draw for 3-way)
+    draw_odds: Optional[float] = None  # Only for 3-way markets
+
+
+@dataclass
 class Fixture:
-    """A single upcoming match."""
-    event_id: str           # The-Odds-API event ID (used to look up scores later)
+    """A single upcoming match with multiple market types."""
+    event_id: str           # The-Odds-API event ID
     sport_key: str
     home_team: str
     away_team: str
     start_time: int         # Unix timestamp (UTC)
     has_draw: bool          # True for soccer/3-way markets
+    markets: dict[str, MarketOdds] = field(default_factory=dict)  # market_key -> MarketOdds
 
 
 @dataclass
@@ -67,13 +80,13 @@ class OddsApiClient:
     async def close(self) -> None:
         await self._http.aclose()
 
-    # ── Upcoming fixtures ──────────────────────────────────────────────────────
+    # ── Upcoming fixtures with all market types ───────────────────────────────
 
     async def upcoming_fixtures(self, lookahead_seconds: int) -> list[Fixture]:
         """
         Return fixtures starting within the next `lookahead_seconds`.
-        Uses the /odds endpoint (also returns start times without consuming
-        the scores quota).
+        Fetches all supported market types (h2h, btts, totals) per fixture.
+        Uses the /odds endpoint to get odds for multiple markets.
         """
         now = int(time.time())
         cutoff = now + lookahead_seconds
@@ -81,12 +94,13 @@ class OddsApiClient:
 
         for sport in self._sports:
             try:
+                # Fetch all available markets
                 resp = await self._http.get(
                     f"/sports/{sport}/odds",
                     params={
                         "apiKey": self._key,
-                        "regions": "eu",
-                        "markets": "h2h",
+                        "regions": "eu,uk,us",
+                        "markets": "h2h,btts,totals",
                         "oddsFormat": "decimal",
                         "dateFormat": "unix",
                     },
@@ -100,6 +114,42 @@ class OddsApiClient:
                     start = int(ev["commence_time"])
                     if start <= now or start > cutoff:
                         continue
+
+                    # Parse all market types from this event
+                    markets = {}
+                    bookmakers = ev.get("bookmakers", [])
+                    if bookmakers:
+                        # Use first bookmaker's odds (could aggregate multiple)
+                        bm = bookmakers[0]
+                        for market in bm.get("markets", []):
+                            key = market.get("key", "")
+                            if key in ("h2h", "btts", "totals"):
+                                outcomes = market.get("outcomes", [])
+                                if len(outcomes) >= 2:
+                                    odds_list = sorted(outcomes, key=lambda x: x.get("name", ""))
+                                    # Parse outcomes based on market type
+                                    if key == "h2h" and len(outcomes) == 3:
+                                        # 3-way: home, draw, away
+                                        home_odds = next((o["price"] for o in outcomes if o["name"] in (ev["home_team"], "Home", "Team 1")), 0)
+                                        draw_odds = next((o["price"] for o in outcomes if o["name"] == "Draw"), 0)
+                                        away_odds = next((o["price"] for o in outcomes if o["name"] in (ev["away_team"], "Away", "Team 2")), 0)
+                                        if home_odds > 0 and away_odds > 0:
+                                            markets[key] = MarketOdds(
+                                                key=key,
+                                                home_odds=home_odds,
+                                                draw_odds=draw_odds if draw_odds > 0 else None,
+                                                away_odds=away_odds,
+                                            )
+                                    elif key in ("btts", "totals") and len(outcomes) == 2:
+                                        # 2-way: yes/no or over/under
+                                        home_odds = outcomes[0]["price"]
+                                        away_odds = outcomes[1]["price"]
+                                        markets[key] = MarketOdds(
+                                            key=key,
+                                            home_odds=home_odds,
+                                            away_odds=away_odds,
+                                        )
+
                     fixtures.append(Fixture(
                         event_id=ev["id"],
                         sport_key=sport,
@@ -107,6 +157,7 @@ class OddsApiClient:
                         away_team=ev["away_team"],
                         start_time=start,
                         has_draw=sport in THREE_WAY_SPORTS,
+                        markets=markets,
                     ))
             except httpx.HTTPStatusError as exc:
                 log.warning("odds_api_error", sport=sport, status=exc.response.status_code)

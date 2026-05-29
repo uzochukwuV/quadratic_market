@@ -26,6 +26,7 @@ SEED_TREASURY = b"treasury"
 SEED_MARKET = b"market"
 SEED_OUTCOME_MINT = b"outcome_mint"
 SEED_DISPUTE = b"dispute"
+SEED_EPOCH = b"epoch"
 
 
 def load_keypair(path: Path) -> Keypair:
@@ -59,6 +60,13 @@ def outcome_mint_pda(program_id: Pubkey, market_id: int, outcome_id: int) -> tup
 def dispute_pda(program_id: Pubkey, market_id: int) -> tuple[Pubkey, int]:
     return Pubkey.find_program_address(
         [SEED_DISPUTE, market_id.to_bytes(8, "little")],
+        program_id,
+    )
+
+
+def epoch_pda(program_id: Pubkey, epoch_id: int) -> tuple[Pubkey, int]:
+    return Pubkey.find_program_address(
+        [SEED_EPOCH, epoch_id.to_bytes(8, "little")],
         program_id,
     )
 
@@ -117,9 +125,40 @@ class ChainClient:
         pda, _ = market_pda(self.program_id, market_id)
         return await self.program.account["Market"].fetch(pda)
 
+    async def fetch_epoch(self, epoch_id: int) -> dict:
+        pda, _ = epoch_pda(self.program_id, epoch_id)
+        return await self.program.account["Epoch"].fetch(pda)
+
     async def next_market_id(self) -> int:
         cfg = await self.fetch_global_config()
         return int(cfg.next_market_id)
+
+    # ── init_epoch ──────────────────────────────────────────────────────────
+
+    async def init_epoch(self) -> str:
+        """
+        Initialize the current epoch if it doesn't exist.
+        Called before creating markets to ensure epoch account exists.
+        """
+        cfg = await self.fetch_global_config()
+        epoch_id = int(cfg.current_epoch)
+        epoch_pda, _ = epoch_pda(self.program_id, epoch_id)
+
+        from solders.sysvar import CLOCK as SYSVAR_CLOCK
+        
+        sig = await self.program.rpc["init_epoch"](
+            ctx=Context(
+                accounts={
+                    "global_config": self.global_config,
+                    "epoch": epoch_pda,
+                    "payer": self.operator_kp.pubkey(),
+                    "system_program": SYS_PROGRAM_ID,
+                },
+                signers=[self.operator_kp],
+            ),
+        )
+        log.info("init_epoch", epoch_id=epoch_id, sig=str(sig))
+        return str(sig)
 
     # ── create_market ─────────────────────────────────────────────────────────
 
@@ -130,13 +169,40 @@ class ChainClient:
         title: str,
         description: str,
         category: int = 0,
+        lmsr_b_override: int | None = None,
+        initial_q_values: list[int] | None = None,
     ) -> tuple[int, str]:
         """
-        Create a market. Returns (market_id, tx_signature).
-        num_outcomes must be 2 (Home/Away) or 3 (Home/Draw/Away).
+        Create a market with optional initial q_values for odds seeding.
+        
+        Args:
+            start_time: Unix timestamp when market becomes inactive
+            num_outcomes: 2 or 3
+            title: Market title (e.g., "Arsenal vs Liverpool - Match Result")
+            description: Market description
+            category: Market category (0=3-way, 1=BTTS, 2=Totals, etc.)
+            lmsr_b_override: Override liquidity parameter B (optional)
+            initial_q_values: Seed q_values from API odds (optional)
+                              Must have length >= num_outcomes
+        
+        Returns:
+            (market_id, tx_signature)
         """
+        # Ensure epoch exists
+        await self.init_epoch()
+        
         mid = await self.next_market_id()
         mkt_pda, _ = market_pda(self.program_id, mid)
+        cfg = await self.fetch_global_config()
+        current_epoch = int(cfg.current_epoch)
+        epoch_pda, epoch_bump = epoch_pda(self.program_id, current_epoch)
+
+        # Convert initial_q_values to anchorpy expected format
+        q_values_arg = initial_q_values if initial_q_values else None
+
+        # Import MarketMode
+        from anchorpy.serializer import Serde
+        MarketMode = self.program.type["MarketMode"]
 
         sig = await self.program.rpc["create_market"](
             start_time,
@@ -144,19 +210,30 @@ class ChainClient:
             title,
             description,
             category,
-            None,   # lmsr_b_override — use protocol default
-            None,   # initial_q_values — use zeros
+            lmsr_b_override,
+            q_values_arg,
+            MarketMode.FixedOdds,  # Use FixedOdds mode for sports
             ctx=Context(
                 accounts={
                     "global_config": self.global_config,
                     "market": mkt_pda,
+                    "epoch": epoch_pda,
                     "authority": self.operator_kp.pubkey(),
                     "system_program": SYS_PROGRAM_ID,
+                    "rent": Pubkey.from_string("SysvarRent111111111111111111111111111111111"),
                 },
                 signers=[self.operator_kp],
             ),
         )
-        log.info("create_market", market_id=mid, title=title, sig=str(sig))
+        log.info(
+            "create_market",
+            market_id=mid,
+            title=title[:50],
+            category=category,
+            num_outcomes=num_outcomes,
+            has_q_values=initial_q_values is not None,
+            sig=str(sig),
+        )
         return mid, str(sig)
 
     # ── init_outcome_mint ─────────────────────────────────────────────────────
