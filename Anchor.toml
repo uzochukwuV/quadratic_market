@@ -5,12 +5,12 @@ package_manager = "npm"
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-quadratic_market = "o2XYcavmsMZZgzhRzD8kU4MaymTgSCk28hDyJG2ykqX"
+[programs.devnet]
+quadratic_market = "A1Qgmdwq5XuKbJFpSub2Pf7zrRVNf624nppVTd66Qvxz"
 
 [provider]
-cluster = "localnet"
-wallet = "~/.config/solana/id.json"
+cluster = "devnet"
+wallet = "/tmp/devnet_wallet.json"
 
 [scripts]
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
