@@ -31,9 +31,9 @@ BASE_MINT: str = _require("BASE_MINT")
 OPERATOR_KEYPAIR_PATH: Path = _keypair_path("OPERATOR_KEYPAIR_PATH")
 ORACLE_KEYPAIR_PATH: Path = _keypair_path("ORACLE_KEYPAIR_PATH")
 
-# ─── Sports API Configuration ───────────────────────────────────────────────────
+# ─── Sports API Configuration (Optional) ──────────────────────────────────────────
 
-ODDS_API_KEY: str = _require("ODDS_API_KEY")
+ODDS_API_KEY: str = os.getenv("ODDS_API_KEY", "")
 
 # Football leagues to track (comma-separated)
 # Supported: soccer_epl, soccer_uefa_champs_league, soccer_uefa_europa_league,
