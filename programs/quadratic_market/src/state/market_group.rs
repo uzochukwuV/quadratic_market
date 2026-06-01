@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
-use crate::constants::{MAX_GROUP_MARKETS, MAX_CORRELATION_PAIRS};
+use crate::constants::{
+    MAX_CORRELATION_PAIRS, MAX_GROUP_MARKETS, MAX_OUTCOMES, MAX_SAME_GAME_STATES,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, Copy)]
 pub struct CorrelationPair {
@@ -20,6 +22,10 @@ pub struct MarketGroup {
     pub market_ids: [u64; MAX_GROUP_MARKETS],
     pub correlations: [CorrelationPair; MAX_CORRELATION_PAIRS],
     pub num_correlations: u8,
+    pub num_states: u8,
+    pub state_probabilities: [u64; MAX_SAME_GAME_STATES],
+    pub outcome_state_masks: [[u64; MAX_OUTCOMES]; MAX_GROUP_MARKETS],
+    pub statistical_discount_bps: u64,
     pub event_start_time: i64,
     pub correlation_locked: bool,
     pub title: String,
@@ -36,6 +42,10 @@ impl MarketGroup {
         + 64  // market_ids (8 * u64)
         + 192 // correlations (16 pairs × 12 bytes each in Borsh)
         + 1   // num_correlations
+        + 1   // num_states
+        + 512 // state_probabilities (64 * u64)
+        + 512 // outcome_state_masks (8 * 8 * u64)
+        + 8   // statistical_discount_bps
         + 8   // event_start_time
         + 1   // correlation_locked
         + (4 + 128) // title

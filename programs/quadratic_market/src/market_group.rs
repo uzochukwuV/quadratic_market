@@ -2,7 +2,10 @@ use anchor_lang::prelude::*;
 use crate::state::{GlobalConfig, Market, MarketGroup};
 use crate::state::market_group::CorrelationPair;
 use crate::errors::QuadraticMarketError;
-use crate::constants::{seeds, MAX_GROUP_MARKETS, MAX_CORRELATION_PAIRS, CORRELATION_MAX_BPS};
+use crate::constants::{
+    seeds, CORRELATION_MAX_BPS, MAX_CORRELATION_PAIRS, MAX_GROUP_MARKETS, MAX_OUTCOMES,
+    MAX_SAME_GAME_STATES, SCALE,
+};
 
 // ─── Create Market Group ───────────────────────────────────────
 
@@ -57,8 +60,12 @@ pub fn create_market_group_handler(
     group.max_group_exposure = max_group_exposure;
     group.num_markets = 0;
     group.market_ids = [0u64; MAX_GROUP_MARKETS];
-    group.correlations = unsafe { std::mem::zeroed() };
+    group.correlations = [CorrelationPair::default(); MAX_CORRELATION_PAIRS];
     group.num_correlations = 0;
+    group.num_states = 0;
+    group.state_probabilities = [0u64; MAX_SAME_GAME_STATES];
+    group.outcome_state_masks = [[0u64; MAX_OUTCOMES]; MAX_GROUP_MARKETS];
+    group.statistical_discount_bps = CORRELATION_MAX_BPS;
     group.event_start_time = event_start_time;
     group.correlation_locked = false;
     group.title = title;
@@ -263,6 +270,142 @@ pub fn update_correlation_weight_handler(
 
     let idx = pair_index as usize;
     group.correlations[idx].weight_bps = new_weight_bps;
+
+    Ok(())
+}
+
+// ─── Same-game State Model ────────────────────────────────────
+
+#[derive(Accounts)]
+#[instruction(group_id: u64)]
+pub struct SetGroupStateModel<'info> {
+    #[account(
+        seeds = [seeds::GLOBAL_CONFIG],
+        bump = global_config.bump,
+    )]
+    pub global_config: Account<'info, GlobalConfig>,
+
+    #[account(
+        mut,
+        seeds = [seeds::MARKET_GROUP, group_id.to_le_bytes().as_ref()],
+        bump = market_group.bump,
+    )]
+    pub market_group: Account<'info, MarketGroup>,
+
+    pub authority: Signer<'info>,
+}
+
+pub fn set_group_state_model_handler(
+    ctx: Context<SetGroupStateModel>,
+    _group_id: u64,
+    num_states: u8,
+    state_probabilities: Vec<u64>,
+    statistical_discount_bps: u64,
+) -> Result<()> {
+    let config = &ctx.accounts.global_config;
+    let group = &mut ctx.accounts.market_group;
+
+    require!(
+        ctx.accounts.authority.key() == config.admin,
+        QuadraticMarketError::Unauthorized
+    );
+    require!(
+        !group.correlation_locked,
+        QuadraticMarketError::CorrelationMatrixLocked
+    );
+    require!(num_states > 0, QuadraticMarketError::InvalidAmount);
+    require!(
+        num_states as usize <= MAX_SAME_GAME_STATES,
+        QuadraticMarketError::InvalidAmount
+    );
+    require!(
+        state_probabilities.len() == num_states as usize,
+        QuadraticMarketError::InvalidAmount
+    );
+    require!(
+        statistical_discount_bps <= CORRELATION_MAX_BPS,
+        QuadraticMarketError::CorrelationOutOfBounds
+    );
+
+    let mut total_probability: u128 = 0;
+    let mut probabilities = [0u64; MAX_SAME_GAME_STATES];
+    for i in 0..num_states as usize {
+        probabilities[i] = state_probabilities[i];
+        total_probability = total_probability
+            .checked_add(state_probabilities[i] as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+    }
+    require!(
+        total_probability == SCALE as u128,
+        QuadraticMarketError::InvalidAmount
+    );
+
+    group.num_states = num_states;
+    group.state_probabilities = probabilities;
+    group.statistical_discount_bps = statistical_discount_bps;
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(group_id: u64)]
+pub struct SetOutcomeStateMask<'info> {
+    #[account(
+        seeds = [seeds::GLOBAL_CONFIG],
+        bump = global_config.bump,
+    )]
+    pub global_config: Account<'info, GlobalConfig>,
+
+    #[account(
+        mut,
+        seeds = [seeds::MARKET_GROUP, group_id.to_le_bytes().as_ref()],
+        bump = market_group.bump,
+    )]
+    pub market_group: Account<'info, MarketGroup>,
+
+    pub authority: Signer<'info>,
+}
+
+pub fn set_outcome_state_mask_handler(
+    ctx: Context<SetOutcomeStateMask>,
+    _group_id: u64,
+    market_index: u8,
+    outcome_id: u8,
+    state_mask: u64,
+) -> Result<()> {
+    let config = &ctx.accounts.global_config;
+    let group = &mut ctx.accounts.market_group;
+
+    require!(
+        ctx.accounts.authority.key() == config.admin,
+        QuadraticMarketError::Unauthorized
+    );
+    require!(
+        !group.correlation_locked,
+        QuadraticMarketError::CorrelationMatrixLocked
+    );
+    require!(
+        (market_index as usize) < group.num_markets as usize,
+        QuadraticMarketError::MarketNotInGroup
+    );
+    require!(
+        (outcome_id as usize) < MAX_OUTCOMES,
+        QuadraticMarketError::InvalidOutcomeId
+    );
+    require!(group.num_states > 0, QuadraticMarketError::InvalidAmount);
+
+    let valid_mask = if group.num_states as usize == MAX_SAME_GAME_STATES {
+        u64::MAX
+    } else {
+        (1u64 << group.num_states) - 1
+    };
+    require!(state_mask != 0, QuadraticMarketError::InvalidAmount);
+    require!(
+        state_mask & !valid_mask == 0,
+        QuadraticMarketError::InvalidAmount
+    );
+
+    group.outcome_state_masks[market_index as usize][outcome_id as usize] = state_mask;
 
     Ok(())
 }

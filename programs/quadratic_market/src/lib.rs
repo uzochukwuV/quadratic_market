@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("o2XYcavmsMZZgzhRzD8kU4MaymTgSCk28hDyJG2ykqX");
+declare_id!("3MsEuMziRKjA1w1WTPeW5NvDUCjGoep2QZ5zBthGq23Z");
 
 pub mod constants;
 pub mod errors;
@@ -9,37 +9,37 @@ pub mod state;
 pub mod utils;
 
 // Instruction modules
-pub mod initialize;
 pub mod admin;
-pub mod liquidity;
-pub mod market_ops;
-pub mod trade;
-pub mod swap_trade;
-pub mod settlement;
 pub mod claim;
-pub mod market_group;
-pub mod slip;
-pub mod orders;
 pub mod epoch_ops;
+pub mod initialize;
+pub mod liquidity;
+pub mod market_group;
+pub mod market_ops;
+pub mod orders;
+pub mod settlement;
+pub mod slip;
+pub mod swap_trade;
+pub mod trade;
 
 // Bring all account structs into scope so Anchor's #[program]
 // macro references them directly
-use initialize::*;
-use admin::*;
-use liquidity::*;
-use market_ops::*;
-use trade::*;
-use swap_trade::*;
-use settlement::*;
-use claim::*;
-use market_group::*;
-use slip::*;
-use orders::*;
-use epoch_ops::*;
-use crate::state::market_group::CorrelationPair;
 use crate::state::bet_slip::SlipLeg;
 use crate::state::market::MarketMode;
+use crate::state::market_group::CorrelationPair;
 use crate::state::order::OrderSide;
+use admin::*;
+use claim::*;
+use epoch_ops::*;
+use initialize::*;
+use liquidity::*;
+use market_group::*;
+use market_ops::*;
+use orders::*;
+use settlement::*;
+use slip::*;
+use swap_trade::*;
+use trade::*;
 
 #[program]
 pub mod quadratic_market {
@@ -85,7 +85,22 @@ pub mod quadratic_market {
         oracle_pubkey: Option<[u8; 32]>,
         cash_out_margin_bps: Option<u64>,
     ) -> Result<()> {
-        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, settlement_deadline_seconds, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds, max_single_bet, min_outcome_price_bps, buy_fee_bps, oracle_pubkey, cash_out_margin_bps)
+        update_config_handler(
+            ctx,
+            max_market_exposure,
+            challenge_window_seconds,
+            settlement_deadline_seconds,
+            lmsr_default_b,
+            slip_house_margin_bps,
+            max_slip_bonus_multiplier_bps,
+            epoch_duration_seconds,
+            withdrawal_cooldown_seconds,
+            max_single_bet,
+            min_outcome_price_bps,
+            buy_fee_bps,
+            oracle_pubkey,
+            cash_out_margin_bps,
+        )
     }
 
     pub fn add_operator(ctx: Context<AddOperator>, operator: Pubkey) -> Result<()> {
@@ -136,7 +151,17 @@ pub mod quadratic_market {
         initial_q_values: Option<Vec<u64>>,
         market_mode: MarketMode,
     ) -> Result<()> {
-        create_market_handler(ctx, start_time, num_outcomes, title, description, category, lmsr_b_override, initial_q_values, market_mode)
+        create_market_handler(
+            ctx,
+            start_time,
+            num_outcomes,
+            title,
+            description,
+            category,
+            lmsr_b_override,
+            initial_q_values,
+            market_mode,
+        )
     }
 
     pub fn init_outcome_mint(
@@ -270,6 +295,32 @@ pub mod quadratic_market {
         update_correlation_weight_handler(ctx, group_id, pair_index, new_weight_bps)
     }
 
+    pub fn set_group_state_model(
+        ctx: Context<SetGroupStateModel>,
+        group_id: u64,
+        num_states: u8,
+        state_probabilities: Vec<u64>,
+        statistical_discount_bps: u64,
+    ) -> Result<()> {
+        set_group_state_model_handler(
+            ctx,
+            group_id,
+            num_states,
+            state_probabilities,
+            statistical_discount_bps,
+        )
+    }
+
+    pub fn set_outcome_state_mask(
+        ctx: Context<SetOutcomeStateMask>,
+        group_id: u64,
+        market_index: u8,
+        outcome_id: u8,
+        state_mask: u64,
+    ) -> Result<()> {
+        set_outcome_state_mask_handler(ctx, group_id, market_index, outcome_id, state_mask)
+    }
+
     // ─── Correlated Trading ─────────────────────────────────────
 
     pub fn buy_shares_correlated<'info>(
@@ -309,10 +360,7 @@ pub mod quadratic_market {
         claim_slip_handler(ctx, slip_id, num_groups)
     }
 
-    pub fn update_slip_lock(
-        ctx: Context<UpdateSlipLock>,
-        slip_id: u64,
-    ) -> Result<()> {
+    pub fn update_slip_lock(ctx: Context<UpdateSlipLock>, slip_id: u64) -> Result<()> {
         update_slip_lock_handler(ctx, slip_id)
     }
 
@@ -334,28 +382,26 @@ pub mod quadratic_market {
         price_per_share: u64,
         expires_at: i64,
     ) -> Result<()> {
-        place_order_handler(ctx, market_id, outcome_id, side, num_shares, price_per_share, expires_at)
+        place_order_handler(
+            ctx,
+            market_id,
+            outcome_id,
+            side,
+            num_shares,
+            price_per_share,
+            expires_at,
+        )
     }
 
-    pub fn fill_order(
-        ctx: Context<FillOrder>,
-        order_id: u64,
-        fill_shares: u64,
-    ) -> Result<()> {
+    pub fn fill_order(ctx: Context<FillOrder>, order_id: u64, fill_shares: u64) -> Result<()> {
         fill_order_handler(ctx, order_id, fill_shares)
     }
 
-    pub fn cancel_order(
-        ctx: Context<CancelOrder>,
-        order_id: u64,
-    ) -> Result<()> {
+    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<()> {
         cancel_order_handler(ctx, order_id)
     }
 
-    pub fn expire_order(
-        ctx: Context<ExpireOrder>,
-        order_id: u64,
-    ) -> Result<()> {
+    pub fn expire_order(ctx: Context<ExpireOrder>, order_id: u64) -> Result<()> {
         expire_order_handler(ctx, order_id)
     }
 
