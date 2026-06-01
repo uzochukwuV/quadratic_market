@@ -1,22 +1,208 @@
-use crate::constants::{seeds, CORRELATION_MAX_BPS, MAX_OUTCOMES, MAX_SLIP_LEGS, SCALE};
+use crate::constants::{
+    seeds, CORRELATION_MAX_BPS, MAX_CORRELATION_PAIRS, MAX_OUTCOMES, MAX_SAME_GAME_STATES,
+    MAX_SEED_POSITIONS, MAX_SLIP_LEGS, SCALE,
+};
 use crate::errors::QuadraticMarketError;
 use crate::math::correlation::{
     compute_adjusted_q_values, compute_bonus_multiplier, compute_combined_odds_fp,
     compute_joint_probability_fp, LogicalOutcome,
 };
 use crate::math::lmsr::{lmsr_buy_cost, lmsr_price};
-use crate::state::{BetSlip, GlobalConfig, Market, MarketGroup, MarketStatus, SlipLeg};
+use crate::state::{BetSlip, GlobalConfig, Market, MarketStatus, SlipLeg};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::{self, AssociatedToken};
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
+#[inline(never)]
+fn deserialize_market_info(market_info: &AccountInfo) -> Result<Box<Market>> {
+    let market_data = market_info.data.borrow();
+    let market = Box::new(
+        Market::try_deserialize_unchecked(&mut &market_data[8..])
+            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?,
+    );
+    Ok(market)
+}
+
+struct MarketGroupSnapshot {
+    group_id: u64,
+    total_group_exposure: u64,
+    max_group_exposure: u64,
+    num_markets: u8,
+    market_ids: [u64; MAX_OUTCOMES],
+    correlations: [crate::state::market_group::CorrelationPair; MAX_CORRELATION_PAIRS],
+    num_correlations: u8,
+    num_states: u8,
+    state_probabilities: [u64; MAX_SAME_GAME_STATES],
+    outcome_state_masks: [[u64; MAX_OUTCOMES]; MAX_OUTCOMES],
+    statistical_discount_bps: u64,
+    seed_fee_pools: [u64; MAX_OUTCOMES],
+    seed_fee_share_bps: u64,
+    seed_positions: [crate::state::market_group::SeedPosition; MAX_SEED_POSITIONS],
+    num_seed_positions: u8,
+}
+
+const GROUP_TOTAL_EXPOSURE_OFFSET: usize = 40;
+const GROUP_MAX_EXPOSURE_OFFSET: usize = 48;
+const GROUP_NUM_MARKETS_OFFSET: usize = 56;
+const GROUP_MARKET_IDS_OFFSET: usize = 57;
+const GROUP_CORRELATIONS_OFFSET: usize = 121;
+const GROUP_NUM_CORRELATIONS_OFFSET: usize = 313;
+const GROUP_NUM_STATES_OFFSET: usize = 314;
+const GROUP_STATE_PROBABILITIES_OFFSET: usize = 315;
+const GROUP_OUTCOME_STATE_MASKS_OFFSET: usize = 827;
+const GROUP_STATISTICAL_DISCOUNT_OFFSET: usize = 1339;
+const GROUP_SEED_FEE_POOLS_OFFSET: usize = 1347;
+const GROUP_SEED_FEE_SHARE_OFFSET: usize = 1411;
+const GROUP_SEED_POSITIONS_OFFSET: usize = 1435;
+const GROUP_NUM_SEED_POSITIONS_OFFSET: usize = 2267;
+
+fn read_u64(data: &[u8], offset: usize) -> Result<u64> {
+    let bytes: [u8; 8] = data
+        .get(offset..offset + 8)
+        .ok_or(QuadraticMarketError::InvalidRemainingAccount)?
+        .try_into()
+        .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+#[inline(never)]
+fn deserialize_market_group_info(group_info: &AccountInfo) -> Result<Box<MarketGroupSnapshot>> {
+    let group_data = group_info.data.borrow();
+    let data = group_data
+        .get(8..)
+        .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+
+    let mut market_ids = [0u64; MAX_OUTCOMES];
+    for (idx, market_id) in market_ids.iter_mut().enumerate() {
+        *market_id = read_u64(data, GROUP_MARKET_IDS_OFFSET + idx * 8)?;
+    }
+
+    let mut correlations =
+        [crate::state::market_group::CorrelationPair::default(); MAX_CORRELATION_PAIRS];
+    for (idx, pair) in correlations.iter_mut().enumerate() {
+        let offset = GROUP_CORRELATIONS_OFFSET + idx * 12;
+        *pair = crate::state::market_group::CorrelationPair {
+            market_a_index: *data
+                .get(offset)
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+            outcome_a_id: *data
+                .get(offset + 1)
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+            market_b_index: *data
+                .get(offset + 2)
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+            outcome_b_id: *data
+                .get(offset + 3)
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+            weight_bps: read_u64(data, offset + 4)?,
+        };
+    }
+
+    let mut state_probabilities = [0u64; MAX_SAME_GAME_STATES];
+    for (idx, probability) in state_probabilities.iter_mut().enumerate() {
+        *probability = read_u64(data, GROUP_STATE_PROBABILITIES_OFFSET + idx * 8)?;
+    }
+
+    let mut outcome_state_masks = [[0u64; MAX_OUTCOMES]; MAX_OUTCOMES];
+    for market_idx in 0..MAX_OUTCOMES {
+        for outcome_idx in 0..MAX_OUTCOMES {
+            let flat_idx = market_idx * MAX_OUTCOMES + outcome_idx;
+            outcome_state_masks[market_idx][outcome_idx] =
+                read_u64(data, GROUP_OUTCOME_STATE_MASKS_OFFSET + flat_idx * 8)?;
+        }
+    }
+
+    let mut seed_fee_pools = [0u64; MAX_OUTCOMES];
+    for (idx, fee_pool) in seed_fee_pools.iter_mut().enumerate() {
+        *fee_pool = read_u64(data, GROUP_SEED_FEE_POOLS_OFFSET + idx * 8)?;
+    }
+
+    let mut seed_positions =
+        [crate::state::market_group::SeedPosition::default(); MAX_SEED_POSITIONS];
+    for (idx, seed) in seed_positions.iter_mut().enumerate() {
+        let offset = GROUP_SEED_POSITIONS_OFFSET + idx * 52;
+        let seeder_bytes: [u8; 32] = data
+            .get(offset..offset + 32)
+            .ok_or(QuadraticMarketError::InvalidRemainingAccount)?
+            .try_into()
+            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+        *seed = crate::state::market_group::SeedPosition {
+            seeder: Pubkey::new_from_array(seeder_bytes),
+            slip_id: read_u64(data, offset + 32)?,
+            market_index: *data
+                .get(offset + 40)
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+            outcome_id: *data
+                .get(offset + 41)
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+            amount: read_u64(data, offset + 42)?,
+            reward_claimed: *data
+                .get(offset + 50)
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?
+                != 0,
+            refunded: *data
+                .get(offset + 51)
+                .ok_or(QuadraticMarketError::InvalidRemainingAccount)?
+                != 0,
+        };
+    }
+
+    Ok(Box::new(MarketGroupSnapshot {
+        group_id: read_u64(data, 0)?,
+        total_group_exposure: read_u64(data, GROUP_TOTAL_EXPOSURE_OFFSET)?,
+        max_group_exposure: read_u64(data, GROUP_MAX_EXPOSURE_OFFSET)?,
+        num_markets: *data
+            .get(GROUP_NUM_MARKETS_OFFSET)
+            .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+        market_ids,
+        correlations,
+        num_correlations: *data
+            .get(GROUP_NUM_CORRELATIONS_OFFSET)
+            .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+        num_states: *data
+            .get(GROUP_NUM_STATES_OFFSET)
+            .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+        state_probabilities,
+        outcome_state_masks,
+        statistical_discount_bps: read_u64(data, GROUP_STATISTICAL_DISCOUNT_OFFSET)?,
+        seed_fee_pools,
+        seed_fee_share_bps: read_u64(data, GROUP_SEED_FEE_SHARE_OFFSET)?,
+        seed_positions,
+        num_seed_positions: *data
+            .get(GROUP_NUM_SEED_POSITIONS_OFFSET)
+            .ok_or(QuadraticMarketError::InvalidRemainingAccount)?,
+    }))
+}
+
+fn write_group_u64(group_info: &AccountInfo, offset: usize, value: u64) -> Result<()> {
+    let mut data = group_info.data.borrow_mut();
+    let slot = data
+        .get_mut(8 + offset..8 + offset + 8)
+        .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+    slot.copy_from_slice(&value.to_le_bytes());
+    Ok(())
+}
+
+fn write_group_total_exposure(group_info: &AccountInfo, value: u64) -> Result<()> {
+    write_group_u64(group_info, GROUP_TOTAL_EXPOSURE_OFFSET, value)
+}
+
+fn write_group_seed_fee_pool(group_info: &AccountInfo, market_index: usize, value: u64) -> Result<()> {
+    write_group_u64(
+        group_info,
+        GROUP_SEED_FEE_POOLS_OFFSET + market_index * 8,
+        value,
+    )
+}
+
+#[inline(never)]
 fn compute_group_aware_combined_odds_fp(
     legs: &[SlipLeg],
     num_legs: u8,
     leg_prices: &[u64],
-    leg_markets: &[Market],
+    leg_markets: &[Box<Market>],
     leg_group_indices: &[Option<usize>],
-    groups: &[MarketGroup],
+    groups: &[Box<MarketGroupSnapshot>],
     house_margin_bps: u64,
     bonus_multiplier_bps: u64,
 ) -> Result<u64> {
@@ -26,7 +212,7 @@ fn compute_group_aware_combined_odds_fp(
     let mut same_game_discount_bps: u128 = CORRELATION_MAX_BPS as u128;
 
     for leg_idx in 0..num_legs as usize {
-        if let Some(g_idx) = leg_group_indices[leg_idx] {
+            if let Some(g_idx) = leg_group_indices[leg_idx] {
             if processed_groups[g_idx] {
                 continue;
             }
@@ -136,20 +322,20 @@ pub struct PlaceSlip<'info> {
         seeds = [seeds::BET_SLIP, global_config.next_slip_id.to_le_bytes().as_ref()],
         bump,
     )]
-    pub bet_slip: Account<'info, BetSlip>,
+    pub bet_slip: Box<Account<'info, BetSlip>>,
 
     /// CHECK: Treasury PDA
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
     pub treasury: SystemAccount<'info>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = slip_creator)]
-    pub buyer_base_ata: Account<'info, TokenAccount>,
+    pub buyer_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     #[account(mut)]
     pub slip_creator: Signer<'info>,
@@ -202,7 +388,8 @@ pub fn place_slip_handler<'info>(
     // can reuse them exactly — recomputing in Phase C without correlation context
     // would produce different values and corrupt exposure accounting (BUG-07).
     let mut leg_costs: Vec<u64> = Vec::with_capacity(num_legs as usize);
-    let mut leg_markets: Vec<Market> = Vec::with_capacity(num_legs as usize);
+    // keep large Market structs on the heap to reduce stack usage
+    let mut leg_markets: Vec<Box<Market>> = Vec::with_capacity(num_legs as usize);
     let mut leg_group_indices: Vec<Option<usize>> = Vec::with_capacity(num_legs as usize);
 
     // Accumulate exposure delta per group index (applied once per group at end)
@@ -227,10 +414,7 @@ pub fn place_slip_handler<'info>(
         );
 
         // Deserialize using try_deserialize_unchecked (data[8..] skips the discriminator)
-        let market_data = market_info.data.borrow();
-        let market: Market = Market::try_deserialize_unchecked(&mut &market_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(market_data);
+        let market = deserialize_market_info(market_info)?;
 
         require!(
             market.status == MarketStatus::Open,
@@ -264,11 +448,7 @@ pub fn place_slip_handler<'info>(
                 if group_info.key() != expected_group_pda {
                     continue;
                 }
-                let group_data = group_info.data.borrow();
-                let group: MarketGroup =
-                    MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-                        .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-                drop(group_data);
+                let group = deserialize_market_group_info(group_info)?;
                 if group.group_id == group_id {
                     group_index = Some(g);
                     found = true;
@@ -281,16 +461,13 @@ pub fn place_slip_handler<'info>(
         // Compute cost — apply correlation adjustment when grouped
         let (leg_cost, leg_price) = if let Some(g_idx) = group_index {
             let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-            let group_data = group_info.data.borrow();
-            let market_group: MarketGroup =
-                MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-                    .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-            drop(group_data);
+            let market_group = deserialize_market_group_info(group_info)?;
 
             // Build correlated q_values array from leg markets already processed
             // plus search remaining_accounts for group peers not yet seen
-            let mut correlated_q: [[u64; MAX_OUTCOMES]; MAX_OUTCOMES] =
-                [[0u64; MAX_OUTCOMES]; MAX_OUTCOMES];
+            // allocate correlated_q on the heap to avoid large stack frames
+            let mut correlated_q: Box<[[u64; MAX_OUTCOMES]; MAX_OUTCOMES]> =
+                Box::new([[0u64; MAX_OUTCOMES]; MAX_OUTCOMES]);
             for c in 0..market_group.num_markets as usize {
                 let corr_id = market_group.market_ids[c];
                 if corr_id == 0 {
@@ -321,8 +498,7 @@ pub fn place_slip_handler<'info>(
                             &crate::ID,
                         );
                         if ra_info.key() == peer_pda {
-                            let d = ra_info.data.borrow();
-                            if let Ok(peer) = Market::try_deserialize_unchecked(&mut &d[8..]) {
+                            if let Ok(peer) = deserialize_market_info(ra_info) {
                                 correlated_q[c] = peer.q_values;
                             }
                             break;
@@ -335,7 +511,7 @@ pub fn place_slip_handler<'info>(
                 &market.q_values,
                 market.num_outcomes,
                 market.group_market_index,
-                &correlated_q,
+                &*correlated_q,
                 &market_group.correlations,
                 market_group.num_correlations,
             )?;
@@ -406,6 +582,7 @@ pub fn place_slip_handler<'info>(
         leg_prices.push(leg_price);
         leg_costs.push(leg_cost);
         leg_group_indices.push(group_index);
+        // move the Market onto the heap
         leg_markets.push(market);
 
         // Validate outcome mint PDA
@@ -461,10 +638,7 @@ pub fn place_slip_handler<'info>(
             continue;
         }
         let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-        let group_data = group_info.data.borrow();
-        let group: MarketGroup = MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(group_data);
+        let group = deserialize_market_group_info(group_info)?;
 
         let new_exposure = group
             .total_group_exposure
@@ -482,13 +656,11 @@ pub fn place_slip_handler<'info>(
     // independent events.
     let house_margin_bps = config.slip_house_margin_bps;
     let bonus = compute_bonus_multiplier(num_legs, config.max_slip_bonus_multiplier_bps)?;
-    let mut groups: Vec<MarketGroup> = Vec::with_capacity(num_groups as usize);
+    // store MarketGroup on heap to keep stack usage low
+    let mut groups: Vec<Box<MarketGroupSnapshot>> = Vec::with_capacity(num_groups as usize);
     for g_idx in 0..num_groups as usize {
         let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-        let group_data = group_info.data.borrow();
-        let group: MarketGroup = MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(group_data);
+        let group = deserialize_market_group_info(group_info)?;
         groups.push(group);
     }
     let combined_odds_fp = compute_group_aware_combined_odds_fp(
@@ -577,10 +749,7 @@ pub fn place_slip_handler<'info>(
             let phase_a_cost = leg_costs[leg_idx as usize];
             let profit = leg.num_shares.saturating_sub(phase_a_cost);
 
-            let market_data = market_info.data.borrow();
-            let mut market: Market = Market::try_deserialize_unchecked(&mut &market_data[8..])
-                .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-            drop(market_data);
+            let mut market = deserialize_market_info(market_info)?;
 
             market.q_values[leg.outcome_id as usize] = market.q_values[leg.outcome_id as usize]
                 .checked_add(leg.num_shares)
@@ -605,16 +774,13 @@ pub fn place_slip_handler<'info>(
                     .ok_or(QuadraticMarketError::MathOverflow)?;
 
                 let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-                let group_data = group_info.data.borrow();
-                let mut market_group: MarketGroup =
-                    MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-                        .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-                drop(group_data);
+                let mut market_group = deserialize_market_group_info(group_info)?;
 
                 market_group.total_group_exposure = market_group
                     .total_group_exposure
                     .checked_add(delta)
                     .ok_or(QuadraticMarketError::MathOverflow)?;
+                write_group_total_exposure(group_info, market_group.total_group_exposure)?;
                 for market_index in 0..market_group.num_markets as usize {
                     let seed_fee_delta = group_seed_fee_deltas[g_idx][market_index];
                     if seed_fee_delta > 0 {
@@ -622,15 +788,16 @@ pub fn place_slip_handler<'info>(
                             [market_index]
                             .checked_add(seed_fee_delta)
                             .ok_or(QuadraticMarketError::MathOverflow)?;
+                        write_group_seed_fee_pool(
+                            group_info,
+                            market_index,
+                            market_group.seed_fee_pools[market_index],
+                        )?;
                         total_seed_fee_locked = total_seed_fee_locked
                             .checked_add(seed_fee_delta)
                             .ok_or(QuadraticMarketError::MathOverflow)?;
                     }
                 }
-
-                let mut group_data_mut = group_info.data.borrow_mut();
-                let mut group_writer = &mut group_data_mut[8..];
-                market_group.serialize(&mut group_writer)?;
             }
         }
 
@@ -671,10 +838,7 @@ pub fn place_slip_handler<'info>(
             continue;
         }
         let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-        let group_data = group_info.data.borrow();
-        let group: MarketGroup = MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(group_data);
+        let group = deserialize_market_group_info(group_info)?;
         let out_idx = slip.num_groups_locked as usize;
         require!(
             out_idx < MAX_SLIP_LEGS,
@@ -705,20 +869,20 @@ pub struct ClaimSlip<'info> {
         constraint = bet_slip.creator == claimer.key() @ QuadraticMarketError::Unauthorized,
         close = claimer,
     )]
-    pub bet_slip: Account<'info, BetSlip>,
+    pub bet_slip: Box<Account<'info, BetSlip>>,
 
     /// CHECK: Treasury PDA
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
     pub treasury: SystemAccount<'info>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = claimer)]
-    pub claimer_base_ata: Account<'info, TokenAccount>,
+    pub claimer_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     pub claimer: Signer<'info>,
     pub token_program: Program<'info, Token>,
@@ -749,10 +913,11 @@ pub fn claim_slip_handler<'info>(
     let mut slip_voided = false;
     let mut num_legs_settled: u8 = 0;
     let mut final_leg_prices: Vec<u64> = Vec::with_capacity(slip.num_legs as usize);
-    let mut final_leg_markets: Vec<Market> = Vec::with_capacity(slip.num_legs as usize);
+    // keep Market on heap
+    let mut final_leg_markets: Vec<Box<Market>> = Vec::with_capacity(slip.num_legs as usize);
     let mut final_leg_group_indices: Vec<Option<usize>> =
         Vec::with_capacity(slip.num_legs as usize);
-    let mut final_groups: Vec<MarketGroup> = Vec::with_capacity(group_accounts);
+    let mut final_groups: Vec<Box<MarketGroupSnapshot>> = Vec::with_capacity(group_accounts);
     for g in 0..group_accounts {
         let group_id = slip.group_ids[g];
         let group_info = &ctx.remaining_accounts[total_leg_accounts + g];
@@ -764,10 +929,7 @@ pub fn claim_slip_handler<'info>(
             group_info.key() == expected_group_pda,
             QuadraticMarketError::InvalidRemainingAccount
         );
-        let group_data = group_info.data.borrow();
-        let group: MarketGroup = MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(group_data);
+        let group = deserialize_market_group_info(group_info)?;
         require!(
             group.group_id == group_id,
             QuadraticMarketError::InvalidRemainingAccount
@@ -796,15 +958,11 @@ pub fn claim_slip_handler<'info>(
             QuadraticMarketError::InvalidRemainingAccount
         );
 
-        let market_data = market_info.data.borrow();
-        let market: Market = Market::try_deserialize_unchecked(&mut &market_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(market_data);
+        let market = deserialize_market_info(market_info)?;
         let group_index = market
             .group_id
             .and_then(|gid| final_groups.iter().position(|g| g.group_id == gid));
         final_leg_group_indices.push(group_index);
-        final_leg_markets.push(market.clone());
 
         // Validate outcome mint PDA
         let (expected_mint_pda, _) = Pubkey::find_program_address(
@@ -876,6 +1034,7 @@ pub fn claim_slip_handler<'info>(
             all_won = false;
         }
 
+        final_leg_markets.push(market);
         leg_idx += 1;
     }
 
@@ -941,11 +1100,7 @@ pub fn claim_slip_handler<'info>(
                 QuadraticMarketError::InvalidRemainingAccount
             );
 
-            let group_data = group_info.data.borrow();
-            let mut market_group: MarketGroup =
-                MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-                    .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-            drop(group_data);
+            let mut market_group = deserialize_market_group_info(group_info)?;
             require!(
                 market_group.group_id == group_id,
                 QuadraticMarketError::InvalidRemainingAccount
@@ -953,10 +1108,7 @@ pub fn claim_slip_handler<'info>(
 
             market_group.total_group_exposure =
                 market_group.total_group_exposure.saturating_sub(exposure);
-
-            let mut group_data_mut = group_info.data.borrow_mut();
-            let mut group_writer = &mut group_data_mut[8..];
-            market_group.serialize(&mut group_writer)?;
+            write_group_total_exposure(group_info, market_group.total_group_exposure)?;
         }
     }
 
@@ -1014,17 +1166,17 @@ pub struct UpdateSlipLock<'info> {
         seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
         bump = bet_slip.bump,
     )]
-    pub bet_slip: Account<'info, BetSlip>,
+    pub bet_slip: Box<Account<'info, BetSlip>>,
 
     /// CHECK: Treasury PDA
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
     pub treasury: SystemAccount<'info>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     pub updater: Signer<'info>,
 }
@@ -1044,9 +1196,9 @@ pub fn update_slip_lock_handler(ctx: Context<UpdateSlipLock>, _slip_id: u64) -> 
     );
 
     let mut leg_prices: Vec<u64> = Vec::with_capacity(num_legs as usize);
-    let mut leg_markets: Vec<Market> = Vec::with_capacity(num_legs as usize);
+    let mut leg_markets: Vec<Box<Market>> = Vec::with_capacity(num_legs as usize);
     let mut leg_group_indices: Vec<Option<usize>> = Vec::with_capacity(num_legs as usize);
-    let mut groups: Vec<MarketGroup> = Vec::with_capacity(group_accounts);
+    let mut groups: Vec<Box<MarketGroupSnapshot>> = Vec::with_capacity(group_accounts);
 
     for g in 0..group_accounts {
         let group_id = slip.group_ids[g];
@@ -1059,10 +1211,7 @@ pub fn update_slip_lock_handler(ctx: Context<UpdateSlipLock>, _slip_id: u64) -> 
             group_info.key() == expected_group_pda,
             QuadraticMarketError::InvalidRemainingAccount
         );
-        let group_data = group_info.data.borrow();
-        let group: MarketGroup = MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(group_data);
+        let group = deserialize_market_group_info(group_info)?;
         require!(
             group.group_id == group_id,
             QuadraticMarketError::InvalidRemainingAccount
@@ -1083,10 +1232,7 @@ pub fn update_slip_lock_handler(ctx: Context<UpdateSlipLock>, _slip_id: u64) -> 
             QuadraticMarketError::InvalidRemainingAccount
         );
 
-        let market_data = market_info.data.borrow();
-        let market: Market = Market::try_deserialize_unchecked(&mut &market_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(market_data);
+        let market = deserialize_market_info(market_info)?;
         let group_index = market
             .group_id
             .and_then(|gid| groups.iter().position(|g| g.group_id == gid));
@@ -1169,20 +1315,20 @@ pub struct CashOutSlip<'info> {
         constraint = bet_slip.creator == claimer.key() @ QuadraticMarketError::Unauthorized,
         close = claimer,
     )]
-    pub bet_slip: Account<'info, BetSlip>,
+    pub bet_slip: Box<Account<'info, BetSlip>>,
 
     /// CHECK: Treasury PDA
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
     pub treasury: SystemAccount<'info>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = claimer)]
-    pub claimer_base_ata: Account<'info, TokenAccount>,
+    pub claimer_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     pub claimer: Signer<'info>,
     pub token_program: Program<'info, Token>,
@@ -1213,13 +1359,13 @@ pub fn cash_out_slip_handler<'info>(
     let group_accounts = slip.num_groups_locked as usize;
     let total_leg_accounts = num_legs as usize * 3;
     let mut leg_prices: Vec<u64> = Vec::with_capacity(num_legs as usize);
-    let mut leg_markets: Vec<Market> = Vec::with_capacity(num_legs as usize);
+    let mut leg_markets: Vec<Box<Market>> = Vec::with_capacity(num_legs as usize);
     let mut leg_group_indices: Vec<Option<usize>> = Vec::with_capacity(num_legs as usize);
-    let mut groups: Vec<MarketGroup> = Vec::with_capacity(group_accounts);
+    let mut groups: Vec<Box<MarketGroupSnapshot>> = Vec::with_capacity(group_accounts);
 
     for g in 0..group_accounts {
         let group_id = slip.group_ids[g];
-        let group_info = &ctx.remaining_accounts[total_leg_accounts + g];
+        let group_info = &ctx.remaining_accounts[num_legs as usize + g];
         let (expected_group_pda, _) = Pubkey::find_program_address(
             &[seeds::MARKET_GROUP, group_id.to_le_bytes().as_ref()],
             &crate::ID,
@@ -1228,10 +1374,7 @@ pub fn cash_out_slip_handler<'info>(
             group_info.key() == expected_group_pda,
             QuadraticMarketError::InvalidRemainingAccount
         );
-        let group_data = group_info.data.borrow();
-        let group: MarketGroup = MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(group_data);
+        let group = deserialize_market_group_info(group_info)?;
         require!(
             group.group_id == group_id,
             QuadraticMarketError::InvalidRemainingAccount
@@ -1255,10 +1398,7 @@ pub fn cash_out_slip_handler<'info>(
             QuadraticMarketError::InvalidRemainingAccount
         );
 
-        let market_data = market_info.data.borrow();
-        let market: Market = Market::try_deserialize_unchecked(&mut &market_data[8..])
-            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(market_data);
+        let market = deserialize_market_info(market_info)?;
         let group_index = market
             .group_id
             .and_then(|gid| groups.iter().position(|g| g.group_id == gid));
@@ -1401,20 +1541,14 @@ pub fn cash_out_slip_handler<'info>(
             group_info.key() == expected_group_pda,
             QuadraticMarketError::InvalidRemainingAccount
         );
-        let group_data = group_info.data.borrow();
-        let mut market_group: MarketGroup =
-            MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-                .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(group_data);
+        let mut market_group = deserialize_market_group_info(group_info)?;
         require!(
             market_group.group_id == group_id,
             QuadraticMarketError::InvalidRemainingAccount
         );
         market_group.total_group_exposure =
             market_group.total_group_exposure.saturating_sub(exposure);
-        let mut group_data_mut = group_info.data.borrow_mut();
-        let mut group_writer = &mut group_data_mut[8..];
-        market_group.serialize(&mut group_writer)?;
+        write_group_total_exposure(group_info, market_group.total_group_exposure)?;
     }
 
     Ok(())

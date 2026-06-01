@@ -24,6 +24,9 @@ pub struct BetSlip {
     pub group_exposure_locked: [u64; MAX_SLIP_LEGS],
     pub num_groups_locked: u8,
     pub claimed: bool,
+    pub is_seed: bool,
+    pub seed_group_id: u64,
+    pub seed_position_index: u8,
     pub bump: u8,
 }
 
@@ -43,5 +46,8 @@ impl BetSlip {
         + 64  // group_exposure_locked
         + 1   // num_groups_locked
         + 1   // claimed
+        + 1   // is_seed
+        + 8   // seed_group_id
+        + 1   // seed_position_index
         + 1; // bump
 }

@@ -1,9 +1,44 @@
 use crate::constants::seeds;
 use crate::errors::QuadraticMarketError;
-use crate::state::{BetSlip, GlobalConfig, Market, MarketGroup, MarketStatus};
+use crate::state::{BetSlip, GlobalConfig, Market, MarketStatus};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
+
+struct MarketGroupExposure {
+    group_id: u64,
+    total_group_exposure: u64,
+}
+
+fn read_u64(data: &[u8], offset: usize) -> Result<u64> {
+    let bytes: [u8; 8] = data
+        .get(offset..offset + 8)
+        .ok_or(QuadraticMarketError::InvalidRemainingAccount)?
+        .try_into()
+        .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+#[inline(never)]
+fn deserialize_market_group_info(group_info: &AccountInfo) -> Result<MarketGroupExposure> {
+    let group_data = group_info.data.borrow();
+    let data = group_data
+        .get(8..)
+        .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+    Ok(MarketGroupExposure {
+        group_id: read_u64(data, 0)?,
+        total_group_exposure: read_u64(data, 40)?,
+    })
+}
+
+fn write_group_total_exposure(group_info: &AccountInfo, value: u64) -> Result<()> {
+    let mut data = group_info.data.borrow_mut();
+    let slot = data
+        .get_mut(8 + 40..8 + 48)
+        .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+    slot.copy_from_slice(&value.to_le_bytes());
+    Ok(())
+}
 
 // ─── Claim Payout ──────────────────────────────────────────────
 
@@ -131,7 +166,7 @@ pub struct ClaimPausedBet<'info> {
         constraint = bet_slip.creator == claimer.key() @ QuadraticMarketError::Unauthorized,
         close = claimer,
     )]
-    pub bet_slip: Account<'info, BetSlip>,
+    pub bet_slip: Box<Account<'info, BetSlip>>,
 
     /// CHECK: Treasury PDA
     #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
@@ -142,17 +177,17 @@ pub struct ClaimPausedBet<'info> {
         associated_token::mint = base_mint,
         associated_token::authority = treasury,
     )]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         associated_token::mint = base_mint,
         associated_token::authority = claimer,
     )]
-    pub claimer_base_ata: Account<'info, TokenAccount>,
+    pub claimer_base_ata: Box<Account<'info, TokenAccount>>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     pub claimer: Signer<'info>,
     pub token_program: Program<'info, Token>,
@@ -265,20 +300,14 @@ pub fn claim_paused_bet_handler<'info>(
             group_info.key() == expected_group_pda,
             QuadraticMarketError::InvalidRemainingAccount
         );
-        let group_data = group_info.data.borrow();
-        let mut market_group: MarketGroup =
-            MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
-                .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
-        drop(group_data);
+        let mut market_group = deserialize_market_group_info(group_info)?;
         require!(
             market_group.group_id == group_id,
             QuadraticMarketError::InvalidRemainingAccount
         );
         market_group.total_group_exposure =
             market_group.total_group_exposure.saturating_sub(exposure);
-        let mut group_data_mut = group_info.data.borrow_mut();
-        let mut group_writer = &mut group_data_mut[8..];
-        market_group.serialize(&mut group_writer)?;
+        write_group_total_exposure(group_info, market_group.total_group_exposure)?;
     }
 
     // ── Phase 2: Execute burns ──

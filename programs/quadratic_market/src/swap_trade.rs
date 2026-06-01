@@ -1,10 +1,10 @@
+use crate::constants::seeds;
+use crate::errors::QuadraticMarketError;
+use crate::math::lmsr::lmsr_buy_cost;
+use crate::state::{GlobalConfig, Market, MarketMode, MarketStatus};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode};
-use crate::errors::QuadraticMarketError;
-use crate::constants::seeds;
-use crate::math::lmsr::lmsr_buy_cost;
 
 /// Buy shares via Jupiter DEX swap.
 /// User provides a non-base token, which is swapped to the base token via Jupiter,
@@ -103,7 +103,10 @@ pub fn buy_shares_with_swap_handler(
         market.market_mode == MarketMode::Trading,
         QuadraticMarketError::DirectTradingDisabled
     );
-    require!(market.status.is_tradable(), QuadraticMarketError::MarketNotOpen);
+    require!(
+        market.status.is_tradable(),
+        QuadraticMarketError::MarketNotOpen
+    );
     require!(
         (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
@@ -138,7 +141,8 @@ pub fn buy_shares_with_swap_handler(
 
     // Exposure check — LP's net risk = max_payout - cost_received = num_shares - cost
     let profit_exposure = num_shares.saturating_sub(cost);
-    let new_exposure = market.exposure
+    let new_exposure = market
+        .exposure
         .checked_add(profit_exposure)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     require!(
@@ -166,11 +170,7 @@ pub fn buy_shares_with_swap_handler(
 
     // Mint outcome tokens to buyer
     let market_id_bytes = market.market_id.to_le_bytes();
-    let market_seeds = &[
-        seeds::MARKET,
-        market_id_bytes.as_ref(),
-        &[market.bump],
-    ];
+    let market_seeds = &[seeds::MARKET, market_id_bytes.as_ref(), &[market.bump]];
     let cpi_accounts = token::MintTo {
         mint: ctx.accounts.outcome_mint.to_account_info(),
         to: ctx.accounts.buyer_outcome_ata.to_account_info(),
@@ -192,7 +192,8 @@ pub fn buy_shares_with_swap_handler(
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     market.exposure = new_exposure;
-    config.locked_payouts = config.locked_payouts
+    config.locked_payouts = config
+        .locked_payouts
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 

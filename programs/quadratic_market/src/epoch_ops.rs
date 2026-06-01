@@ -1,7 +1,7 @@
-use anchor_lang::prelude::*;
-use crate::state::{GlobalConfig, Epoch};
-use crate::errors::QuadraticMarketError;
 use crate::constants::seeds;
+use crate::errors::QuadraticMarketError;
+use crate::state::{Epoch, GlobalConfig};
+use anchor_lang::prelude::*;
 
 // ─── Init Epoch ────────────────────────────────────────────────
 // Creates the on-chain Epoch account for `global_config.current_epoch`.
@@ -115,7 +115,8 @@ pub fn advance_epoch_handler(ctx: Context<AdvanceEpoch>) -> Result<()> {
         QuadraticMarketError::EpochNotComplete
     );
 
-    config.current_epoch = config.current_epoch
+    config.current_epoch = config
+        .current_epoch
         .checked_add(1)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 

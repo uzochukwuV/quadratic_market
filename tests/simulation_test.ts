@@ -176,7 +176,7 @@ describe("simulation — Full Protocol Run", () => {
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
-
+      console.log("PProtocol tested well — initialized successfully");
     // Add marketCreator as operator so they can create markets
     await program.methods
       .addOperator(marketCreator.publicKey)

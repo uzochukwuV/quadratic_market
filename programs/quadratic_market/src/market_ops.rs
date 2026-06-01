@@ -1,9 +1,11 @@
+use crate::constants::{
+    seeds, BASE_MINT_DECIMALS, MAX_DESCRIPTION_LEN, MAX_OUTCOMES, MAX_TITLE_LEN,
+};
+use crate::errors::QuadraticMarketError;
+use crate::state::{Epoch, GlobalConfig, Market, MarketMode, MarketStatus};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode, Epoch};
-use crate::errors::QuadraticMarketError;
-use crate::constants::{seeds, MAX_OUTCOMES, MAX_TITLE_LEN, MAX_DESCRIPTION_LEN, BASE_MINT_DECIMALS};
 
 // ─── Create Market (operator/admin only) ───────────────────────
 
@@ -119,13 +121,15 @@ pub fn create_market_handler(
     market.epoch_id = current_epoch_id;
     market.settled_in_epoch = false;
 
-    config.next_market_id = config.next_market_id
+    config.next_market_id = config
+        .next_market_id
         .checked_add(1)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Register this market in the epoch so settlement tracking is accurate
     let epoch = &mut ctx.accounts.epoch;
-    epoch.num_markets = epoch.num_markets
+    epoch.num_markets = epoch
+        .num_markets
         .checked_add(1)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     epoch.all_markets_settled = false;
@@ -205,7 +209,9 @@ pub struct SuspendMarket<'info> {
 
 pub fn suspend_market_handler(ctx: Context<SuspendMarket>) -> Result<()> {
     require!(
-        ctx.accounts.global_config.is_authorized(&ctx.accounts.authority.key()),
+        ctx.accounts
+            .global_config
+            .is_authorized(&ctx.accounts.authority.key()),
         QuadraticMarketError::Unauthorized
     );
     require!(
@@ -229,7 +235,9 @@ pub struct ResumeMarket<'info> {
 
 pub fn resume_market_handler(ctx: Context<ResumeMarket>) -> Result<()> {
     require!(
-        ctx.accounts.global_config.is_authorized(&ctx.accounts.authority.key()),
+        ctx.accounts
+            .global_config
+            .is_authorized(&ctx.accounts.authority.key()),
         QuadraticMarketError::Unauthorized
     );
     require!(
@@ -238,7 +246,10 @@ pub fn resume_market_handler(ctx: Context<ResumeMarket>) -> Result<()> {
     );
     // Only resume if match hasn't started yet
     let now = Clock::get()?.unix_timestamp;
-    require!(now < ctx.accounts.market.start_time, QuadraticMarketError::MarketExpired);
+    require!(
+        now < ctx.accounts.market.start_time,
+        QuadraticMarketError::MarketExpired
+    );
     ctx.accounts.market.status = MarketStatus::Open;
     Ok(())
 }
@@ -286,7 +297,8 @@ pub fn void_market_handler(ctx: Context<VoidMarket>) -> Result<()> {
     config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
-        epoch.num_settled_markets = epoch.num_settled_markets
+        epoch.num_settled_markets = epoch
+            .num_settled_markets
             .checked_add(1)
             .ok_or(QuadraticMarketError::MathOverflow)?;
         if epoch.num_markets > 0 && epoch.num_settled_markets >= epoch.num_markets {
@@ -333,12 +345,16 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
     );
 
     // Deadline = start_time + settlement_deadline_seconds
-    let deadline = market.start_time
+    let deadline = market
+        .start_time
         .checked_add(config.settlement_deadline_seconds)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     let now = Clock::get()?.unix_timestamp;
-    require!(now > deadline, QuadraticMarketError::SettlementDeadlineNotPassed);
+    require!(
+        now > deadline,
+        QuadraticMarketError::SettlementDeadlineNotPassed
+    );
 
     // Same fix as void_market: release sum(q_values), not market.exposure.
     let total_locked: u64 = (0..market.num_outcomes as usize)
@@ -347,7 +363,8 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
     config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
-        epoch.num_settled_markets = epoch.num_settled_markets
+        epoch.num_settled_markets = epoch
+            .num_settled_markets
             .checked_add(1)
             .ok_or(QuadraticMarketError::MathOverflow)?;
         if epoch.num_markets > 0 && epoch.num_settled_markets >= epoch.num_markets {

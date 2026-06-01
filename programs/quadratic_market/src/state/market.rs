@@ -1,5 +1,5 @@
-use anchor_lang::prelude::*;
 use crate::constants::MAX_OUTCOMES;
+use anchor_lang::prelude::*;
 
 /// Controls whether LMSR share trading is exposed directly to users.
 ///
@@ -53,28 +53,28 @@ impl MarketStatus {
 
 #[account]
 pub struct Market {
-    pub market_id: u64,                          // 8
-    pub creator: Pubkey,                         // 32
-    pub start_time: i64,                         // 8
-    pub status: MarketStatus,                    // 1
-    pub num_outcomes: u8,                        // 1
-    pub q_values: [u64; MAX_OUTCOMES],           // 64
-    pub exposure: u64,                           // 8
-    pub settlement_time: i64,                    // 8
-    pub winning_outcome: u8,                     // 1
-    pub outcome_mints: [Pubkey; MAX_OUTCOMES],   // 256
-    pub lmsr_b: u64,                             // 8  (Q32.32)
-    pub title: String,                           // 4 + 128
-    pub description: String,                     // 4 + 256
-    pub category: u8,                            // 1
-    pub bump: u8,                                // 1
+    pub market_id: u64,                        // 8
+    pub creator: Pubkey,                       // 32
+    pub start_time: i64,                       // 8
+    pub status: MarketStatus,                  // 1
+    pub num_outcomes: u8,                      // 1
+    pub q_values: [u64; MAX_OUTCOMES],         // 64
+    pub exposure: u64,                         // 8
+    pub settlement_time: i64,                  // 8
+    pub winning_outcome: u8,                   // 1
+    pub outcome_mints: [Pubkey; MAX_OUTCOMES], // 256
+    pub lmsr_b: u64,                           // 8  (Q32.32)
+    pub title: String,                         // 4 + 128
+    pub description: String,                   // 4 + 256
+    pub category: u8,                          // 1
+    pub bump: u8,                              // 1
     // Correlated market fields
-    pub group_id: Option<u64>,                   // 9 (1 tag + 8 value)
-    pub group_market_index: u8,                  // 1
-    pub market_mode: MarketMode,                 // 1 (enum tag)
+    pub group_id: Option<u64>,   // 9 (1 tag + 8 value)
+    pub group_market_index: u8,  // 1
+    pub market_mode: MarketMode, // 1 (enum tag)
     // Epoch tracking
-    pub epoch_id: u64,                           // 8 — epoch this market belongs to
-    pub settled_in_epoch: bool,                  // 1 — true when market settlement is counted in epoch
+    pub epoch_id: u64,          // 8 — epoch this market belongs to
+    pub settled_in_epoch: bool, // 1 — true when market settlement is counted in epoch
 }
 
 impl Market {
@@ -99,7 +99,7 @@ impl Market {
         + 1   // market_mode
         + 8   // epoch_id
         + 1   // settled_in_epoch
-        + 3;  // padding to align to 8
+        + 3; // padding to align to 8
 
     pub fn active_q_values(&self) -> Vec<u64> {
         self.q_values[..self.num_outcomes as usize].to_vec()

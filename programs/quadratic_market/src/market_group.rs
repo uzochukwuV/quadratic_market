@@ -1,13 +1,105 @@
-use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketGroup, MarketStatus};
-use crate::state::market_group::{CorrelationPair, SeedPosition};
-use crate::errors::QuadraticMarketError;
 use crate::constants::{
     seeds, CORRELATION_MAX_BPS, DEFAULT_MAX_SEED_SIDE_SHARE_BPS, DEFAULT_MIN_SEED_VOLUME,
     DEFAULT_SEED_FEE_SHARE_BPS, MAX_CORRELATION_PAIRS, MAX_GROUP_MARKETS, MAX_OUTCOMES,
     MAX_SAME_GAME_STATES, MAX_SEED_POSITIONS, SCALE,
 };
+use crate::errors::QuadraticMarketError;
+use crate::state::market_group::{CorrelationPair, SeedPosition};
+use crate::state::{GlobalConfig, Market, MarketGroup, MarketStatus};
+use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Mint, Token, TokenAccount};
+
+#[repr(u8)]
+pub enum MarketStatusCode {
+    PreOpen = 0,
+    Open = 1,
+}
+
+#[event]
+pub struct MarketGroupCreated {
+    pub group_id: u64,
+    pub creator: Pubkey,
+    pub max_group_exposure: u64,
+    pub event_start_time: i64,
+    pub seed_fee_share_bps: u64,
+    pub seed_min_volume: u64,
+    pub seed_max_side_share_bps: u64,
+}
+
+#[event]
+pub struct GroupedMarketCreated {
+    pub group_id: u64,
+    pub market_id: u64,
+    pub market_index: u8,
+    pub status: u8,
+}
+
+#[event]
+pub struct SeedMarketActivated {
+    pub group_id: u64,
+    pub market_id: u64,
+    pub market_index: u8,
+    pub total_seed_volume: u64,
+    pub seeded_sides: u8,
+    pub largest_side_bps: u64,
+}
+
+#[event]
+pub struct SeedFeeRewardClaimed {
+    pub group_id: u64,
+    pub market_id: u64,
+    pub seed_index: u8,
+    pub claimer: Pubkey,
+    pub reward: u64,
+}
+
+pub(crate) fn compute_seed_readiness(
+    seed_positions: &[SeedPosition],
+    num_seed_positions: u8,
+    market_index: u8,
+    num_outcomes: u8,
+) -> Result<(u64, u8, u64)> {
+    let mut total_seed_volume: u64 = 0;
+    let mut seeded_sides: u8 = 0;
+    let mut largest_side: u64 = 0;
+
+    for outcome_id in 0..num_outcomes as usize {
+        let mut side_volume: u64 = 0;
+        for i in 0..num_seed_positions as usize {
+            let seed = seed_positions[i];
+            if seed.market_index == market_index
+                && seed.outcome_id as usize == outcome_id
+                && !seed.refunded
+            {
+                side_volume = side_volume
+                    .checked_add(seed.amount)
+                    .ok_or(QuadraticMarketError::MathOverflow)?;
+            }
+        }
+
+        if side_volume > 0 {
+            seeded_sides = seeded_sides
+                .checked_add(1)
+                .ok_or(QuadraticMarketError::MathOverflow)?;
+            largest_side = largest_side.max(side_volume);
+            total_seed_volume = total_seed_volume
+                .checked_add(side_volume)
+                .ok_or(QuadraticMarketError::MathOverflow)?;
+        }
+    }
+
+    let largest_side_bps = if total_seed_volume > 0 {
+        (largest_side as u128)
+            .checked_mul(CORRELATION_MAX_BPS as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            .checked_div(total_seed_volume as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)? as u64
+    } else {
+        0
+    };
+
+    Ok((total_seed_volume, seeded_sides, largest_side_bps))
+}
 
 // ─── Create Market Group ───────────────────────────────────────
 
@@ -78,6 +170,16 @@ pub fn create_market_group_handler(
     group.correlation_locked = false;
     group.title = title;
     group.bump = ctx.bumps.market_group;
+
+    emit!(MarketGroupCreated {
+        group_id,
+        creator: group.creator,
+        max_group_exposure,
+        event_start_time,
+        seed_fee_share_bps: group.seed_fee_share_bps,
+        seed_min_volume: group.seed_min_volume,
+        seed_max_side_share_bps: group.seed_max_side_share_bps,
+    });
 
     Ok(())
 }
@@ -159,6 +261,13 @@ pub fn add_market_to_group_handler(
     let mid = market.market_id;
     group.market_ids[idx] = mid;
     group.num_markets += 1;
+
+    emit!(GroupedMarketCreated {
+        group_id,
+        market_id: market.market_id,
+        market_index,
+        status: MarketStatusCode::PreOpen as u8,
+    });
 
     Ok(())
 }
@@ -480,31 +589,12 @@ pub fn activate_seeded_market_handler(
     require!(now < market.start_time, QuadraticMarketError::MarketExpired);
 
     let market_index = market.group_market_index;
-    let mut total_seed_volume: u64 = 0;
-    let mut seeded_sides: u8 = 0;
-    let mut largest_side: u64 = 0;
-
-    for outcome_id in 0..market.num_outcomes as usize {
-        let mut side_volume: u64 = 0;
-        for i in 0..group.num_seed_positions as usize {
-            let seed = group.seed_positions[i];
-            if seed.market_index == market_index && seed.outcome_id as usize == outcome_id {
-                side_volume = side_volume
-                    .checked_add(seed.amount)
-                    .ok_or(QuadraticMarketError::MathOverflow)?;
-            }
-        }
-
-        if side_volume > 0 {
-            seeded_sides = seeded_sides
-                .checked_add(1)
-                .ok_or(QuadraticMarketError::MathOverflow)?;
-            largest_side = largest_side.max(side_volume);
-            total_seed_volume = total_seed_volume
-                .checked_add(side_volume)
-                .ok_or(QuadraticMarketError::MathOverflow)?;
-        }
-    }
+    let (total_seed_volume, seeded_sides, largest_side_bps) = compute_seed_readiness(
+        &group.seed_positions,
+        group.num_seed_positions,
+        market_index,
+        market.num_outcomes,
+    )?;
 
     require!(
         total_seed_volume >= group.seed_min_volume,
@@ -512,17 +602,21 @@ pub fn activate_seeded_market_handler(
     );
     require!(seeded_sides >= 2, QuadraticMarketError::SeedMarketNotReady);
 
-    let largest_side_bps = (largest_side as u128)
-        .checked_mul(CORRELATION_MAX_BPS as u128)
-        .ok_or(QuadraticMarketError::MathOverflow)?
-        .checked_div(total_seed_volume as u128)
-        .ok_or(QuadraticMarketError::MathOverflow)? as u64;
     require!(
         largest_side_bps <= group.seed_max_side_share_bps,
         QuadraticMarketError::SeedMarketNotReady
     );
 
     market.status = MarketStatus::Open;
+
+    emit!(SeedMarketActivated {
+        group_id: group.group_id,
+        market_id: market.market_id,
+        market_index,
+        total_seed_volume,
+        seeded_sides,
+        largest_side_bps,
+    });
 
     Ok(())
 }
@@ -580,10 +674,12 @@ pub fn register_seed_position_handler(
     let idx = group.num_seed_positions as usize;
     group.seed_positions[idx] = SeedPosition {
         seeder,
+        slip_id: 0,
         market_index,
         outcome_id,
         amount,
         reward_claimed: false,
+        refunded: false,
     };
     group.num_seed_positions += 1;
 
@@ -657,7 +753,10 @@ pub fn claim_seed_fee_reward_handler(
         seed.seeder == ctx.accounts.claimer.key(),
         QuadraticMarketError::Unauthorized
     );
-    require!(!seed.reward_claimed, QuadraticMarketError::PayoutAlreadyClaimed);
+    require!(
+        !seed.reward_claimed,
+        QuadraticMarketError::PayoutAlreadyClaimed
+    );
     require!(
         seed.market_index == market.group_market_index,
         QuadraticMarketError::MarketNotInGroup
@@ -673,6 +772,7 @@ pub fn claim_seed_fee_reward_handler(
         if pos.market_index == seed.market_index
             && pos.outcome_id != market.winning_outcome
             && !pos.reward_claimed
+            && !pos.refunded
         {
             unclaimed_losing_seed_total = unclaimed_losing_seed_total
                 .checked_add(pos.amount)
@@ -709,5 +809,63 @@ pub fn claim_seed_fee_reward_handler(
         reward,
     )?;
 
+    emit!(SeedFeeRewardClaimed {
+        group_id: group.group_id,
+        market_id: market.market_id,
+        seed_index,
+        claimer: ctx.accounts.claimer.key(),
+        reward,
+    });
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seed(market_index: u8, outcome_id: u8, amount: u64) -> SeedPosition {
+        SeedPosition {
+            seeder: Pubkey::new_unique(),
+            slip_id: amount,
+            market_index,
+            outcome_id,
+            amount,
+            reward_claimed: false,
+            refunded: false,
+        }
+    }
+
+    #[test]
+    fn seed_readiness_is_per_market_not_per_group() {
+        let mut positions = [SeedPosition::default(); MAX_SEED_POSITIONS];
+        positions[0] = seed(0, 0, 3_000);
+        positions[1] = seed(0, 1, 2_000);
+        positions[2] = seed(1, 0, 9_000);
+
+        let (market_0_total, market_0_sides, market_0_largest) =
+            compute_seed_readiness(&positions, 3, 0, 2).unwrap();
+        assert_eq!(market_0_total, 5_000);
+        assert_eq!(market_0_sides, 2);
+        assert_eq!(market_0_largest, 6_000);
+
+        let (market_1_total, market_1_sides, market_1_largest) =
+            compute_seed_readiness(&positions, 3, 1, 2).unwrap();
+        assert_eq!(market_1_total, 9_000);
+        assert_eq!(market_1_sides, 1);
+        assert_eq!(market_1_largest, 10_000);
+    }
+
+    #[test]
+    fn refunded_seed_does_not_count_toward_activation() {
+        let mut positions = [SeedPosition::default(); MAX_SEED_POSITIONS];
+        positions[0] = seed(0, 0, 3_000);
+        positions[1] = seed(0, 1, 2_000);
+        positions[1].refunded = true;
+
+        let (total, sides, largest) = compute_seed_readiness(&positions, 2, 0, 2).unwrap();
+        assert_eq!(total, 3_000);
+        assert_eq!(sides, 1);
+        assert_eq!(largest, 10_000);
+    }
 }
