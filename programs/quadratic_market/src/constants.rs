@@ -45,7 +45,11 @@ pub mod seeds {
 pub const MAX_GROUP_MARKETS: usize = MAX_OUTCOMES;
 pub const MAX_CORRELATION_PAIRS: usize = 16;
 pub const MAX_SAME_GAME_STATES: usize = 64;
+pub const MAX_SEED_POSITIONS: usize = 16;
 pub const CORRELATION_MAX_BPS: u64 = 10_000;
+pub const DEFAULT_SEED_FEE_SHARE_BPS: u64 = 500;       // 5% of house fees
+pub const DEFAULT_MIN_SEED_VOLUME: u64 = 5_000_000_000; // 5,000 USDC (6 decimals)
+pub const DEFAULT_MAX_SEED_SIDE_SHARE_BPS: u64 = 7_000; // largest seeded side <= 70%
 
 // Bet slip
 pub const MAX_SLIP_LEGS: usize = 8;

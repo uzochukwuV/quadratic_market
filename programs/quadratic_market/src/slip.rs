@@ -207,6 +207,8 @@ pub fn place_slip_handler<'info>(
 
     // Accumulate exposure delta per group index (applied once per group at end)
     let mut group_exposure_deltas: Vec<u64> = vec![0u64; num_groups as usize];
+    let mut group_seed_fee_deltas: Vec<[u64; MAX_OUTCOMES]> =
+        vec![[0u64; MAX_OUTCOMES]; num_groups as usize];
 
     let mut i: u8 = 0;
     while i < num_legs {
@@ -357,6 +359,28 @@ pub fn place_slip_handler<'info>(
             group_exposure_deltas[g_idx] = group_exposure_deltas[g_idx]
                 .checked_add(leg_profit)
                 .ok_or(QuadraticMarketError::MathOverflow)?;
+
+            let has_market_seed = (0..market_group.num_seed_positions as usize).any(|idx| {
+                market_group.seed_positions[idx].market_index == market.group_market_index
+            });
+            if has_market_seed
+                && config.slip_house_margin_bps > 0
+                && market_group.seed_fee_share_bps > 0
+            {
+                let margin_fee = (cost as u128)
+                    .checked_mul(config.slip_house_margin_bps as u128)
+                    .ok_or(QuadraticMarketError::MathOverflow)?
+                    / CORRELATION_MAX_BPS as u128;
+                let seed_fee = margin_fee
+                    .checked_mul(market_group.seed_fee_share_bps as u128)
+                    .ok_or(QuadraticMarketError::MathOverflow)?
+                    / CORRELATION_MAX_BPS as u128;
+                let market_seed_fee = &mut group_seed_fee_deltas[g_idx]
+                    [market.group_market_index as usize];
+                *market_seed_fee = market_seed_fee
+                    .checked_add(seed_fee as u64)
+                    .ok_or(QuadraticMarketError::MathOverflow)?;
+            }
 
             (cost, price)
         } else {
@@ -519,6 +543,7 @@ pub fn place_slip_handler<'info>(
     // Track which group indices have already been updated to avoid double-application
     let mut updated_groups: [bool; 8] = [false; 8];
     let mut total_exposure_locked: u64 = 0;
+    let mut total_seed_fee_locked: u64 = 0;
 
     let mut leg_idx: u8 = 0;
     while leg_idx < num_legs {
@@ -590,6 +615,18 @@ pub fn place_slip_handler<'info>(
                     .total_group_exposure
                     .checked_add(delta)
                     .ok_or(QuadraticMarketError::MathOverflow)?;
+                for market_index in 0..market_group.num_markets as usize {
+                    let seed_fee_delta = group_seed_fee_deltas[g_idx][market_index];
+                    if seed_fee_delta > 0 {
+                        market_group.seed_fee_pools[market_index] = market_group.seed_fee_pools
+                            [market_index]
+                            .checked_add(seed_fee_delta)
+                            .ok_or(QuadraticMarketError::MathOverflow)?;
+                        total_seed_fee_locked = total_seed_fee_locked
+                            .checked_add(seed_fee_delta)
+                            .ok_or(QuadraticMarketError::MathOverflow)?;
+                    }
+                }
 
                 let mut group_data_mut = group_info.data.borrow_mut();
                 let mut group_writer = &mut group_data_mut[8..];
@@ -600,11 +637,14 @@ pub fn place_slip_handler<'info>(
         leg_idx += 1;
     }
 
-    // Lock only the bonus gap against LP reserves. The base payout (total_cost) is
-    // covered by the losing bettors' stakes already sitting in each market's pool.
+    // Lock only the bonus gap and reserved seed-fee rewards against LP reserves.
+    // The base payout (total_cost) is covered by the losing bettors' stakes
+    // already sitting in each market's pool.
     config.locked_payouts = config
         .locked_payouts
         .checked_add(bonus_gap)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        .checked_add(total_seed_fee_locked)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Write BetSlip

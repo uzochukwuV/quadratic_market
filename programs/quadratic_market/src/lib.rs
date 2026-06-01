@@ -321,6 +321,32 @@ pub mod quadratic_market {
         set_outcome_state_mask_handler(ctx, group_id, market_index, outcome_id, state_mask)
     }
 
+    pub fn activate_seeded_market(
+        ctx: Context<ActivateSeededMarket>,
+        group_id: u64,
+    ) -> Result<()> {
+        activate_seeded_market_handler(ctx, group_id)
+    }
+
+    pub fn register_seed_position(
+        ctx: Context<RegisterSeedPosition>,
+        group_id: u64,
+        seeder: Pubkey,
+        market_index: u8,
+        outcome_id: u8,
+        amount: u64,
+    ) -> Result<()> {
+        register_seed_position_handler(ctx, group_id, seeder, market_index, outcome_id, amount)
+    }
+
+    pub fn claim_seed_fee_reward(
+        ctx: Context<ClaimSeedFeeReward>,
+        group_id: u64,
+        seed_index: u8,
+    ) -> Result<()> {
+        claim_seed_fee_reward_handler(ctx, group_id, seed_index)
+    }
+
     // ─── Correlated Trading ─────────────────────────────────────
 
     pub fn buy_shares_correlated<'info>(

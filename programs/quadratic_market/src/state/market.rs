@@ -23,6 +23,7 @@ impl Default for MarketMode {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum MarketStatus {
+    PreOpen,
     Open,
     Suspended,
     AwaitingResult,

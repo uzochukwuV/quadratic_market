@@ -153,6 +153,8 @@ pub enum QuadraticMarketError {
     FillExceedsOrder = 723,
     #[msg("Bet slip has already been cashed out")]
     SlipAlreadyCashedOut = 724,
+    #[msg("Seeded market has not reached minimum bootstrapping requirements")]
+    SeedMarketNotReady = 726,
 
     // 800-899: Epoch errors
     #[msg("Epoch has not completed — not all markets are settled")]
