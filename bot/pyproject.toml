@@ -14,12 +14,17 @@ dependencies = [
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
     "pydantic>=2.6.0",
+    "mangum>=0.17.0",
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
 
 [tool.vercel]
 nextjs = false
-entrypoint = "api:app"
+entrypoint = "api.app:app"
