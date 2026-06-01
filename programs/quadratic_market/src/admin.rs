@@ -1,7 +1,7 @@
-use anchor_lang::prelude::*;
-use crate::state::GlobalConfig;
-use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, MAX_OPERATORS};
+use crate::errors::QuadraticMarketError;
+use crate::state::GlobalConfig;
+use anchor_lang::prelude::*;
 
 // ─── Transfer Admin ────────────────────────────────────────────
 
@@ -110,19 +110,45 @@ pub fn update_config_handler(
     }
 
     let config = &mut ctx.accounts.global_config;
-    if let Some(v) = max_market_exposure          { config.max_market_exposure = v; }
-    if let Some(v) = challenge_window_seconds      { config.challenge_window_seconds = v; }
-    if let Some(v) = settlement_deadline_seconds   { config.settlement_deadline_seconds = v; }
-    if let Some(v) = lmsr_default_b               { config.lmsr_default_b = v; }
-    if let Some(v) = slip_house_margin_bps         { config.slip_house_margin_bps = v; }
-    if let Some(v) = max_slip_bonus_multiplier_bps { config.max_slip_bonus_multiplier_bps = v; }
-    if let Some(v) = epoch_duration_seconds        { config.epoch_duration_seconds = v; }
-    if let Some(v) = withdrawal_cooldown_seconds   { config.withdrawal_cooldown_seconds = v; }
-    if let Some(v) = max_single_bet                { config.max_single_bet = v; }
-    if let Some(v) = min_outcome_price_bps         { config.min_outcome_price_bps = v; }
-    if let Some(v) = buy_fee_bps                   { config.buy_fee_bps = v; }
-    if let Some(v) = oracle_pubkey                 { config.oracle_pubkey = v; }
-    if let Some(v) = cash_out_margin_bps           { config.cash_out_margin_bps = v; }
+    if let Some(v) = max_market_exposure {
+        config.max_market_exposure = v;
+    }
+    if let Some(v) = challenge_window_seconds {
+        config.challenge_window_seconds = v;
+    }
+    if let Some(v) = settlement_deadline_seconds {
+        config.settlement_deadline_seconds = v;
+    }
+    if let Some(v) = lmsr_default_b {
+        config.lmsr_default_b = v;
+    }
+    if let Some(v) = slip_house_margin_bps {
+        config.slip_house_margin_bps = v;
+    }
+    if let Some(v) = max_slip_bonus_multiplier_bps {
+        config.max_slip_bonus_multiplier_bps = v;
+    }
+    if let Some(v) = epoch_duration_seconds {
+        config.epoch_duration_seconds = v;
+    }
+    if let Some(v) = withdrawal_cooldown_seconds {
+        config.withdrawal_cooldown_seconds = v;
+    }
+    if let Some(v) = max_single_bet {
+        config.max_single_bet = v;
+    }
+    if let Some(v) = min_outcome_price_bps {
+        config.min_outcome_price_bps = v;
+    }
+    if let Some(v) = buy_fee_bps {
+        config.buy_fee_bps = v;
+    }
+    if let Some(v) = oracle_pubkey {
+        config.oracle_pubkey = v;
+    }
+    if let Some(v) = cash_out_margin_bps {
+        config.cash_out_margin_bps = v;
+    }
     Ok(())
 }
 

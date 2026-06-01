@@ -1,8 +1,8 @@
-use anchor_lang::prelude::*;
 use crate::constants::{
     MAX_CORRELATION_PAIRS, MAX_GROUP_MARKETS, MAX_OUTCOMES, MAX_SAME_GAME_STATES,
     MAX_SEED_POSITIONS,
 };
+use anchor_lang::prelude::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, Copy)]
 pub struct CorrelationPair {
@@ -16,10 +16,12 @@ pub struct CorrelationPair {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, Copy)]
 pub struct SeedPosition {
     pub seeder: Pubkey,
+    pub slip_id: u64,
     pub market_index: u8,
     pub outcome_id: u8,
     pub amount: u64,
     pub reward_claimed: bool,
+    pub refunded: bool,
 }
 
 #[account]
@@ -66,10 +68,10 @@ impl MarketGroup {
         + 8   // seed_fee_share_bps
         + 8   // seed_min_volume
         + 8   // seed_max_side_share_bps
-        + 688 // seed_positions (16 * (32 + 1 + 1 + 8 + 1))
+        + 832 // seed_positions (16 * (32 + 8 + 1 + 1 + 8 + 1 + 1))
         + 1   // num_seed_positions
         + 8   // event_start_time
         + 1   // correlation_locked
         + (4 + 128) // title
-        + 1;  // bump
+        + 1; // bump
 }

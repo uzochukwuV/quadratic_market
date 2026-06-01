@@ -158,7 +158,9 @@ pub fn compute_adjusted_q_values(
             }
         }
 
-        pair_idx = pair_idx.checked_add(1).ok_or(QuadraticMarketError::CorrelationOverflow)?;
+        pair_idx = pair_idx
+            .checked_add(1)
+            .ok_or(QuadraticMarketError::CorrelationOverflow)?;
     }
 
     Ok(adjusted)
@@ -168,10 +170,7 @@ pub fn compute_adjusted_q_values(
 /// Each leg's probability is computed as its LMSR price.
 /// combined_probability = product(p_i) / SCALE^(n-1)
 /// Returns combined odds in basis points.
-pub fn compute_combined_odds_bps(
-    leg_probabilities: &[u64],
-    num_legs: u8,
-) -> Result<u64> {
+pub fn compute_combined_odds_bps(leg_probabilities: &[u64], num_legs: u8) -> Result<u64> {
     if num_legs == 0 {
         return Err(QuadraticMarketError::SlipNoLegs.into());
     }
@@ -232,7 +231,11 @@ pub fn compute_bonus_multiplier(num_legs: u8, max_bonus_bps: u64) -> Result<u64>
     let bonus = CORRELATION_MAX_BPS
         .checked_add(SLIP_BONUS_INCREMENT_BPS)
         .ok_or(QuadraticMarketError::MathOverflow)?
-        .checked_add(extra_legs.checked_mul(SLIP_BONUS_INCREMENT_BPS).ok_or(QuadraticMarketError::MathOverflow)?)
+        .checked_add(
+            extra_legs
+                .checked_mul(SLIP_BONUS_INCREMENT_BPS)
+                .ok_or(QuadraticMarketError::MathOverflow)?,
+        )
         .ok_or(QuadraticMarketError::MathOverflow)?;
     // Cap at max_bonus_bps
     Ok(std::cmp::min(bonus, max_bonus_bps))
@@ -314,9 +317,7 @@ mod tests {
         let correlated = [[0u64; MAX_OUTCOMES]; MAX_OUTCOMES];
         let correlations: [CorrelationPair; 16] = [CorrelationPair::default(); 16];
 
-        let adjusted = compute_adjusted_q_values(
-            &q, 2, 0, &correlated, &correlations, 0,
-        ).unwrap();
+        let adjusted = compute_adjusted_q_values(&q, 2, 0, &correlated, &correlations, 0).unwrap();
 
         assert_eq!(adjusted, q);
     }
@@ -343,9 +344,8 @@ mod tests {
         };
 
         // Compute adjusted q for market 1 (Over/Under)
-        let adjusted = compute_adjusted_q_values(
-            &q_market1, 2, 1, &correlated, &correlations, 1,
-        ).unwrap();
+        let adjusted =
+            compute_adjusted_q_values(&q_market1, 2, 1, &correlated, &correlations, 1).unwrap();
 
         // Only Over 2.5 (outcome 0) should be adjusted
         let expected_adjustment = (7500 * 10_000_000) / 10_000; // 7_500_000
@@ -368,19 +368,22 @@ mod tests {
 
         let mut correlations: [CorrelationPair; 16] = [CorrelationPair::default(); 16];
         correlations[0] = CorrelationPair {
-            market_a_index: 0, outcome_a_id: 0,
-            market_b_index: 2, outcome_b_id: 0,
+            market_a_index: 0,
+            outcome_a_id: 0,
+            market_b_index: 2,
+            outcome_b_id: 0,
             weight_bps: 5000,
         };
         correlations[1] = CorrelationPair {
-            market_a_index: 1, outcome_a_id: 0,
-            market_b_index: 2, outcome_b_id: 0,
+            market_a_index: 1,
+            outcome_a_id: 0,
+            market_b_index: 2,
+            outcome_b_id: 0,
             weight_bps: 3000,
         };
 
-        let adjusted = compute_adjusted_q_values(
-            &q_target, 2, 2, &correlated, &correlations, 2,
-        ).unwrap();
+        let adjusted =
+            compute_adjusted_q_values(&q_target, 2, 2, &correlated, &correlations, 2).unwrap();
 
         let adj_a = (5000 * 5_000_000) / 10_000; // 2_500_000
         let adj_b = (3000 * 3_000_000) / 10_000; // 900_000
@@ -393,14 +396,14 @@ mod tests {
         let correlated = [[0u64; MAX_OUTCOMES]; MAX_OUTCOMES];
         let mut correlations: [CorrelationPair; 16] = [CorrelationPair::default(); 16];
         correlations[0] = CorrelationPair {
-            market_a_index: 0, outcome_a_id: 0,
-            market_b_index: 0, outcome_b_id: 0,
+            market_a_index: 0,
+            outcome_a_id: 0,
+            market_b_index: 0,
+            outcome_b_id: 0,
             weight_bps: 0, // zero weight
         };
 
-        let adjusted = compute_adjusted_q_values(
-            &q, 2, 0, &correlated, &correlations, 1,
-        ).unwrap();
+        let adjusted = compute_adjusted_q_values(&q, 2, 0, &correlated, &correlations, 1).unwrap();
 
         assert_eq!(adjusted, q);
     }
@@ -411,7 +414,11 @@ mod tests {
         let p = crate::constants::SCALE / 2;
         let odds = compute_combined_odds_bps(&[p], 1).unwrap();
         // Odds should be 2.0 = 20000 bps
-        assert!(odds >= 19900 && odds <= 20100, "Expected ~20000 bps, got {}", odds);
+        assert!(
+            odds >= 19900 && odds <= 20100,
+            "Expected ~20000 bps, got {}",
+            odds
+        );
     }
 
     #[test]
@@ -420,7 +427,11 @@ mod tests {
         let p = crate::constants::SCALE / 2;
         let odds = compute_combined_odds_bps(&[p, p], 2).unwrap();
         // Combined: 0.5 * 0.5 = 0.25 → odds = 4.0 = 40000 bps
-        assert!(odds >= 39800 && odds <= 40200, "Expected ~40000 bps, got {}", odds);
+        assert!(
+            odds >= 39800 && odds <= 40200,
+            "Expected ~40000 bps, got {}",
+            odds
+        );
     }
 
     #[test]
@@ -453,7 +464,9 @@ mod tests {
         let expected = 2 * SCALE;
         assert!(
             (odds as i64 - expected as i64).unsigned_abs() < SCALE / 100,
-            "Expected ~2.0 ({}), got {}", expected, odds
+            "Expected ~2.0 ({}), got {}",
+            expected,
+            odds
         );
     }
 
@@ -466,7 +479,9 @@ mod tests {
         let expected_fp = (1.9 * SCALE as f64) as u64;
         assert!(
             (odds as i64 - expected_fp as i64).unsigned_abs() < SCALE / 100,
-            "Expected ~1.9 ({}), got {}", expected_fp, odds
+            "Expected ~1.9 ({}), got {}",
+            expected_fp,
+            odds
         );
     }
 
@@ -479,7 +494,9 @@ mod tests {
         let expected_fp = (3.61 * SCALE as f64) as u64;
         assert!(
             (odds as i64 - expected_fp as i64).unsigned_abs() < SCALE / 50,
-            "Expected ~3.61 ({}), got {}", expected_fp, odds
+            "Expected ~3.61 ({}), got {}",
+            expected_fp,
+            odds
         );
     }
 
@@ -494,7 +511,9 @@ mod tests {
         let expected_fp = (27.24 * SCALE as f64) as u64;
         assert!(
             (odds as i64 - expected_fp as i64).unsigned_abs() < SCALE,
-            "Expected ~27.24 ({}), got {}", expected_fp, odds
+            "Expected ~27.24 ({}), got {}",
+            expected_fp,
+            odds
         );
     }
 
@@ -558,12 +577,9 @@ mod tests {
         };
         let state_probabilities = [fp_bps(4500), fp_bps(2800), fp_bps(2700)];
 
-        let joint = compute_joint_probability_fp(
-            &[home_or_draw, draw_or_away],
-            &state_probabilities,
-            3,
-        )
-        .unwrap();
+        let joint =
+            compute_joint_probability_fp(&[home_or_draw, draw_or_away], &state_probabilities, 3)
+                .unwrap();
 
         assert_eq!(joint, state_probabilities[1]);
     }
@@ -597,13 +613,9 @@ mod tests {
         )
         .unwrap();
 
-        let naive_independent_odds = compute_combined_odds_fp(
-            &[fp_bps(5500), fp_bps(6000)],
-            2,
-            0,
-            CORRELATION_MAX_BPS,
-        )
-        .unwrap();
+        let naive_independent_odds =
+            compute_combined_odds_fp(&[fp_bps(5500), fp_bps(6000)], 2, 0, CORRELATION_MAX_BPS)
+                .unwrap();
 
         assert!(same_game_odds < naive_independent_odds);
     }
@@ -682,16 +694,56 @@ mod tests {
         // 3 = away + NG + O2.5
         let state_probabilities = [fp_bps(3200), fp_bps(1800), fp_bps(2500), fp_bps(2500)];
         let outcomes = [
-            LogicalOutcome { market_index: 0, outcome_id: 0, state_mask: 0b0011 }, // 1
-            LogicalOutcome { market_index: 0, outcome_id: 1, state_mask: 0b0100 }, // X
-            LogicalOutcome { market_index: 0, outcome_id: 2, state_mask: 0b1000 }, // 2
-            LogicalOutcome { market_index: 1, outcome_id: 0, state_mask: 0b0111 }, // 1X
-            LogicalOutcome { market_index: 1, outcome_id: 1, state_mask: 0b1100 }, // X2
-            LogicalOutcome { market_index: 1, outcome_id: 2, state_mask: 0b1011 }, // 12
-            LogicalOutcome { market_index: 2, outcome_id: 0, state_mask: 0b0101 }, // GG
-            LogicalOutcome { market_index: 2, outcome_id: 1, state_mask: 0b1010 }, // NG
-            LogicalOutcome { market_index: 3, outcome_id: 0, state_mask: 0b1001 }, // O2.5
-            LogicalOutcome { market_index: 3, outcome_id: 1, state_mask: 0b0110 }, // U2.5
+            LogicalOutcome {
+                market_index: 0,
+                outcome_id: 0,
+                state_mask: 0b0011,
+            }, // 1
+            LogicalOutcome {
+                market_index: 0,
+                outcome_id: 1,
+                state_mask: 0b0100,
+            }, // X
+            LogicalOutcome {
+                market_index: 0,
+                outcome_id: 2,
+                state_mask: 0b1000,
+            }, // 2
+            LogicalOutcome {
+                market_index: 1,
+                outcome_id: 0,
+                state_mask: 0b0111,
+            }, // 1X
+            LogicalOutcome {
+                market_index: 1,
+                outcome_id: 1,
+                state_mask: 0b1100,
+            }, // X2
+            LogicalOutcome {
+                market_index: 1,
+                outcome_id: 2,
+                state_mask: 0b1011,
+            }, // 12
+            LogicalOutcome {
+                market_index: 2,
+                outcome_id: 0,
+                state_mask: 0b0101,
+            }, // GG
+            LogicalOutcome {
+                market_index: 2,
+                outcome_id: 1,
+                state_mask: 0b1010,
+            }, // NG
+            LogicalOutcome {
+                market_index: 3,
+                outcome_id: 0,
+                state_mask: 0b1001,
+            }, // O2.5
+            LogicalOutcome {
+                market_index: 3,
+                outcome_id: 1,
+                state_mask: 0b0110,
+            }, // U2.5
         ];
 
         for seed in 1..=16u64 {
@@ -713,11 +765,8 @@ mod tests {
                     masks[leg_idx] = outcome.state_mask;
                 }
 
-                let joint = compute_joint_probability_fp(
-                    &selected[..num_legs],
-                    &state_probabilities,
-                    4,
-                );
+                let joint =
+                    compute_joint_probability_fp(&selected[..num_legs], &state_probabilities, 4);
 
                 if joint.is_err() {
                     continue;

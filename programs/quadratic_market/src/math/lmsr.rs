@@ -7,7 +7,12 @@ use anchor_lang::prelude::*;
 /// Get the current LMSR price for outcome `outcome_id` given the q_values and liquidity param B.
 /// Returns price in Q32.32 (between 0 and SCALE).
 /// All outcome prices sum to approximately SCALE (1.0).
-pub fn lmsr_price(q_values: &[u64; MAX_OUTCOMES], num_outcomes: u8, outcome_id: u8, b_fp: u64) -> Result<u64> {
+pub fn lmsr_price(
+    q_values: &[u64; MAX_OUTCOMES],
+    num_outcomes: u8,
+    outcome_id: u8,
+    b_fp: u64,
+) -> Result<u64> {
     require!(
         (outcome_id as usize) < num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
@@ -40,7 +45,9 @@ pub fn lmsr_price(q_values: &[u64; MAX_OUTCOMES], num_outcomes: u8, outcome_id: 
             (q_normalized as i128 * SCALE as i128 / b_raw as i128) as i64
         };
         let exp_val = exp_q32(exponent);
-        sum_exp = sum_exp.checked_add(exp_val).ok_or(QuadraticMarketError::MathOverflow)?;
+        sum_exp = sum_exp
+            .checked_add(exp_val)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
 
         if i == outcome_id as usize {
             target_exp = exp_val;
@@ -98,7 +105,9 @@ pub fn lmsr_buy_cost(
 
         // Compute normalized exponent for old_q: (old_q - max_q) / B
         let old_exp = compute_normalized_exp(old_q, max_q, b_fp)?;
-        old_sum = old_sum.checked_add(old_exp).ok_or(QuadraticMarketError::MathOverflow)?;
+        old_sum = old_sum
+            .checked_add(old_exp)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
 
         let new_q = if i == outcome_id as usize {
             new_q_outcome
@@ -107,7 +116,9 @@ pub fn lmsr_buy_cost(
         };
 
         let new_exp = compute_normalized_exp(new_q, max_q, b_fp)?;
-        new_sum = new_sum.checked_add(new_exp).ok_or(QuadraticMarketError::MathOverflow)?;
+        new_sum = new_sum
+            .checked_add(new_exp)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
     }
 
     // cost = B * (ln(new_sum) - ln(old_sum)) in Q32.32, then convert to lamports
@@ -117,7 +128,12 @@ pub fn lmsr_buy_cost(
 
     let ln_new = ln_q32(new_sum)?;
     let ln_old = ln_q32(old_sum)?;
-    let cost_fp = mul_fp_signed(b_raw as i64 * SCALE as i64, ln_new.checked_sub(ln_old).ok_or(QuadraticMarketError::MathUnderflow)?)?;
+    let cost_fp = mul_fp_signed(
+        b_raw as i64 * SCALE as i64,
+        ln_new
+            .checked_sub(ln_old)
+            .ok_or(QuadraticMarketError::MathUnderflow)?,
+    )?;
 
     // Cost must be positive
     require!(cost_fp > 0, QuadraticMarketError::InvalidAmount);
@@ -168,7 +184,9 @@ pub fn lmsr_sell_payout(
         let old_q = q_values[i];
 
         let old_exp = compute_normalized_exp(old_q, max_q, b_fp)?;
-        old_sum = old_sum.checked_add(old_exp).ok_or(QuadraticMarketError::MathOverflow)?;
+        old_sum = old_sum
+            .checked_add(old_exp)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
 
         let new_q = if i == outcome_id as usize {
             new_q_outcome
@@ -177,7 +195,9 @@ pub fn lmsr_sell_payout(
         };
 
         let new_exp = compute_normalized_exp(new_q, max_q, b_fp)?;
-        new_sum = new_sum.checked_add(new_exp).ok_or(QuadraticMarketError::MathOverflow)?;
+        new_sum = new_sum
+            .checked_add(new_exp)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
     }
 
     if old_sum == 0 || new_sum == 0 {
@@ -187,7 +207,12 @@ pub fn lmsr_sell_payout(
     // payout = B * (ln(old_sum) - ln(new_sum)) in Q32.32
     let ln_old = ln_q32(old_sum)?;
     let ln_new = ln_q32(new_sum)?;
-    let payout_fp = mul_fp_signed(b_raw as i64 * SCALE as i64, ln_old.checked_sub(ln_new).ok_or(QuadraticMarketError::MathUnderflow)?)?;
+    let payout_fp = mul_fp_signed(
+        b_raw as i64 * SCALE as i64,
+        ln_old
+            .checked_sub(ln_new)
+            .ok_or(QuadraticMarketError::MathUnderflow)?,
+    )?;
 
     require!(payout_fp > 0, QuadraticMarketError::InvalidAmount);
 

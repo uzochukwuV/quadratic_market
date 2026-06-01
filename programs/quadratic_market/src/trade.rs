@@ -1,12 +1,12 @@
+use crate::constants::{seeds, MAX_GROUP_MARKETS, MAX_OUTCOMES, SCALE};
+use crate::errors::QuadraticMarketError;
+use crate::math::correlation::compute_adjusted_q_values;
+use crate::math::lmsr::{lmsr_buy_cost, lmsr_price, lmsr_sell_payout};
+use crate::state::market_group::MarketGroup;
+use crate::state::{GlobalConfig, Market, MarketMode, MarketStatus};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode};
-use crate::state::market_group::MarketGroup;
-use crate::errors::QuadraticMarketError;
-use crate::constants::{seeds, SCALE, MAX_OUTCOMES, MAX_GROUP_MARKETS};
-use crate::math::lmsr::{lmsr_buy_cost, lmsr_sell_payout, lmsr_price};
-use crate::math::correlation::compute_adjusted_q_values;
 
 // ─── helpers ───────────────────────────────────────────────────
 
@@ -82,7 +82,10 @@ pub fn buy_shares_handler(
         market.market_mode == MarketMode::Trading,
         QuadraticMarketError::DirectTradingDisabled
     );
-    require!(market.status.is_tradable(), QuadraticMarketError::MarketNotOpen);
+    require!(
+        market.status.is_tradable(),
+        QuadraticMarketError::MarketNotOpen
+    );
     require!(
         (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
@@ -93,7 +96,10 @@ pub fn buy_shares_handler(
     require!(now < market.start_time, QuadraticMarketError::MarketExpired);
 
     // Max single-bet guard
-    require!(num_shares <= config.max_single_bet, QuadraticMarketError::BetTooLarge);
+    require!(
+        num_shares <= config.max_single_bet,
+        QuadraticMarketError::BetTooLarge
+    );
 
     // Price floor — block near-certain outcomes
     check_price_floor(
@@ -105,7 +111,11 @@ pub fn buy_shares_handler(
     )?;
 
     let cost = lmsr_buy_cost(
-        &market.q_values, market.num_outcomes, outcome_id, num_shares, market.lmsr_b,
+        &market.q_values,
+        market.num_outcomes,
+        outcome_id,
+        num_shares,
+        market.lmsr_b,
     )?;
 
     // Apply buy fee (goes to treasury / LP revenue)
@@ -113,18 +123,30 @@ pub fn buy_shares_handler(
         .checked_mul(config.buy_fee_bps)
         .ok_or(QuadraticMarketError::MathOverflow)?
         / 10_000;
-    let total_charge = cost.checked_add(fee).ok_or(QuadraticMarketError::MathOverflow)?;
+    let total_charge = cost
+        .checked_add(fee)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
 
-    require!(total_charge <= max_payment, QuadraticMarketError::LmsrCostExceedsMax);
+    require!(
+        total_charge <= max_payment,
+        QuadraticMarketError::LmsrCostExceedsMax
+    );
 
     let profit_exposure = num_shares.saturating_sub(cost);
-    let new_exposure = market.exposure
+    let new_exposure = market
+        .exposure
         .checked_add(profit_exposure)
         .ok_or(QuadraticMarketError::MathOverflow)?;
-    require!(new_exposure <= config.max_market_exposure, QuadraticMarketError::MaxExposureReached);
+    require!(
+        new_exposure <= config.max_market_exposure,
+        QuadraticMarketError::MaxExposureReached
+    );
 
     let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(free_liquidity >= num_shares, QuadraticMarketError::InsufficientLiquidity);
+    require!(
+        free_liquidity >= num_shares,
+        QuadraticMarketError::InsufficientLiquidity
+    );
 
     // Transfer total_charge (cost + fee) from buyer to treasury
     token::transfer(
@@ -160,7 +182,8 @@ pub fn buy_shares_handler(
         .ok_or(QuadraticMarketError::MathOverflow)?;
     market.exposure = new_exposure;
     // Lock the full potential payout (num_shares = 1:1 at settlement)
-    config.locked_payouts = config.locked_payouts
+    config.locked_payouts = config
+        .locked_payouts
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
@@ -219,7 +242,10 @@ pub fn sell_shares_handler(
         market.market_mode == MarketMode::Trading,
         QuadraticMarketError::DirectTradingDisabled
     );
-    require!(market.status.is_tradable(), QuadraticMarketError::MarketNotOpen);
+    require!(
+        market.status.is_tradable(),
+        QuadraticMarketError::MarketNotOpen
+    );
     require!(
         (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
@@ -234,13 +260,20 @@ pub fn sell_shares_handler(
     require!(now < market.start_time, QuadraticMarketError::MarketExpired);
 
     let payout = lmsr_sell_payout(
-        &market.q_values, market.num_outcomes, outcome_id, num_shares, market.lmsr_b,
+        &market.q_values,
+        market.num_outcomes,
+        outcome_id,
+        num_shares,
+        market.lmsr_b,
     )?;
 
     require!(payout >= min_payout, QuadraticMarketError::LmsrSellBelowMin);
 
     let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(free_liquidity >= payout, QuadraticMarketError::InsufficientLiquidity);
+    require!(
+        free_liquidity >= payout,
+        QuadraticMarketError::InsufficientLiquidity
+    );
 
     // Burn outcome tokens
     token::burn(
@@ -349,7 +382,10 @@ pub fn buy_shares_correlated_handler<'info>(
         market.market_mode == MarketMode::Trading,
         QuadraticMarketError::DirectTradingDisabled
     );
-    require!(market.status.is_tradable(), QuadraticMarketError::MarketNotOpen);
+    require!(
+        market.status.is_tradable(),
+        QuadraticMarketError::MarketNotOpen
+    );
     require!(
         (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
@@ -358,49 +394,104 @@ pub fn buy_shares_correlated_handler<'info>(
     let now = Clock::get()?.unix_timestamp;
     require!(now < market.start_time, QuadraticMarketError::MarketExpired);
 
-    require!(num_shares <= config.max_single_bet, QuadraticMarketError::BetTooLarge);
+    require!(
+        num_shares <= config.max_single_bet,
+        QuadraticMarketError::BetTooLarge
+    );
 
     let cost = if let Some(ref mut group) = ctx.accounts.market_group {
-        if !group.correlation_locked { group.correlation_locked = true; }
+        if !group.correlation_locked {
+            group.correlation_locked = true;
+        }
 
         let correlated_q = assemble_correlated_q_values(
-            &ctx.remaining_accounts, &group.market_ids, group.num_markets, market.market_id,
+            &ctx.remaining_accounts,
+            &group.market_ids,
+            group.num_markets,
+            market.market_id,
         )?;
         let adjusted_q = compute_adjusted_q_values(
-            &market.q_values, market.num_outcomes, market.group_market_index,
-            &correlated_q, &group.correlations, group.num_correlations,
+            &market.q_values,
+            market.num_outcomes,
+            market.group_market_index,
+            &correlated_q,
+            &group.correlations,
+            group.num_correlations,
         )?;
 
-        check_price_floor(&adjusted_q, market.num_outcomes, outcome_id, market.lmsr_b, config.min_outcome_price_bps)?;
+        check_price_floor(
+            &adjusted_q,
+            market.num_outcomes,
+            outcome_id,
+            market.lmsr_b,
+            config.min_outcome_price_bps,
+        )?;
 
-        lmsr_buy_cost(&adjusted_q, market.num_outcomes, outcome_id, num_shares, market.lmsr_b)?
+        lmsr_buy_cost(
+            &adjusted_q,
+            market.num_outcomes,
+            outcome_id,
+            num_shares,
+            market.lmsr_b,
+        )?
     } else {
-        check_price_floor(&market.q_values, market.num_outcomes, outcome_id, market.lmsr_b, config.min_outcome_price_bps)?;
-        lmsr_buy_cost(&market.q_values, market.num_outcomes, outcome_id, num_shares, market.lmsr_b)?
+        check_price_floor(
+            &market.q_values,
+            market.num_outcomes,
+            outcome_id,
+            market.lmsr_b,
+            config.min_outcome_price_bps,
+        )?;
+        lmsr_buy_cost(
+            &market.q_values,
+            market.num_outcomes,
+            outcome_id,
+            num_shares,
+            market.lmsr_b,
+        )?
     };
 
-    let fee = cost.checked_mul(config.buy_fee_bps).ok_or(QuadraticMarketError::MathOverflow)? / 10_000;
-    let total_charge = cost.checked_add(fee).ok_or(QuadraticMarketError::MathOverflow)?;
-    require!(total_charge <= max_payment, QuadraticMarketError::LmsrCostExceedsMax);
+    let fee = cost
+        .checked_mul(config.buy_fee_bps)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10_000;
+    let total_charge = cost
+        .checked_add(fee)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    require!(
+        total_charge <= max_payment,
+        QuadraticMarketError::LmsrCostExceedsMax
+    );
 
     let profit_exposure = num_shares.saturating_sub(cost);
 
     if let Some(ref mut group) = ctx.accounts.market_group {
-        let new_group_exposure = group.total_group_exposure
+        let new_group_exposure = group
+            .total_group_exposure
             .checked_add(profit_exposure)
             .ok_or(QuadraticMarketError::MathOverflow)?;
-        require!(new_group_exposure <= group.max_group_exposure, QuadraticMarketError::GroupExposureExceeded);
+        require!(
+            new_group_exposure <= group.max_group_exposure,
+            QuadraticMarketError::GroupExposureExceeded
+        );
         group.total_group_exposure = new_group_exposure;
     } else {
-        let new_exposure = market.exposure
+        let new_exposure = market
+            .exposure
             .checked_add(profit_exposure)
             .ok_or(QuadraticMarketError::MathOverflow)?;
-        require!(new_exposure <= config.max_market_exposure, QuadraticMarketError::MaxExposureReached);
+        require!(
+            new_exposure <= config.max_market_exposure,
+            QuadraticMarketError::MaxExposureReached
+        );
         market.exposure = new_exposure;
     }
 
     let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(free_liquidity >= num_shares, QuadraticMarketError::InsufficientLiquidity);
+    require!(
+        free_liquidity >= num_shares,
+        QuadraticMarketError::InsufficientLiquidity
+    );
 
     token::transfer(
         CpiContext::new(
@@ -432,7 +523,8 @@ pub fn buy_shares_correlated_handler<'info>(
     market.q_values[outcome_id as usize] = market.q_values[outcome_id as usize]
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
-    config.locked_payouts = config.locked_payouts
+    config.locked_payouts = config
+        .locked_payouts
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
@@ -507,7 +599,10 @@ pub fn sell_shares_correlated_handler<'info>(
         market.market_mode == MarketMode::Trading,
         QuadraticMarketError::DirectTradingDisabled
     );
-    require!(market.status.is_tradable(), QuadraticMarketError::MarketNotOpen);
+    require!(
+        market.status.is_tradable(),
+        QuadraticMarketError::MarketNotOpen
+    );
     require!(
         (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
@@ -521,28 +616,54 @@ pub fn sell_shares_correlated_handler<'info>(
     require!(now < market.start_time, QuadraticMarketError::MarketExpired);
 
     let payout = if let Some(ref mut group) = ctx.accounts.market_group {
-        if !group.correlation_locked { group.correlation_locked = true; }
+        if !group.correlation_locked {
+            group.correlation_locked = true;
+        }
 
         let correlated_q = assemble_correlated_q_values(
-            &ctx.remaining_accounts, &group.market_ids, group.num_markets, market.market_id,
+            &ctx.remaining_accounts,
+            &group.market_ids,
+            group.num_markets,
+            market.market_id,
         )?;
         let adjusted_q = compute_adjusted_q_values(
-            &market.q_values, market.num_outcomes, market.group_market_index,
-            &correlated_q, &group.correlations, group.num_correlations,
+            &market.q_values,
+            market.num_outcomes,
+            market.group_market_index,
+            &correlated_q,
+            &group.correlations,
+            group.num_correlations,
         )?;
-        lmsr_sell_payout(&adjusted_q, market.num_outcomes, outcome_id, num_shares, market.lmsr_b)?
+        lmsr_sell_payout(
+            &adjusted_q,
+            market.num_outcomes,
+            outcome_id,
+            num_shares,
+            market.lmsr_b,
+        )?
     } else {
-        lmsr_sell_payout(&market.q_values, market.num_outcomes, outcome_id, num_shares, market.lmsr_b)?
+        lmsr_sell_payout(
+            &market.q_values,
+            market.num_outcomes,
+            outcome_id,
+            num_shares,
+            market.lmsr_b,
+        )?
     };
 
     require!(payout >= min_payout, QuadraticMarketError::LmsrSellBelowMin);
 
     let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(free_liquidity >= payout, QuadraticMarketError::InsufficientLiquidity);
+    require!(
+        free_liquidity >= payout,
+        QuadraticMarketError::InsufficientLiquidity
+    );
 
     let profit_exposure_reduction = num_shares.saturating_sub(payout);
     if let Some(ref mut group) = ctx.accounts.market_group {
-        group.total_group_exposure = group.total_group_exposure.saturating_sub(profit_exposure_reduction);
+        group.total_group_exposure = group
+            .total_group_exposure
+            .saturating_sub(profit_exposure_reduction);
     } else {
         market.exposure = market.exposure.saturating_sub(profit_exposure_reduction);
     }
@@ -608,11 +729,12 @@ fn assemble_correlated_q_values(
         );
 
         let account = &remaining_accounts[account_idx];
-        let (expected_pda, _) = Pubkey::find_program_address(
-            &[seeds::MARKET, mid.to_le_bytes().as_ref()],
-            &crate::ID,
+        let (expected_pda, _) =
+            Pubkey::find_program_address(&[seeds::MARKET, mid.to_le_bytes().as_ref()], &crate::ID);
+        require!(
+            account.key() == expected_pda,
+            QuadraticMarketError::InvalidRemainingAccount
         );
-        require!(account.key() == expected_pda, QuadraticMarketError::InvalidRemainingAccount);
 
         // Use try_deserialize_unchecked: data starts with discriminator at [0..8],
         // fields start at [8..]. We skip the discriminator ourselves.

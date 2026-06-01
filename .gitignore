@@ -67,3 +67,6 @@ Thumbs.db
 ```.wallet.json
 .config/
 .config/solana/id.json
+.anchor/*
+.*
+Upgrade.md

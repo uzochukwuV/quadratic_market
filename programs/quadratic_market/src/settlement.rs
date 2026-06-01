@@ -1,9 +1,9 @@
+use crate::constants::seeds;
+use crate::errors::QuadraticMarketError;
+use crate::state::{Dispute, DisputeStatus, Epoch, GlobalConfig, Market, MarketStatus};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, Dispute, DisputeStatus, Epoch};
-use crate::errors::QuadraticMarketError;
-use crate::constants::seeds;
 
 // ─── Propose Result (oracle-only) ─────────────────────────────
 // The oracle backend signs the Solana transaction.
@@ -55,7 +55,10 @@ pub fn propose_result_handler(
     let config = &ctx.accounts.global_config;
     let market = &mut ctx.accounts.market;
 
-    require!(market.status.can_settle(), QuadraticMarketError::InvalidMarketStatus);
+    require!(
+        market.status.can_settle(),
+        QuadraticMarketError::InvalidMarketStatus
+    );
     require!(
         (proposed_outcome as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidProposedOutcome
@@ -63,7 +66,10 @@ pub fn propose_result_handler(
 
     // Match must have started before settlement is proposed
     let now = Clock::get()?.unix_timestamp;
-    require!(now >= market.start_time, QuadraticMarketError::MarketAlreadyStarted);
+    require!(
+        now >= market.start_time,
+        QuadraticMarketError::MarketAlreadyStarted
+    );
 
     let dispute = &mut ctx.accounts.dispute;
     dispute.market_id = market_id;
@@ -129,7 +135,10 @@ pub fn admin_override_handler(
     );
 
     let now = Clock::get()?.unix_timestamp;
-    require!(now < dispute.challenge_deadline, QuadraticMarketError::ChallengeWindowExpired);
+    require!(
+        now < dispute.challenge_deadline,
+        QuadraticMarketError::ChallengeWindowExpired
+    );
 
     let market = &ctx.accounts.market;
     require!(
@@ -189,10 +198,7 @@ pub struct FinalizeResult<'info> {
     pub caller: Signer<'info>,
 }
 
-pub fn finalize_result_handler(
-    ctx: Context<FinalizeResult>,
-    _market_id: u64,
-) -> Result<()> {
+pub fn finalize_result_handler(ctx: Context<FinalizeResult>, _market_id: u64) -> Result<()> {
     let dispute = &mut ctx.accounts.dispute;
     let market = &mut ctx.accounts.market;
     let config = &mut ctx.accounts.global_config;
@@ -210,7 +216,10 @@ pub fn finalize_result_handler(
     // If overridden by admin, allow immediate finalization.
     // Otherwise wait for the challenge window to expire.
     if dispute.status == DisputeStatus::Pending {
-        require!(now >= dispute.challenge_deadline, QuadraticMarketError::ChallengeWindowActive);
+        require!(
+            now >= dispute.challenge_deadline,
+            QuadraticMarketError::ChallengeWindowActive
+        );
     }
 
     let winning = dispute.proposed_outcome as usize;
@@ -231,7 +240,8 @@ pub fn finalize_result_handler(
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
         let epoch = &mut ctx.accounts.epoch;
-        epoch.num_settled_markets = epoch.num_settled_markets
+        epoch.num_settled_markets = epoch
+            .num_settled_markets
             .checked_add(1)
             .ok_or(QuadraticMarketError::MathOverflow)?;
 
