@@ -27,3 +27,4 @@ include = ["*"]
 
 [tool.vercel]
 nextjs = false
+entrypoint = "api.app:app"
