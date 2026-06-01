@@ -20,6 +20,55 @@ pip install -r requirements.txt
 
 Get a free API key at https://the-odds-api.com (500 requests/month free tier).
 
+## Running the Bot
+
+```bash
+# Continuous (recommended for production)
+python bot.py
+
+# Single pass (for cron)
+python bot.py --once
+```
+
+## Running the API Server
+
+A FastAPI server provides public read-only access to on-chain data:
+
+```bash
+# Install API dependencies
+pip install fastapi uvicorn pydantic
+
+# Run on default port 8000
+python api.py
+
+# Or with custom port
+python api.py --port 8080
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | API information |
+| `/health` | GET | Health check |
+| `/api/v1/config` | GET | Global protocol configuration |
+| `/api/v1/markets` | GET | List all markets (with filters) |
+| `/api/v1/markets/{id}` | GET | Market details |
+| `/api/v1/markets/{id}/prices` | GET | Outcome prices |
+| `/api/v1/markets/active` | GET | Active (Open) markets |
+| `/api/v1/markets/upcoming` | GET | PreOpen markets |
+| `/api/v1/markets/settled` | GET | Settled markets |
+| `/api/v1/epochs` | GET | List epochs |
+| `/api/v1/epochs/{id}` | GET | Epoch details |
+| `/api/v1/categories` | GET | Market categories |
+
+### Query Parameters
+
+- `status`: Filter markets by status (Open, Suspended, Settled, etc.)
+- `category`: Filter by market category (0=Match Result, 1=BTTS, 2=Totals)
+- `limit`: Max results (1-500)
+- `offset`: Skip first N results
+
 ## Keypairs
 
 The bot needs two keypairs:
@@ -30,16 +79,6 @@ The bot needs two keypairs:
 | `ORACLE_KEYPAIR_PATH` | Proposes results | Must match `global_config.oracle_pubkey` |
 
 These can be the same keypair on devnet for testing.
-
-## Running
-
-```bash
-# Continuous (recommended for production)
-python bot.py
-
-# Single pass (for cron)
-python bot.py --once
-```
 
 ## Outcome mapping
 
