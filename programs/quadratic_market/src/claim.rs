@@ -1,9 +1,9 @@
+use crate::constants::seeds;
+use crate::errors::QuadraticMarketError;
+use crate::state::{BetSlip, GlobalConfig, Market, MarketGroup, MarketStatus};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, BetSlip};
-use crate::errors::QuadraticMarketError;
-use crate::constants::seeds;
 
 // ─── Claim Payout ──────────────────────────────────────────────
 
@@ -66,7 +66,10 @@ pub fn claim_payout_handler(ctx: Context<ClaimPayout>, _market_id: u64) -> Resul
     let config = &mut ctx.accounts.global_config;
     let market = &ctx.accounts.market;
 
-    require!(market.status == MarketStatus::Settled, QuadraticMarketError::MarketNotSettled);
+    require!(
+        market.status == MarketStatus::Settled,
+        QuadraticMarketError::MarketNotSettled
+    );
 
     let amount = ctx.accounts.claimer_outcome_ata.amount;
     require!(amount > 0, QuadraticMarketError::NoWinningPositions);
@@ -172,10 +175,11 @@ pub fn claim_paused_bet_handler<'info>(
     let refund = slip.total_stake;
     require!(refund > 0, QuadraticMarketError::InvalidAmount);
 
-    // remaining_accounts layout: [Market, outcome_mint, claimer_outcome_ata] per leg
-    // burning tokens first prevents double-claim if markets settle normally after unpause
+    // remaining_accounts layout: [Market, outcome_mint, slip_outcome_ata] per leg,
+    // then [MarketGroup] × bet_slip.num_groups_locked.
     let num_legs = slip.num_legs;
-    let total_needed = (num_legs as usize) * 3;
+    let total_leg_accounts = (num_legs as usize) * 3;
+    let total_needed = total_leg_accounts + slip.num_groups_locked as usize;
     require!(
         ctx.remaining_accounts.len() >= total_needed,
         QuadraticMarketError::InvalidRemainingAccount
@@ -190,7 +194,7 @@ pub fn claim_paused_bet_handler<'info>(
         let leg = &slip.legs[leg_idx];
         let market_info = &ctx.remaining_accounts[leg_idx * 3];
         let outcome_mint_info = &ctx.remaining_accounts[leg_idx * 3 + 1];
-        let outcome_ata_info = &ctx.remaining_accounts[leg_idx * 3 + 2];
+        let slip_outcome_ata_info = &ctx.remaining_accounts[leg_idx * 3 + 2];
 
         // Validate market PDA
         let (expected_pda, _) = Pubkey::find_program_address(
@@ -204,7 +208,11 @@ pub fn claim_paused_bet_handler<'info>(
 
         // outcome_mint PDA must match the leg's outcome
         let (expected_mint_pda, _) = Pubkey::find_program_address(
-            &[seeds::OUTCOME_MINT, leg.market_id.to_le_bytes().as_ref(), leg.outcome_id.to_le_bytes().as_ref()],
+            &[
+                seeds::OUTCOME_MINT,
+                leg.market_id.to_le_bytes().as_ref(),
+                leg.outcome_id.to_le_bytes().as_ref(),
+            ],
             &crate::ID,
         );
         require!(
@@ -212,41 +220,82 @@ pub fn claim_paused_bet_handler<'info>(
             QuadraticMarketError::InvalidRemainingAccount
         );
 
-        // Validate ATA ownership and mint
-        let ata_data = outcome_ata_info.data.borrow();
+        // Validate slip-owned escrow ATA and mint.
+        let ata_data = slip_outcome_ata_info.data.borrow();
         let ata: TokenAccount = TokenAccount::try_deserialize(&mut ata_data.as_ref())
             .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
         drop(ata_data);
 
-        require!(ata.owner == ctx.accounts.claimer.key(), QuadraticMarketError::InvalidRemainingAccount);
-        require!(ata.mint == expected_mint_pda, QuadraticMarketError::InvalidRemainingAccount);
+        require!(
+            ata.owner == ctx.accounts.bet_slip.key(),
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+        require!(
+            ata.mint == expected_mint_pda,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+        require!(
+            ata.amount >= leg.num_shares,
+            QuadraticMarketError::InsufficientShares
+        );
 
-        // Clone AccountInfos for burn phase — owned copies have no lifetime constraints
         burn_data.push((
             outcome_mint_info.clone(),
-            outcome_ata_info.clone(),
-            ata.amount,
+            slip_outcome_ata_info.clone(),
+            leg.num_shares,
         ));
     }
 
     // Release the locked payout that was reserved for this slip
     config.locked_payouts = config.locked_payouts.saturating_sub(slip.locked_amount);
 
+    // Release exact group exposure records stored on the slip.
+    for g in 0..slip.num_groups_locked as usize {
+        let group_id = slip.group_ids[g];
+        let exposure = slip.group_exposure_locked[g];
+        if exposure == 0 {
+            continue;
+        }
+        let group_info = &ctx.remaining_accounts[total_leg_accounts + g];
+        let (expected_group_pda, _) = Pubkey::find_program_address(
+            &[seeds::MARKET_GROUP, group_id.to_le_bytes().as_ref()],
+            &crate::ID,
+        );
+        require!(
+            group_info.key() == expected_group_pda,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+        let group_data = group_info.data.borrow();
+        let mut market_group: MarketGroup =
+            MarketGroup::try_deserialize_unchecked(&mut &group_data[8..])
+                .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?;
+        drop(group_data);
+        require!(
+            market_group.group_id == group_id,
+            QuadraticMarketError::InvalidRemainingAccount
+        );
+        market_group.total_group_exposure =
+            market_group.total_group_exposure.saturating_sub(exposure);
+        let mut group_data_mut = group_info.data.borrow_mut();
+        let mut group_writer = &mut group_data_mut[8..];
+        market_group.serialize(&mut group_writer)?;
+    }
+
     // ── Phase 2: Execute burns ──
-    // Burn all outcome tokens held by the claimer for each leg.
-    // This prevents double-claim: user cannot later call claim_payout for the
-    // same outcome tokens after receiving the stake refund.
-    let claimer_info = ctx.accounts.claimer.to_account_info();
+    let slip_id_bytes = slip.slip_id.to_le_bytes();
+    let slip_seeds: &[&[&[u8]]] = &[&[seeds::BET_SLIP, slip_id_bytes.as_ref(), &[slip.bump]]];
+    let slip_info = ctx.accounts.bet_slip.to_account_info();
     for (outcome_mint_info, outcome_ata_info, burn_amount) in burn_data {
         if burn_amount > 0 {
             token::burn(
-                CpiContext::new(
+                CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
                     token::Burn {
                         mint: outcome_mint_info,
                         from: outcome_ata_info,
-                        authority: claimer_info.clone(),
+                        authority: slip_info.clone(),
                     },
+                    slip_seeds,
                 ),
                 burn_amount,
             )?;
@@ -317,7 +366,11 @@ pub fn close_market_handler(ctx: Context<CloseMarket>, _market_id: u64) -> Resul
     // Return rent to authority
     let lamports = market_account.lamports();
     **market_account.try_borrow_mut_lamports()? = 0;
-    **ctx.accounts.authority.to_account_info().try_borrow_mut_lamports()? += lamports;
+    **ctx
+        .accounts
+        .authority
+        .to_account_info()
+        .try_borrow_mut_lamports()? += lamports;
 
     Ok(())
 }

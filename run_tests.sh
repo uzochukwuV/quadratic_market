@@ -9,7 +9,7 @@
 
 PROGRAM_ID="9H1DCo5QaUtiMne4UH44aefHyv8Xpc8EgZwrshRZqsLC"
 PROGRAM_SO="target/deploy/quadratic_market.so"
-WALLET="/home/runner/.config/solana/id.json"
+WALLET=".config/solana/id.json"
 RPC_URL="http://127.0.0.1:8899"
 LEDGER_DIR="/tmp/test-ledger"
 VALIDATOR_LOG="/tmp/validator.log"

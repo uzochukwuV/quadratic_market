@@ -44,6 +44,7 @@ pub mod seeds {
 // Correlated markets
 pub const MAX_GROUP_MARKETS: usize = MAX_OUTCOMES;
 pub const MAX_CORRELATION_PAIRS: usize = 16;
+pub const MAX_SAME_GAME_STATES: usize = 64;
 pub const CORRELATION_MAX_BPS: u64 = 10_000;
 
 // Bet slip

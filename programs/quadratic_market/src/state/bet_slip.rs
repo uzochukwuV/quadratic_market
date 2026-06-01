@@ -1,5 +1,5 @@
-use anchor_lang::prelude::*;
 use crate::constants::MAX_SLIP_LEGS;
+use anchor_lang::prelude::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, Copy)]
 pub struct SlipLeg {
@@ -15,16 +15,33 @@ pub struct BetSlip {
     pub legs: [SlipLeg; MAX_SLIP_LEGS],
     pub num_legs: u8,
     pub total_stake: u64,
-    pub combined_odds_fp: u64,       // Q32.32 decimal odds
-    pub house_margin_bps: u64,      // margin applied at placement
-    pub potential_payout: u64,      // fixed at placement — what user gets if all legs win
-    pub locked_amount: u64,         // current treasury lock (<= potential_payout, never increases)
-    pub exposure_locked: u64,       // group exposure locked at placement (released on claim)
+    pub combined_odds_fp: u64, // Q32.32 decimal odds
+    pub house_margin_bps: u64, // margin applied at placement
+    pub potential_payout: u64, // quote at placement; final payout is recomputed at claim
+    pub locked_amount: u64,    // LP-backed bonus gap currently reserved for this slip
+    pub exposure_locked: u64,  // total group exposure locked at placement (display/backcompat)
+    pub group_ids: [u64; MAX_SLIP_LEGS],
+    pub group_exposure_locked: [u64; MAX_SLIP_LEGS],
+    pub num_groups_locked: u8,
     pub claimed: bool,
     pub bump: u8,
 }
 
 impl BetSlip {
-    // 8 + 8 + 32 + 136 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1 = 235
-    pub const LEN: usize = 8 + 8 + 32 + 136 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
+    pub const LEN: usize = 8  // discriminator
+        + 8   // slip_id
+        + 32  // creator
+        + 136 // legs: 8 * (u64 + u8 + u64)
+        + 1   // num_legs
+        + 8   // total_stake
+        + 8   // combined_odds_fp
+        + 8   // house_margin_bps
+        + 8   // potential_payout
+        + 8   // locked_amount
+        + 8   // exposure_locked
+        + 64  // group_ids
+        + 64  // group_exposure_locked
+        + 1   // num_groups_locked
+        + 1   // claimed
+        + 1; // bump
 }
