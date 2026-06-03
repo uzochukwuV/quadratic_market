@@ -70,3 +70,5 @@ Thumbs.db
 .anchor/*
 .*
 Upgrade.md
+
+test-ledger/
