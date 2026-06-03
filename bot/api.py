@@ -26,10 +26,10 @@ from pydantic import BaseModel, Field
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solana.rpc.async_api import AsyncClient
-from anchorpy import Program, Provider, Wallet, Idl
+from anchorpy import Program, Provider, Wallet
 
 import config
-from chain import load_keypair, global_config_pda, market_pda, epoch_pda
+from chain import load_idl, load_keypair, global_config_pda, market_pda, epoch_pda
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -220,7 +220,7 @@ async def startup():
     client = AsyncClient(config.RPC_URL)
     wallet = Wallet(operator_kp)
     provider = Provider(client, wallet)
-    idl = Idl.from_json(IDL_PATH.read_text())
+    idl = load_idl(IDL_PATH)
     program = Program(idl, Pubkey.from_string(config.PROGRAM_ID), provider)
     
     api_state["api"] = OnChainAPI(program, program.program_id)

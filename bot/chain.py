@@ -35,6 +35,73 @@ def load_keypair(path: Path) -> Keypair:
     return Keypair.from_bytes(bytes(raw))
 
 
+def normalize_idl_account_item(item: dict) -> dict:
+    """Normalize account items from Anchor's newer IDL shape to AnchorPy-compatible shape."""
+    if not isinstance(item, dict):
+        return item
+
+    if "accounts" in item:
+        return {
+            **item,
+            "accounts": [normalize_idl_account_item(acc) for acc in item["accounts"]],
+        }
+
+    normalized = dict(item)
+    if "writable" in normalized:
+        normalized["is_mut"] = normalized.pop("writable")
+    if "signer" in normalized:
+        normalized["is_signer"] = normalized.pop("signer")
+    if "optional" in normalized and "is_optional" not in normalized:
+        normalized["is_optional"] = normalized.pop("optional")
+
+    normalized.setdefault("is_mut", False)
+    normalized.setdefault("is_signer", False)
+    normalized.setdefault("is_optional", None)
+    normalized.setdefault("docs", None)
+    normalized.setdefault("relations", [])
+
+    if "accounts" in normalized:
+        normalized["accounts"] = [normalize_idl_account_item(acc) for acc in normalized["accounts"]]
+
+    return normalized
+
+
+def normalize_idl_json(raw_idl: dict) -> dict:
+    normalized = dict(raw_idl)
+
+    if "instructions" in raw_idl:
+        normalized["instructions"] = [
+            {
+                **instr,
+                "accounts": [normalize_idl_account_item(acc) for acc in instr.get("accounts", [])],
+            }
+            for instr in raw_idl["instructions"]
+        ]
+
+    if "accounts" in raw_idl:
+        normalized["accounts"] = [normalize_idl_account_item(acc) for acc in raw_idl["accounts"]]
+
+    if "state" in raw_idl and isinstance(raw_idl["state"], dict):
+        state = dict(raw_idl["state"])
+        if "methods" in state:
+            state["methods"] = [
+                {
+                    **method,
+                    "accounts": [normalize_idl_account_item(acc) for acc in method.get("accounts", [])],
+                }
+                for method in state["methods"]
+            ]
+        normalized["state"] = state
+
+    return normalized
+
+
+def load_idl(path: Path) -> Idl:
+    raw_idl = json.loads(path.read_text())
+    normalized = normalize_idl_json(raw_idl)
+    return Idl.from_json(json.dumps(normalized))
+
+
 def global_config_pda(program_id: Pubkey) -> tuple[Pubkey, int]:
     return Pubkey.find_program_address([SEED_GLOBAL_CONFIG], program_id)
 
@@ -109,7 +176,7 @@ class ChainClient:
         client = AsyncClient(rpc_url)
         wallet = Wallet(operator_kp)
         provider = Provider(client, wallet)
-        idl = Idl.from_json(idl_path.read_text())
+        idl = load_idl(idl_path)
         program = Program(idl, Pubkey.from_string(program_id_str), provider)
         return cls(program, operator_kp, oracle_kp, Pubkey.from_string(base_mint_str))
 

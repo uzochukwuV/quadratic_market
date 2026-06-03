@@ -40,7 +40,8 @@ pip install fastapi uvicorn pydantic
 
 # Run on default port 8000
 python api.py
-
+export ANTHROPIC_BASE_URL=https://api.tokenrouter.com/v1 
+export TOKENROUTER_API_KEY=sk-Rz4zPRnKgPqOAqN8Nz42gI2DxyuYZMaUOk29jcSPqdIl2BjG
 # Or with custom port
 python api.py --port 8080
 ```
