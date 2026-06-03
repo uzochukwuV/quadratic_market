@@ -104,8 +104,8 @@ async def create_market_group(client, payer, group_id, max_exposure, event_start
         print(f"   Market group {group_id} already exists")
         return group_pda, True
     
-    # Discriminator for create_market_group
-    data = bytes([63, 31, 199, 113, 16, 206, 105, 218])  # From IDL
+    # Discriminator for create_market_group from IDL: [234, 129, 163, 164, 219, 108, 148, 152]
+    data = bytes([234, 129, 163, 164, 219, 108, 148, 152])
     
     # Title encoding
     title_bytes = title.encode('utf-8')
@@ -156,7 +156,8 @@ async def create_market(client, payer, market_id, start_time, num_outcomes, titl
     # Args: start_time (i64), num_outcomes (u8), title (string), description (string), 
     #       category (u8), lmsr_b_override (option), initial_q_values (option), market_mode (MarketMode)
     
-    data = bytes([115, 59, 155, 18, 53, 121, 193, 200])
+    # Discriminator for create_market from IDL: [100, 137, 169, 118, 241, 78, 37, 35]
+    data = bytes([100, 137, 169, 118, 241, 78, 37, 35])
     
     # Encode args
     args = start_time.to_bytes(8, "little", signed=True)
@@ -215,8 +216,8 @@ async def add_market_to_group(client, payer, group_id, market_index, market_pda)
     global_config, _ = Pubkey.find_program_address([b"global_config"], program_id)
     group_pda, _ = Pubkey.find_program_address([b"market_group", group_id.to_bytes(8, "little")], program_id)
     
-    # Discriminator: [3, 83, 89, 73, 170, 79, 154, 103]
-    data = bytes([3, 83, 89, 73, 170, 79, 154, 103])
+    # Discriminator for add_market_to_group from IDL: [166, 8, 66, 177, 99, 240, 80, 96]
+    data = bytes([166, 8, 66, 177, 99, 240, 80, 96])
     
     # Args: group_id (u64) + market_index (u8)
     args = group_id.to_bytes(8, "little")
@@ -259,8 +260,8 @@ async def init_outcome_mint(client, payer, market_id, outcome_id, market_pda):
         print(f"   Outcome {outcome_id} mint already exists")
         return outcome_mint, True
     
-    # Discriminator: [246, 126, 172, 53, 18, 227, 71, 207]
-    data = bytes([246, 126, 172, 53, 18, 227, 71, 207])
+    # Discriminator for init_outcome_mint from IDL: [241, 28, 235, 249, 42, 115, 54, 122]
+    data = bytes([241, 28, 235, 249, 42, 115, 54, 122])
     
     # Args: market_id (u64) + outcome_id (u8)
     args = market_id.to_bytes(8, "little")

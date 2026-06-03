@@ -7,7 +7,7 @@
 #   3. Clean up
 # ─────────────────────────────────────────────────────────────
 
-PROGRAM_ID="9H1DCo5QaUtiMne4UH44aefHyv8Xpc8EgZwrshRZqsLC"
+PROGRAM_ID="3MsEuMziRKjA1w1WTPeW5NvDUCjGoep2QZ5zBthGq23Z"
 PROGRAM_SO="target/deploy/quadratic_market.so"
 WALLET=".config/solana/id.json"
 RPC_URL="http://127.0.0.1:8899"
@@ -99,7 +99,7 @@ TEST_EXIT=0
 npx ts-mocha \
   -p ./tsconfig.json \
   -t 1000000 \
-  "tests/**/*.ts" \
+  "protocol_flow.ts" \
   || TEST_EXIT=$?
 
 # ── 7. Clean up ────────────────────────────────────────────

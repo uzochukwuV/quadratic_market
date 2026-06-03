@@ -34,7 +34,7 @@ pub enum MarketStatus {
 
 impl Default for MarketStatus {
     fn default() -> Self {
-        MarketStatus::Open
+        MarketStatus::PreOpen
     }
 }
 

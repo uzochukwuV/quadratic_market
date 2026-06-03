@@ -4,6 +4,7 @@ use crate::constants::{
     MAX_SAME_GAME_STATES, MAX_SEED_POSITIONS, SCALE,
 };
 use crate::errors::QuadraticMarketError;
+use crate::math::exp_ln::ln_q32;
 use crate::state::market_group::{CorrelationPair, SeedPosition};
 use crate::state::{GlobalConfig, Market, MarketGroup, MarketStatus};
 use anchor_lang::prelude::*;
@@ -99,6 +100,66 @@ pub(crate) fn compute_seed_readiness(
     };
 
     Ok((total_seed_volume, seeded_sides, largest_side_bps))
+}
+
+pub(crate) fn compute_seed_lmsr_q_values(
+    seed_positions: &[SeedPosition],
+    num_seed_positions: u8,
+    market_index: u8,
+    num_outcomes: u8,
+    total_seed_volume: u64,
+    b_fp: u64,
+) -> Result<[u64; MAX_OUTCOMES]> {
+    require!(total_seed_volume > 0, QuadraticMarketError::InvalidAmount);
+
+    let b_raw = b_fp >> 32;
+    require!(b_raw > 0, QuadraticMarketError::InvalidAmount);
+
+    let mut side_volumes = [0u64; MAX_OUTCOMES];
+    let mut ln_probabilities = [0i64; MAX_OUTCOMES];
+    let mut min_ln = i64::MAX;
+
+    for i in 0..num_seed_positions as usize {
+        let seed = seed_positions[i];
+        if seed.market_index == market_index
+            && (seed.outcome_id as usize) < num_outcomes as usize
+            && !seed.refunded
+        {
+            side_volumes[seed.outcome_id as usize] = side_volumes[seed.outcome_id as usize]
+                .checked_add(seed.amount)
+                .ok_or(QuadraticMarketError::MathOverflow)?;
+        }
+    }
+
+    for outcome_id in 0..num_outcomes as usize {
+        require!(
+            side_volumes[outcome_id] > 0,
+            QuadraticMarketError::SeedMarketNotReady
+        );
+
+        let probability_fp = ((side_volumes[outcome_id] as u128)
+            .checked_mul(SCALE as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / total_seed_volume as u128) as u64;
+        require!(probability_fp > 0, QuadraticMarketError::InvalidAmount);
+
+        let ln_probability = ln_q32(probability_fp)?;
+        ln_probabilities[outcome_id] = ln_probability;
+        min_ln = min_ln.min(ln_probability);
+    }
+
+    let mut q_values = [0u64; MAX_OUTCOMES];
+    for outcome_id in 0..num_outcomes as usize {
+        let ln_delta = ln_probabilities[outcome_id]
+            .checked_sub(min_ln)
+            .ok_or(QuadraticMarketError::MathUnderflow)? as u64;
+        q_values[outcome_id] = ((b_raw as u128)
+            .checked_mul(ln_delta as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / SCALE as u128) as u64;
+    }
+
+    Ok(q_values)
 }
 
 // ─── Create Market Group ───────────────────────────────────────
@@ -544,6 +605,7 @@ pub struct ActivateSeededMarket<'info> {
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
+        mut,
         seeds = [seeds::MARKET_GROUP, group_id.to_le_bytes().as_ref()],
         bump = market_group.bump,
     )]
@@ -564,7 +626,7 @@ pub fn activate_seeded_market_handler(
     _group_id: u64,
 ) -> Result<()> {
     let config = &ctx.accounts.global_config;
-    let group = &ctx.accounts.market_group;
+    let group = &mut ctx.accounts.market_group;
     let market = &mut ctx.accounts.market;
 
     require!(
@@ -600,13 +662,40 @@ pub fn activate_seeded_market_handler(
         total_seed_volume >= group.seed_min_volume,
         QuadraticMarketError::SeedMarketNotReady
     );
-    require!(seeded_sides >= 2, QuadraticMarketError::SeedMarketNotReady);
+    require!(
+        seeded_sides == market.num_outcomes,
+        QuadraticMarketError::SeedMarketNotReady
+    );
 
     require!(
         largest_side_bps <= group.seed_max_side_share_bps,
         QuadraticMarketError::SeedMarketNotReady
     );
 
+    market.q_values = compute_seed_lmsr_q_values(
+        &group.seed_positions,
+        group.num_seed_positions,
+        market_index,
+        market.num_outcomes,
+        total_seed_volume,
+        market.lmsr_b,
+    )?;
+
+    require!(
+        total_seed_volume <= config.max_market_exposure,
+        QuadraticMarketError::MaxExposureReached
+    );
+    let new_group_exposure = group
+        .total_group_exposure
+        .checked_add(total_seed_volume)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    require!(
+        new_group_exposure <= group.max_group_exposure,
+        QuadraticMarketError::GroupExposureExceeded
+    );
+
+    market.exposure = total_seed_volume;
+    group.total_group_exposure = new_group_exposure;
     market.status = MarketStatus::Open;
 
     emit!(SeedMarketActivated {
@@ -823,6 +912,7 @@ pub fn claim_seed_fee_reward_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::math::lmsr::lmsr_price;
 
     fn seed(market_index: u8, outcome_id: u8, amount: u64) -> SeedPosition {
         SeedPosition {
@@ -867,5 +957,38 @@ mod tests {
         assert_eq!(total, 3_000);
         assert_eq!(sides, 1);
         assert_eq!(largest, 10_000);
+    }
+
+    #[test]
+    fn seed_ratios_initialize_lmsr_probabilities() {
+        let mut positions = [SeedPosition::default(); MAX_SEED_POSITIONS];
+        positions[0] = seed(0, 0, 8_000_000_000);
+        positions[1] = seed(0, 1, 6_000_000_000);
+        positions[2] = seed(0, 2, 6_000_000_000);
+        let b_fp = 100_000_000 * SCALE;
+
+        let q_values =
+            compute_seed_lmsr_q_values(&positions, 3, 0, 3, 20_000_000_000, b_fp).unwrap();
+
+        let home = lmsr_price(&q_values, 3, 0, b_fp).unwrap();
+        let away = lmsr_price(&q_values, 3, 1, b_fp).unwrap();
+        let draw = lmsr_price(&q_values, 3, 2, b_fp).unwrap();
+        let tolerance = SCALE / 100;
+
+        assert!((home as i64 - (SCALE * 40 / 100) as i64).unsigned_abs() < tolerance);
+        assert!((away as i64 - (SCALE * 30 / 100) as i64).unsigned_abs() < tolerance);
+        assert!((draw as i64 - (SCALE * 30 / 100) as i64).unsigned_abs() < tolerance);
+    }
+
+    #[test]
+    fn seed_lmsr_initialization_rejects_unseeded_outcomes() {
+        let mut positions = [SeedPosition::default(); MAX_SEED_POSITIONS];
+        positions[0] = seed(0, 0, 8_000_000_000);
+        positions[1] = seed(0, 1, 6_000_000_000);
+        let b_fp = 100_000_000 * SCALE;
+
+        let result = compute_seed_lmsr_q_values(&positions, 2, 0, 3, 14_000_000_000, b_fp);
+
+        assert!(result.is_err());
     }
 }

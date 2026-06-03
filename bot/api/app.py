@@ -291,11 +291,15 @@ async def get_market(market_id: int):
                 outcome_mints.append(mint)
             
             # Calculate prices from q_values
-            total_q = sum(q_values) if sum(q_values) > 0 else 1
+            # When all q_values are zero (PreOpen), return uniform probability.
+            total_q = sum(q_values)
             prices = []
             for i in range(num_outcomes):
-                prob = q_values[i] / total_q
-                decimal = 1 / prob if prob > 0 else 0
+                if total_q == 0:
+                    prob = 1.0 / num_outcomes
+                else:
+                    prob = q_values[i] / total_q
+                decimal = 1.0 / prob if prob > 0 else 0
                 prices.append({
                     "outcome_id": i,
                     "decimal_odds": round(decimal, 2),

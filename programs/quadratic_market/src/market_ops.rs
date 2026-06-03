@@ -95,7 +95,7 @@ pub fn create_market_handler(
     market.market_id = config.next_market_id;
     market.creator = ctx.accounts.authority.key();
     market.start_time = start_time;
-    market.status = MarketStatus::Open;
+    market.status = MarketStatus::PreOpen;
     market.num_outcomes = num_outcomes;
 
     let mut q_values = [0u64; MAX_OUTCOMES];
