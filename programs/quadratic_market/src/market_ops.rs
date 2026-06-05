@@ -120,6 +120,8 @@ pub fn create_market_handler(
     // Bind market to the current epoch
     market.epoch_id = current_epoch_id;
     market.settled_in_epoch = false;
+    market.backing = 0;
+    market.seed_fee_pool = 0;
 
     config.next_market_id = config
         .next_market_id

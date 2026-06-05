@@ -41,6 +41,14 @@ use slip::*;
 use swap_trade::*;
 use trade::*;
 
+// ─── Custom heap allocator ─────────────────────────────────────
+// Anchor's default bump allocator hardcodes a 32 KB heap and ignores the
+// runtime `RequestHeapFrame` compute-budget instruction. Multi-leg place_slip
+// deserializes a full Market per leg plus boxed MarketGroup snapshots, which
+// can exceed 32 KB and abort with "memory allocation failed, out of memory".
+//
+// Enabling the `custom-heap` feature and providing this bump allocator lets the
+// program use the full heap region (up to 256 KB) requested via RequestHeapFrame.
 #[program]
 pub mod quadratic_market {
     use super::*;
@@ -331,12 +339,12 @@ pub mod quadratic_market {
     pub fn register_seed_position(
         ctx: Context<RegisterSeedPosition>,
         group_id: u64,
-        seeder: Pubkey,
+        market_id: u64,
         market_index: u8,
         outcome_id: u8,
         amount: u64,
     ) -> Result<()> {
-        register_seed_position_handler(ctx, group_id, seeder, market_index, outcome_id, amount)
+        register_seed_position_handler(ctx, group_id, market_id, market_index, outcome_id, amount)
     }
 
     pub fn claim_seed_fee_reward(
@@ -376,6 +384,30 @@ pub mod quadratic_market {
         num_groups: u8,
     ) -> Result<()> {
         place_slip_handler(ctx, legs, max_payment, num_groups)
+    }
+
+    // Multi-leg slips assembled across transactions (avoids the single-tx heap
+    // exhaustion in place_slip): open_slip → add_slip_leg (×N) → finalize_slip,
+    // with cancel_slip to abort a partially-built slip.
+    pub fn open_slip(
+        ctx: Context<OpenSlip>,
+        slip_id: u64,
+        num_legs: u8,
+        max_payment: u64,
+    ) -> Result<()> {
+        open_slip_handler(ctx, slip_id, num_legs, max_payment)
+    }
+
+    pub fn add_slip_leg(ctx: Context<AddSlipLeg>, slip_id: u64, leg: SlipLeg) -> Result<()> {
+        add_slip_leg_handler(ctx, slip_id, leg)
+    }
+
+    pub fn finalize_slip(ctx: Context<FinalizeSlip>, slip_id: u64) -> Result<()> {
+        finalize_slip_handler(ctx, slip_id)
+    }
+
+    pub fn cancel_slip(ctx: Context<CancelSlip>, slip_id: u64) -> Result<()> {
+        cancel_slip_handler(ctx, slip_id)
     }
 
     pub fn claim_slip<'info>(

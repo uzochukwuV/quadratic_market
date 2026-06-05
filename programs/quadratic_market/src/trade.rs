@@ -1,4 +1,6 @@
-use crate::constants::{seeds, MAX_GROUP_MARKETS, MAX_OUTCOMES, SCALE};
+use crate::constants::{
+    seeds, DEFAULT_SEED_FEE_SHARE_BPS, MAX_GROUP_MARKETS, MAX_OUTCOMES, SCALE,
+};
 use crate::errors::QuadraticMarketError;
 use crate::math::correlation::compute_adjusted_q_values;
 use crate::math::lmsr::{lmsr_buy_cost, lmsr_price, lmsr_sell_payout};
@@ -181,12 +183,46 @@ pub fn buy_shares_handler(
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     market.exposure = new_exposure;
+    // The bettor's payment (cost + fee) joins this market's own backing ledger.
+    market.backing = market.backing.saturating_add(total_charge);
+    // Accrue the seeder reward: 5% of this trade's fee, reserved for losing-side
+    // seeders. (5% of revenue, where revenue = the protocol fee on this bet.)
+    accrue_seed_fee(config, market, fee)?;
     // Lock the full potential payout (num_shares = 1:1 at settlement)
     config.locked_payouts = config
         .locked_payouts
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
+    Ok(())
+}
+
+/// Accrue the seeder reward share (5% of `fee`) into the market's seed-fee pool
+/// and reserve it in locked_payouts. Used by every trade path that collects a fee.
+pub(crate) fn accrue_seed_fee(
+    config: &mut GlobalConfig,
+    market: &mut Market,
+    fee: u64,
+) -> Result<()> {
+    if fee == 0 {
+        return Ok(());
+    }
+    let seed_fee = (fee as u128)
+        .checked_mul(DEFAULT_SEED_FEE_SHARE_BPS as u128)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10_000u128;
+    let seed_fee = seed_fee as u64;
+    if seed_fee == 0 {
+        return Ok(());
+    }
+    market.seed_fee_pool = market
+        .seed_fee_pool
+        .checked_add(seed_fee)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    config.locked_payouts = config
+        .locked_payouts
+        .checked_add(seed_fee)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
     Ok(())
 }
 
@@ -523,6 +559,10 @@ pub fn buy_shares_correlated_handler<'info>(
     market.q_values[outcome_id as usize] = market.q_values[outcome_id as usize]
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
+    // The bettor's payment (cost + fee) joins this market's own backing ledger.
+    market.backing = market.backing.saturating_add(total_charge);
+    // Accrue the 5% seeder reward from this trade's fee.
+    accrue_seed_fee(config, market, fee)?;
     config.locked_payouts = config
         .locked_payouts
         .checked_add(num_shares)

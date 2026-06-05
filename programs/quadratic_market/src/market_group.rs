@@ -1,13 +1,14 @@
 use crate::constants::{
     seeds, CORRELATION_MAX_BPS, DEFAULT_MAX_SEED_SIDE_SHARE_BPS, DEFAULT_MIN_SEED_VOLUME,
     DEFAULT_SEED_FEE_SHARE_BPS, MAX_CORRELATION_PAIRS, MAX_GROUP_MARKETS, MAX_OUTCOMES,
-    MAX_SAME_GAME_STATES, MAX_SEED_POSITIONS, SCALE,
+    MAX_SAME_GAME_STATES, MAX_SEED_POSITIONS, MIN_SEED_PER_OUTCOME, SCALE,
 };
 use crate::errors::QuadraticMarketError;
 use crate::math::exp_ln::ln_q32;
 use crate::state::market_group::{CorrelationPair, SeedPosition};
 use crate::state::{GlobalConfig, Market, MarketGroup, MarketStatus};
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 #[repr(u8)]
@@ -54,15 +55,19 @@ pub struct SeedFeeRewardClaimed {
     pub reward: u64,
 }
 
+/// Returns (total_seed_volume, seeded_sides, largest_side_bps, smallest_side_volume).
+/// `smallest_side_volume` is the minimum seed volume across ALL outcomes (an
+/// unseeded outcome contributes 0), used to enforce the per-outcome floor.
 pub(crate) fn compute_seed_readiness(
     seed_positions: &[SeedPosition],
     num_seed_positions: u8,
     market_index: u8,
     num_outcomes: u8,
-) -> Result<(u64, u8, u64)> {
+) -> Result<(u64, u8, u64, u64)> {
     let mut total_seed_volume: u64 = 0;
     let mut seeded_sides: u8 = 0;
     let mut largest_side: u64 = 0;
+    let mut smallest_side: u64 = u64::MAX;
 
     for outcome_id in 0..num_outcomes as usize {
         let mut side_volume: u64 = 0;
@@ -78,6 +83,8 @@ pub(crate) fn compute_seed_readiness(
             }
         }
 
+        smallest_side = smallest_side.min(side_volume);
+
         if side_volume > 0 {
             seeded_sides = seeded_sides
                 .checked_add(1)
@@ -87,6 +94,10 @@ pub(crate) fn compute_seed_readiness(
                 .checked_add(side_volume)
                 .ok_or(QuadraticMarketError::MathOverflow)?;
         }
+    }
+
+    if num_outcomes == 0 {
+        smallest_side = 0;
     }
 
     let largest_side_bps = if total_seed_volume > 0 {
@@ -99,7 +110,7 @@ pub(crate) fn compute_seed_readiness(
         0
     };
 
-    Ok((total_seed_volume, seeded_sides, largest_side_bps))
+    Ok((total_seed_volume, seeded_sides, largest_side_bps, smallest_side))
 }
 
 pub(crate) fn compute_seed_lmsr_q_values(
@@ -112,7 +123,8 @@ pub(crate) fn compute_seed_lmsr_q_values(
 ) -> Result<[u64; MAX_OUTCOMES]> {
     require!(total_seed_volume > 0, QuadraticMarketError::InvalidAmount);
 
-    let b_raw = b_fp >> 32;
+    // lmsr_b is stored as raw lamports (B_raw), not Q32.32.
+    let b_raw = b_fp;
     require!(b_raw > 0, QuadraticMarketError::InvalidAmount);
 
     let mut side_volumes = [0u64; MAX_OUTCOMES];
@@ -651,15 +663,21 @@ pub fn activate_seeded_market_handler(
     require!(now < market.start_time, QuadraticMarketError::MarketExpired);
 
     let market_index = market.group_market_index;
-    let (total_seed_volume, seeded_sides, largest_side_bps) = compute_seed_readiness(
-        &group.seed_positions,
-        group.num_seed_positions,
-        market_index,
-        market.num_outcomes,
-    )?;
+    let (total_seed_volume, seeded_sides, largest_side_bps, smallest_side) =
+        compute_seed_readiness(
+            &group.seed_positions,
+            group.num_seed_positions,
+            market_index,
+            market.num_outcomes,
+        )?;
 
+    // Per-outcome floor: every outcome must be seeded with at least
+    // MIN_SEED_PER_OUTCOME of real capital. This (not an aggregate) is what makes
+    // the market's backstop credible. `smallest_side` is the min across all
+    // outcomes (an unseeded outcome is 0), so this also subsumes the old
+    // "every side seeded" rule.
     require!(
-        total_seed_volume >= group.seed_min_volume,
+        smallest_side >= MIN_SEED_PER_OUTCOME,
         QuadraticMarketError::SeedMarketNotReady
     );
     require!(
@@ -672,14 +690,9 @@ pub fn activate_seeded_market_handler(
         QuadraticMarketError::SeedMarketNotReady
     );
 
-    market.q_values = compute_seed_lmsr_q_values(
-        &group.seed_positions,
-        group.num_seed_positions,
-        market_index,
-        market.num_outcomes,
-        total_seed_volume,
-        market.lmsr_b,
-    )?;
+    // NOTE: the opening line (q_values) was set by the operator at create_market
+    // (initial_q_values). Seeding only escrows backing capital — it no longer
+    // derives the odds. We therefore do NOT overwrite market.q_values here.
 
     require!(
         total_seed_volume <= config.max_market_exposure,
@@ -712,8 +725,13 @@ pub fn activate_seeded_market_handler(
 
 // ─── Seeder Fee Rewards ───────────────────────────────────────
 
+// Seeding is now a REAL early bet that escrows capital. The seeder signs, transfers
+// `amount` base tokens to the treasury, and is minted `amount` outcome tokens
+// (1 token per base-unit — "H1" accounting, which keeps the treasury solvent:
+// a winning seed redeems exactly its stake, a losing seed's stake stays in the
+// pool). The escrowed capital is the market's backing (see Market.backing).
 #[derive(Accounts)]
-#[instruction(group_id: u64)]
+#[instruction(group_id: u64, market_id: u64, market_index: u8, outcome_id: u8)]
 pub struct RegisterSeedPosition<'info> {
     #[account(
         seeds = [seeds::GLOBAL_CONFIG],
@@ -728,24 +746,56 @@ pub struct RegisterSeedPosition<'info> {
     )]
     pub market_group: Box<Account<'info, MarketGroup>>,
 
-    pub authority: Signer<'info>,
+    #[account(mut)]
+    pub market: Box<Account<'info, Market>>,
+
+    /// CHECK: Treasury PDA
+    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
+    pub treasury: SystemAccount<'info>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = seeder)]
+    pub seeder_base_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        constraint = outcome_mint.key() == market.outcome_mints[outcome_id as usize] @ QuadraticMarketError::WrongOutcomeToken,
+    )]
+    pub outcome_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        mut,
+        associated_token::mint = outcome_mint,
+        associated_token::authority = seeder,
+    )]
+    pub seeder_outcome_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
+    pub base_mint: Box<Account<'info, Mint>>,
+
+    #[account(mut)]
+    pub seeder: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }
 
 pub fn register_seed_position_handler(
     ctx: Context<RegisterSeedPosition>,
     _group_id: u64,
-    seeder: Pubkey,
+    _market_id: u64,
     market_index: u8,
     outcome_id: u8,
     amount: u64,
 ) -> Result<()> {
     let config = &ctx.accounts.global_config;
     let group = &mut ctx.accounts.market_group;
+    let market = &mut ctx.accounts.market;
 
-    require!(
-        config.is_authorized(&ctx.accounts.authority.key()),
-        QuadraticMarketError::Unauthorized
-    );
+    require!(!config.paused, QuadraticMarketError::Paused);
     require!(
         (group.num_seed_positions as usize) < MAX_SEED_POSITIONS,
         QuadraticMarketError::MarketGroupFull
@@ -755,14 +805,64 @@ pub fn register_seed_position_handler(
         QuadraticMarketError::MarketNotInGroup
     );
     require!(
-        (outcome_id as usize) < MAX_OUTCOMES,
+        group.market_ids[market_index as usize] == market.market_id,
+        QuadraticMarketError::MarketNotInGroup
+    );
+    require!(
+        market.group_market_index == market_index,
+        QuadraticMarketError::MarketNotInGroup
+    );
+    require!(
+        (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
+    );
+    // Seeding only happens while the market is still bootstrapping.
+    require!(
+        market.status == MarketStatus::PreOpen,
+        QuadraticMarketError::InvalidMarketStatus
     );
     require!(amount > 0, QuadraticMarketError::InvalidAmount);
 
+    // Escrow the seeder's capital into the treasury.
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.seeder_base_ata.to_account_info(),
+                to: ctx.accounts.treasury_base_ata.to_account_info(),
+                authority: ctx.accounts.seeder.to_account_info(),
+            },
+        ),
+        amount,
+    )?;
+
+    // Mint 1 outcome token per base-unit seeded (H1). The seeder holds a real
+    // settlement claim: winning side redeems 1:1 via claim_payout, losing side's
+    // stake stays in the pool (and earns the 5% loser perk).
+    let market_id_bytes = market.market_id.to_le_bytes();
+    let market_seeds = &[seeds::MARKET, market_id_bytes.as_ref(), &[market.bump]];
+    token::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            token::MintTo {
+                mint: ctx.accounts.outcome_mint.to_account_info(),
+                to: ctx.accounts.seeder_outcome_ata.to_account_info(),
+                authority: market.to_account_info(),
+            },
+            &[market_seeds],
+        ),
+        amount,
+    )?;
+
+    // The escrowed capital backs this market and is a 1:1 settlement liability.
+    market.backing = market
+        .backing
+        .checked_add(amount)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+
     let idx = group.num_seed_positions as usize;
     group.seed_positions[idx] = SeedPosition {
-        seeder,
+        seeder: ctx.accounts.seeder.key(),
         slip_id: 0,
         market_index,
         outcome_id,
@@ -793,6 +893,7 @@ pub struct ClaimSeedFeeReward<'info> {
     pub market_group: Box<Account<'info, MarketGroup>>,
 
     #[account(
+        mut,
         seeds = [seeds::MARKET, market.market_id.to_le_bytes().as_ref()],
         bump = market.bump,
     )]
@@ -822,14 +923,21 @@ pub fn claim_seed_fee_reward_handler(
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     let group = &mut ctx.accounts.market_group;
-    let market = &ctx.accounts.market;
+
+    // Snapshot the market scalars we need so we can take a &mut borrow later
+    // (to decrement market.seed_fee_pool) without a borrow conflict.
+    let market_status = ctx.accounts.market.status.clone();
+    let market_group_id = ctx.accounts.market.group_id;
+    let market_group_index = ctx.accounts.market.group_market_index;
+    let market_winning_outcome = ctx.accounts.market.winning_outcome;
+    let market_id_for_event = ctx.accounts.market.market_id;
 
     require!(
-        market.status == crate::state::MarketStatus::Settled,
+        market_status == crate::state::MarketStatus::Settled,
         QuadraticMarketError::MarketNotSettled
     );
     require!(
-        market.group_id == Some(group.group_id),
+        market_group_id == Some(group.group_id),
         QuadraticMarketError::MarketNotInGroup
     );
     require!(
@@ -847,11 +955,11 @@ pub fn claim_seed_fee_reward_handler(
         QuadraticMarketError::PayoutAlreadyClaimed
     );
     require!(
-        seed.market_index == market.group_market_index,
+        seed.market_index == market_group_index,
         QuadraticMarketError::MarketNotInGroup
     );
     require!(
-        seed.outcome_id != market.winning_outcome,
+        seed.outcome_id != market_winning_outcome,
         QuadraticMarketError::InvalidOutcomeId
     );
 
@@ -859,7 +967,7 @@ pub fn claim_seed_fee_reward_handler(
     for i in 0..group.num_seed_positions as usize {
         let pos = group.seed_positions[i];
         if pos.market_index == seed.market_index
-            && pos.outcome_id != market.winning_outcome
+            && pos.outcome_id != market_winning_outcome
             && !pos.reward_claimed
             && !pos.refunded
         {
@@ -873,15 +981,18 @@ pub fn claim_seed_fee_reward_handler(
         QuadraticMarketError::InvalidAmount
     );
 
-    let pool_index = seed.market_index as usize;
-    let reward = ((group.seed_fee_pools[pool_index] as u128)
+    // The seed-fee pool now lives on the Market (accrued by every trade path),
+    // not on the group, so all of buy_shares / buy_shares_correlated / add_slip_leg
+    // can contribute without needing the group account.
+    let market_mut = &mut ctx.accounts.market;
+    let reward = ((market_mut.seed_fee_pool as u128)
         .checked_mul(seed.amount as u128)
         .ok_or(QuadraticMarketError::MathOverflow)?
         / unclaimed_losing_seed_total as u128) as u64;
     require!(reward > 0, QuadraticMarketError::InvalidAmount);
 
     group.seed_positions[seed_index as usize].reward_claimed = true;
-    group.seed_fee_pools[pool_index] = group.seed_fee_pools[pool_index].saturating_sub(reward);
+    market_mut.seed_fee_pool = market_mut.seed_fee_pool.saturating_sub(reward);
     config.locked_payouts = config.locked_payouts.saturating_sub(reward);
 
     let treasury_seeds = &[seeds::TREASURY, &[config.treasury_bump]];
@@ -900,7 +1011,7 @@ pub fn claim_seed_fee_reward_handler(
 
     emit!(SeedFeeRewardClaimed {
         group_id: group.group_id,
-        market_id: market.market_id,
+        market_id: market_id_for_event,
         seed_index,
         claimer: ctx.accounts.claimer.key(),
         reward,
@@ -933,17 +1044,20 @@ mod tests {
         positions[1] = seed(0, 1, 2_000);
         positions[2] = seed(1, 0, 9_000);
 
-        let (market_0_total, market_0_sides, market_0_largest) =
+        let (market_0_total, market_0_sides, market_0_largest, market_0_min) =
             compute_seed_readiness(&positions, 3, 0, 2).unwrap();
         assert_eq!(market_0_total, 5_000);
         assert_eq!(market_0_sides, 2);
         assert_eq!(market_0_largest, 6_000);
+        assert_eq!(market_0_min, 2_000);
 
-        let (market_1_total, market_1_sides, market_1_largest) =
+        let (market_1_total, market_1_sides, market_1_largest, market_1_min) =
             compute_seed_readiness(&positions, 3, 1, 2).unwrap();
         assert_eq!(market_1_total, 9_000);
         assert_eq!(market_1_sides, 1);
         assert_eq!(market_1_largest, 10_000);
+        // outcome 1 of market 1 is unseeded → smallest side is 0
+        assert_eq!(market_1_min, 0);
     }
 
     #[test]
@@ -953,10 +1067,12 @@ mod tests {
         positions[1] = seed(0, 1, 2_000);
         positions[1].refunded = true;
 
-        let (total, sides, largest) = compute_seed_readiness(&positions, 2, 0, 2).unwrap();
+        let (total, sides, largest, smallest) = compute_seed_readiness(&positions, 2, 0, 2).unwrap();
         assert_eq!(total, 3_000);
         assert_eq!(sides, 1);
         assert_eq!(largest, 10_000);
+        // outcome 1's only seed was refunded → smallest side is 0
+        assert_eq!(smallest, 0);
     }
 
     #[test]
@@ -965,7 +1081,7 @@ mod tests {
         positions[0] = seed(0, 0, 8_000_000_000);
         positions[1] = seed(0, 1, 6_000_000_000);
         positions[2] = seed(0, 2, 6_000_000_000);
-        let b_fp = 100_000_000 * SCALE;
+        let b_fp = 100_000_000; // B_raw in raw lamports
 
         let q_values =
             compute_seed_lmsr_q_values(&positions, 3, 0, 3, 20_000_000_000, b_fp).unwrap();
@@ -985,7 +1101,7 @@ mod tests {
         let mut positions = [SeedPosition::default(); MAX_SEED_POSITIONS];
         positions[0] = seed(0, 0, 8_000_000_000);
         positions[1] = seed(0, 1, 6_000_000_000);
-        let b_fp = 100_000_000 * SCALE;
+        let b_fp = 100_000_000; // B_raw in raw lamports
 
         let result = compute_seed_lmsr_q_values(&positions, 2, 0, 3, 14_000_000_000, b_fp);
 

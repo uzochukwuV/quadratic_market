@@ -34,6 +34,7 @@ import {
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
+  getAssociatedTokenAddressSync,
   mintTo,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -134,7 +135,7 @@ async function computeLmsrPrice(
   const m: any = await program.account.market.fetch(marketPda);
   const qValues: BN[] = m.qValues;
   const bFp: BN = m.lmsrB;
-  const bRaw = bFp.shrn(32);          // Q32.32 → raw
+  const bRaw = bFp;                    // lmsr_b is stored as raw lamports (B_raw)
   const n = m.numOutcomes as number;
 
   // Find max for numeric stability
@@ -155,6 +156,17 @@ async function computeLmsrPrice(
 
   const price = (targetExp / sumExp) * SCALE.toNumber();
   return new BN(Math.round(price));
+}
+
+/**
+ * Convert a desired opening line (implied probabilities) into LMSR q_values, the
+ * operator-set opening odds. q_i = B_raw · (ln(p_i) − min_j ln(p_j)).
+ * `bRaw` is the market's lmsr_b in raw lamports.
+ */
+function oddsToQValues(probs: number[], bRaw: number): BN[] {
+  const lns = probs.map((p) => Math.log(p));
+  const minLn = Math.min(...lns);
+  return lns.map((ln) => new BN(Math.round(bRaw * (ln - minLn))));
 }
 
 // ─── Main test suite ──────────────────────────────────────────────────────────
@@ -357,6 +369,11 @@ describe("Quadratic Market — Full Protocol Flow", () => {
     const startTime = new BN(Math.floor(Date.now() / 1000) + 3000); // 50 min from now
     const NUM_OUTCOMES = 3; // 1 / X / 2
 
+    // Operator sets the opening line (Bet9ja-style): Arsenal 40% / Draw 30% /
+    // Chelsea 30%. Converted to q_values; LMSR moves them dynamically after.
+    const DEFAULT_B_RAW = 100_000_000_000; // matches DEFAULT_LMSR_B
+    const openingQ = oddsToQValues([0.4, 0.3, 0.3], DEFAULT_B_RAW);
+
     await program.methods
       .createMarket(
         startTime,
@@ -365,7 +382,7 @@ describe("Quadratic Market — Full Protocol Flow", () => {
         "EPL Match Day 28",
         1,                // category: football
         null,             // use default lmsr_b
-        null,             // no initial q override
+        openingQ,         // operator-set opening line
         { trading: {} } // market mode
       )
       .accounts({
@@ -432,27 +449,41 @@ describe("Quadratic Market — Full Protocol Flow", () => {
     console.log("  STEP 5 — Seed Positions + Activate Market");
     console.log("══════════════════════════════════════════");
 
-    const seedAmount = new BN(10_000 * ONE_USDC);
-
-    // Register seeds for all 3 outcomes so activation checks pass
-    // (min 2 sides seeded, total >= seed_min_volume, largest side <= 70%)
-    // Seed: Arsenal 40%, Draw 30%, Chelsea 30%
+    // Seeding is now a REAL early bet: the seeder (admin here) pays USDC into the
+    // treasury and is minted 1 outcome token per $1. Every outcome must be seeded
+    // with >= $500 to activate. Seed: Arsenal/Draw/Chelsea.
     const seeds_data = [
-      { outcomeId: 0, amount: new BN(8_000 * ONE_USDC) },  // Arsenal 40%
-      { outcomeId: 1, amount: new BN(6_000 * ONE_USDC) },  // Draw    30%
-      { outcomeId: 2, amount: new BN(6_000 * ONE_USDC) },  // Chelsea 30%
+      { outcomeId: 0, amount: new BN(8_000 * ONE_USDC) },
+      { outcomeId: 1, amount: new BN(6_000 * ONE_USDC) },
+      { outcomeId: 2, amount: new BN(6_000 * ONE_USDC) },
     ];
 
+    // Fund the seeder (admin) with USDC for the seed bets.
+    const adminBaseAta = await createAta(admin.publicKey, baseMint);
+    await mintTo(connection, admin, baseMint, adminBaseAta, admin, 30_000 * ONE_USDC);
+
     for (const s of seeds_data) {
+      const omPda = outcomeMints[s.outcomeId];
+      const seederOutcomeAta = await createAta(admin.publicKey, omPda);
       await program.methods
-        .registerSeedPosition(groupId, admin.publicKey, 0, s.outcomeId, s.amount)
+        .registerSeedPosition(groupId, marketId, 0, s.outcomeId, s.amount)
         .accounts({
-          globalConfig:  globalConfigPda,
-          marketGroup:   marketGroupPda,
-          authority:     admin.publicKey,
+          globalConfig:    globalConfigPda,
+          marketGroup:     marketGroupPda,
+          market:          marketPda,
+          treasury:        treasuryPda,
+          seederBaseAta:   adminBaseAta,
+          treasuryBaseAta: treasuryBaseAta,
+          outcomeMint:     omPda,
+          seederOutcomeAta: seederOutcomeAta,
+          baseMint:        baseMint,
+          seeder:          admin.publicKey,
+          tokenProgram:    TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram:   SystemProgram.programId,
         })
         .rpc();
-      console.log(`  Registered seed: outcome ${s.outcomeId}, amount ${toUsdc(s.amount)}`);
+      console.log(`  Seeded outcome ${s.outcomeId} with ${toUsdc(s.amount)} (real bet)`);
     }
 
     // Activate the seeded market → status = Open
@@ -610,8 +641,27 @@ describe("Quadratic Market — Full Protocol Flow", () => {
     const market2Id: BN = cfg.nextMarketId;
     const [market2Pda] = pda([SEEDS.MARKET, u64LE(market2Id)], programId);
 
+    // add_liquidity (step 6) calls advance_epoch, which rolls current_epoch
+    // forward to now / epoch_duration. Only epoch 0 was initialized in step 2,
+    // so the active epoch account for the new current_epoch does not exist yet.
+    // createMarket derives the epoch PDA from global_config.current_epoch, so we
+    // must initialize that epoch before creating market 2. initEpoch is
+    // idempotent (init_if_needed) and always targets current_epoch.
+    await program.methods
+      .initEpoch()
+      .accounts({
+        globalConfig:  globalConfigPda,
+        epoch:         pda([SEEDS.EPOCH, u64LE(cfg.currentEpoch)], programId)[0],
+        authority:     admin.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    const [activeEpochPda] = pda([SEEDS.EPOCH, u64LE(cfg.currentEpoch)], programId);
+
     const startTime2 = new BN(Math.floor(Date.now() / 1000) + 2800);
 
+    const openingQ2 = oddsToQValues([0.6, 0.4], 100_000_000_000);
     await program.methods
       .createMarket(
         startTime2,
@@ -620,13 +670,13 @@ describe("Quadratic Market — Full Protocol Flow", () => {
         "Both Teams to Score side market",
         1,
         null,
-        null,
-        { fixedOdds: {} }
+        openingQ2,
+        { trading: {} }
       )
       .accounts({
         globalConfig:  globalConfigPda,
         market:        market2Pda,
-        epoch:         epochPda,
+        epoch:         activeEpochPda,
         authority:     admin.publicKey,
         systemProgram: SystemProgram.programId,
         rent:          anchor.web3.SYSVAR_RENT_PUBKEY,
@@ -656,6 +706,55 @@ describe("Quadratic Market — Full Protocol Flow", () => {
       console.log(`  Market2 outcome ${i} (${outcomeNames2[i]}) mint: ${omPda.toBase58()}`);
     }
 
+    await program.methods
+      .addMarketToGroup(groupId, 1)
+      .accounts({
+        globalConfig: globalConfigPda,
+        market:       market2Pda,
+        marketGroup:  marketGroupPda,
+        authority:    admin.publicKey,
+      })
+      .rpc();
+
+    const market2Seeds = [
+      { outcomeId: 0, amount: new BN(3_000 * ONE_USDC) },
+      { outcomeId: 1, amount: new BN(3_000 * ONE_USDC) },
+    ];
+    const adminBaseAta2 = await createAta(admin.publicKey, baseMint);
+    await mintTo(connection, admin, baseMint, adminBaseAta2, admin, 10_000 * ONE_USDC);
+    for (const s of market2Seeds) {
+      const om2 = outcomeMints2[s.outcomeId];
+      const seederOutcomeAta2 = await createAta(admin.publicKey, om2);
+      await program.methods
+        .registerSeedPosition(groupId, market2Id, 1, s.outcomeId, s.amount)
+        .accounts({
+          globalConfig:    globalConfigPda,
+          marketGroup:     marketGroupPda,
+          market:          market2Pda,
+          treasury:        treasuryPda,
+          seederBaseAta:   adminBaseAta2,
+          treasuryBaseAta: treasuryBaseAta,
+          outcomeMint:     om2,
+          seederOutcomeAta: seederOutcomeAta2,
+          baseMint:        baseMint,
+          seeder:          admin.publicKey,
+          tokenProgram:    TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram:   SystemProgram.programId,
+        })
+        .rpc();
+    }
+
+    await program.methods
+      .activateSeededMarket(groupId)
+      .accounts({
+        globalConfig: globalConfigPda,
+        marketGroup:  marketGroupPda,
+        market:       market2Pda,
+        authority:    admin.publicKey,
+      })
+      .rpc();
+
     // Multi-leg slips: 2-leg combos
     const multiSlips = [
       {
@@ -680,6 +779,12 @@ describe("Quadratic Market — Full Protocol Flow", () => {
       },
     ];
 
+    // Multi-leg slips are assembled across transactions to avoid the single-tx
+    // heap exhaustion in place_slip:
+    //   openSlip → addSlipLeg (one tx per leg) → finalizeSlip
+    // Each addSlipLeg touches exactly one market, so every transaction starts
+    // with a fresh heap. In a frontend, these would be bundled with the wallet's
+    // signAllTransactions for a single approval.
     for (const ms of multiSlips) {
       const userBase = userBaseAtas.get(ms.user.publicKey.toBase58())!;
       const balBefore = await tokenBalance(userBase);
@@ -688,39 +793,63 @@ describe("Quadratic Market — Full Protocol Flow", () => {
       const currentSlipId: BN = cfgNow.nextSlipId;
       const [slipPda] = pda([SEEDS.BET_SLIP, u64LE(currentSlipId)], programId);
 
-      const remainingAccounts: anchor.web3.AccountMeta[] = [];
-      const slipOutcomeAtas: PublicKey[] = [];
-
-      for (let i = 0; i < ms.legs.length; i++) {
-        const slipOutcomeAta = await getOrCreateAssociatedTokenAccount(
-          connection, ms.user, ms.mints[i], slipPda, true
-        );
-        slipOutcomeAtas.push(slipOutcomeAta.address);
-        remainingAccounts.push({ pubkey: ms.markets[i],             isSigner: false, isWritable: true });
-        remainingAccounts.push({ pubkey: ms.mints[i],              isSigner: false, isWritable: true });
-        remainingAccounts.push({ pubkey: slipOutcomeAta.address,   isSigner: false, isWritable: true });
-      }
-
+      const numLegs = ms.legs.length;
       const maxPayment = BET_SHARES.muln(3);
 
+      // 1) open_slip — create the slip in Building state.
       await program.methods
-        .placeSlip(ms.legs, maxPayment, 1)
+        .openSlip(currentSlipId, numLegs, maxPayment)
         .accounts({
-          globalConfig:       globalConfigPda,
-          betSlip:            slipPda,
-          treasury:           treasuryPda,
-          buyerBaseAta:       userBase,
-          treasuryBaseAta:    treasuryBaseAta,
-          baseMint:           baseMint,
-          slipCreator:        ms.user.publicKey,
-          tokenProgram:       TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram:      SystemProgram.programId,
+          globalConfig:  globalConfigPda,
+          betSlip:       slipPda,
+          slipCreator:   ms.user.publicKey,
+          systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([
-          ...remainingAccounts,
-          { pubkey: marketGroupPda, isSigner: false, isWritable: true },
-        ])
+        .signers([ms.user])
+        .rpc();
+
+      // 2) add_slip_leg — one transaction per leg.
+      for (let i = 0; i < numLegs; i++) {
+        const leg = ms.legs[i];
+        const slipOutcomeAta = getAssociatedTokenAddressSync(
+          ms.mints[i], slipPda, true
+        );
+        await program.methods
+          .addSlipLeg(currentSlipId, {
+            marketId:  leg.marketId,
+            outcomeId: leg.outcomeId,
+            numShares: leg.numShares,
+          })
+          .accounts({
+            globalConfig:    globalConfigPda,
+            betSlip:         slipPda,
+            market:          ms.markets[i],
+            treasury:        treasuryPda,
+            buyerBaseAta:    userBase,
+            treasuryBaseAta: treasuryBaseAta,
+            outcomeMint:     ms.mints[i],
+            slipOutcomeAta:  slipOutcomeAta,
+            baseMint:        baseMint,
+            slipCreator:     ms.user.publicKey,
+            tokenProgram:    TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram:   SystemProgram.programId,
+          })
+          .signers([ms.user])
+          .rpc();
+      }
+
+      // 3) finalize_slip — compute combined odds + bonus, lock LP liability.
+      await program.methods
+        .finalizeSlip(currentSlipId)
+        .accounts({
+          globalConfig:    globalConfigPda,
+          betSlip:         slipPda,
+          treasury:        treasuryPda,
+          treasuryBaseAta: treasuryBaseAta,
+          baseMint:        baseMint,
+          slipCreator:     ms.user.publicKey,
+        })
         .signers([ms.user])
         .rpc();
 
@@ -735,6 +864,7 @@ describe("Quadratic Market — Full Protocol Flow", () => {
       console.log(`     Potential payout: ${toUsdc(slip.potentialPayout)}`);
       console.log(`     Combined odds:    ${fpToDecimalOdds(slip.combinedOddsFp)}`);
       console.log(`     Num legs:         ${slip.numLegs}`);
+      console.log(`     Status:           ${JSON.stringify(slip.status)}`);
 
       await printMarketOdds(program, marketPda, ms.label + " (market1)");
     }

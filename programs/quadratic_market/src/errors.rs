@@ -155,6 +155,18 @@ pub enum QuadraticMarketError {
     SlipAlreadyCashedOut = 724,
     #[msg("Seeded market has not reached minimum bootstrapping requirements")]
     SeedMarketNotReady = 726,
+    #[msg("Bet slip is not in the building state")]
+    SlipNotBuilding = 727,
+    #[msg("Bet slip leg index is out of order or already added")]
+    SlipLegOutOfOrder = 728,
+    #[msg("Bet slip already finalized")]
+    SlipAlreadyFinalized = 729,
+    #[msg("Bet slip legs are not all added yet")]
+    SlipLegsIncomplete = 730,
+    #[msg("Bet slip is not active")]
+    SlipNotActive = 731,
+    #[msg("Bet slip leg duplicates an existing leg's market")]
+    SlipDuplicateMarket = 732,
 
     // 800-899: Epoch errors
     #[msg("Epoch has not completed — not all markets are settled")]

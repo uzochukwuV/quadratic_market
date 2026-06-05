@@ -84,7 +84,10 @@ pub struct ClaimPayout<'info> {
     )]
     pub treasury_base_ata: Account<'info, TokenAccount>,
 
+    // Must be writable: claim_payout burns the claimer's winning outcome tokens,
+    // which decrements this mint's supply (a write to the mint account).
     #[account(
+        mut,
         constraint = outcome_mint.key() == market.outcome_mints[market.winning_outcome as usize] @ QuadraticMarketError::WrongOutcomeToken,
     )]
     pub outcome_mint: Account<'info, Mint>,
@@ -189,6 +192,8 @@ pub struct ClaimPausedBet<'info> {
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
     pub base_mint: Box<Account<'info, Mint>>,
 
+    // Must be writable: the slip PDA is closed to the claimer (rent returned).
+    #[account(mut)]
     pub claimer: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,

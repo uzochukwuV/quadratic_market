@@ -8,7 +8,7 @@ use crate::math::correlation::{
     compute_joint_probability_fp, LogicalOutcome,
 };
 use crate::math::lmsr::{lmsr_buy_cost, lmsr_price};
-use crate::state::{BetSlip, GlobalConfig, Market, MarketStatus, SlipLeg};
+use crate::state::{BetSlip, GlobalConfig, Market, MarketMode, MarketStatus, SlipLeg, SlipStatus};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::{self, AssociatedToken};
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
@@ -22,6 +22,33 @@ fn deserialize_market_info(market_info: &AccountInfo) -> Result<Box<Market>> {
     );
     Ok(market)
 }
+
+// Byte offsets of individual Market fields within the account data (including the
+// 8-byte Anchor discriminator). Used to read just the settlement-relevant fields
+// without deserializing the whole Market (which allocates heap for its String
+// fields). Layout: disc(8) + market_id(8) + creator(32) + start_time(8) +
+// status(1) + num_outcomes(1) + q_values(64) + exposure(8) + settlement_time(8) +
+// winning_outcome(1) + ...
+const MARKET_STATUS_OFFSET: usize = 8 + 8 + 32 + 8; // = 56
+const MARKET_WINNING_OUTCOME_OFFSET: usize = 8 + 8 + 32 + 8 + 1 + 1 + 64 + 8 + 8; // = 138
+
+/// Heap-light read of just `status` and `winning_outcome` from a Market account.
+/// Avoids the full `Market` deserialize (and its String heap allocations), which
+/// is what makes multi-leg claim_slip exhaust the bump heap.
+fn read_market_settlement_fields(market_info: &AccountInfo) -> Result<(u8, u8)> {
+    let data = market_info.data.borrow();
+    let status = *data
+        .get(MARKET_STATUS_OFFSET)
+        .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+    let winning_outcome = *data
+        .get(MARKET_WINNING_OUTCOME_OFFSET)
+        .ok_or(QuadraticMarketError::InvalidRemainingAccount)?;
+    Ok((status, winning_outcome))
+}
+
+// MarketStatus Borsh discriminants (ordinal order in the enum).
+const MARKET_STATUS_SETTLED: u8 = 5;
+const MARKET_STATUS_VOIDED: u8 = 6;
 
 struct MarketGroupSnapshot {
     group_id: u64,
@@ -193,6 +220,46 @@ fn write_group_seed_fee_pool(group_info: &AccountInfo, market_index: usize, valu
         GROUP_SEED_FEE_POOLS_OFFSET + market_index * 8,
         value,
     )
+}
+
+fn compute_slip_payout_from_legs(
+    legs: &[SlipLeg],
+    num_legs: u8,
+    bonus_multiplier_bps: u64,
+) -> Result<u64> {
+    let mut base_payout: u64 = 0;
+    for leg in legs.iter().take(num_legs as usize) {
+        base_payout = base_payout
+            .checked_add(leg.num_shares)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+    }
+
+    let bonus = if num_legs >= 2 && bonus_multiplier_bps > CORRELATION_MAX_BPS {
+        base_payout
+            .checked_mul(
+                bonus_multiplier_bps
+                    .checked_sub(CORRELATION_MAX_BPS)
+                    .ok_or(QuadraticMarketError::MathUnderflow)?,
+            )
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / CORRELATION_MAX_BPS
+    } else {
+        0
+    };
+
+    base_payout
+        .checked_add(bonus)
+        .ok_or(QuadraticMarketError::MathOverflow.into())
+}
+
+fn compute_effective_odds_fp(total_stake: u64, potential_payout: u64) -> Result<u64> {
+    require!(total_stake > 0, QuadraticMarketError::InvalidAmount);
+    let odds = (potential_payout as u128)
+        .checked_mul(SCALE as u128)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        .checked_div(total_stake as u128)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    Ok(odds as u64)
 }
 
 #[inline(never)]
@@ -401,6 +468,10 @@ pub fn place_slip_handler<'info>(
             market.status == MarketStatus::Open,
             QuadraticMarketError::MarketNotOpen
         );
+        require!(
+            market.market_mode == MarketMode::Trading,
+            QuadraticMarketError::DirectTradingDisabled
+        );
 
         let now = Clock::get()?.unix_timestamp;
         require!(now < market.start_time, QuadraticMarketError::MarketExpired);
@@ -460,25 +531,14 @@ pub fn place_slip_handler<'info>(
             QuadraticMarketError::SlipCostExceeded
         );
 
-        let price = lmsr_price(
-            &market.q_values,
-            market.num_outcomes,
-            leg.outcome_id,
-            market.lmsr_b,
-        )?;
         let bonus = compute_bonus_multiplier(num_legs, config.max_slip_bonus_multiplier_bps)?;
-        let combined_odds_fp =
-            compute_combined_odds_fp(&[price], num_legs, config.slip_house_margin_bps, bonus)?;
-        let potential_payout = ((total_cost as u128)
-            .checked_mul(combined_odds_fp as u128)
-            .ok_or(QuadraticMarketError::MathOverflow)?)
-            / SCALE as u128;
-        let potential_payout = potential_payout as u64;
-        let bonus_gap = potential_payout.saturating_sub(total_cost);
+        let potential_payout = compute_slip_payout_from_legs(&legs, num_legs, bonus)?;
+        let combined_odds_fp = compute_effective_odds_fp(total_cost, potential_payout)?;
+        let liability_gap = potential_payout.saturating_sub(total_cost);
 
         let free = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
         require!(
-            free >= bonus_gap,
+            free >= liability_gap,
             QuadraticMarketError::InsufficientLiquidity
         );
 
@@ -532,7 +592,7 @@ pub fn place_slip_handler<'info>(
 
         config.locked_payouts = config
             .locked_payouts
-            .checked_add(bonus_gap)
+            .checked_add(liability_gap)
             .ok_or(QuadraticMarketError::MathOverflow)?;
 
         let slip = &mut ctx.accounts.bet_slip;
@@ -546,7 +606,7 @@ pub fn place_slip_handler<'info>(
         slip.combined_odds_fp = combined_odds_fp;
         slip.house_margin_bps = config.slip_house_margin_bps;
         slip.potential_payout = potential_payout;
-        slip.locked_amount = bonus_gap;
+        slip.locked_amount = liability_gap;
         slip.exposure_locked = 0;
         slip.group_ids = [0u64; MAX_SLIP_LEGS];
         slip.group_exposure_locked = [0u64; MAX_SLIP_LEGS];
@@ -556,6 +616,9 @@ pub fn place_slip_handler<'info>(
         slip.seed_group_id = 0;
         slip.seed_position_index = 0;
         slip.bump = ctx.bumps.bet_slip;
+        slip.status = SlipStatus::Active;
+        slip.legs_added = num_legs;
+        slip.max_payment = max_payment;
 
         return Ok(());
     }
@@ -575,6 +638,28 @@ pub fn place_slip_handler<'info>(
     let mut group_exposure_deltas: Vec<u64> = vec![0u64; num_groups as usize];
     let mut group_seed_fee_deltas: Vec<[u64; MAX_OUTCOMES]> =
         vec![[0u64; MAX_OUTCOMES]; num_groups as usize];
+
+    // Deserialize each group snapshot exactly once and reuse it everywhere below.
+    // Re-deserializing per leg / per phase allocates a ~3-4 KB snapshot each time on
+    // the bump heap (which never frees), and multi-leg slips quickly exhaust the
+    // heap. Each group account is validated against its canonical PDA before its
+    // fields are trusted — a snapshot whose stored group_id does not match its PDA
+    // is left as None and rejected during leg resolution.
+    let mut groups: Vec<Option<Box<MarketGroupSnapshot>>> =
+        Vec::with_capacity(num_groups as usize);
+    for g in 0..num_groups as usize {
+        let group_info = &ctx.remaining_accounts[total_leg_accounts + g];
+        let snapshot = deserialize_market_group_info(group_info)?;
+        let (expected_group_pda, _) = Pubkey::find_program_address(
+            &[seeds::MARKET_GROUP, snapshot.group_id.to_le_bytes().as_ref()],
+            &crate::ID,
+        );
+        if group_info.key() == expected_group_pda {
+            groups.push(Some(snapshot));
+        } else {
+            groups.push(None);
+        }
+    }
 
     let mut i: u8 = 0;
     while i < num_legs {
@@ -599,6 +684,10 @@ pub fn place_slip_handler<'info>(
             market.status == MarketStatus::Open,
             QuadraticMarketError::MarketNotOpen
         );
+        require!(
+            market.market_mode == MarketMode::Trading,
+            QuadraticMarketError::DirectTradingDisabled
+        );
 
         // Betting stops when match starts
         let now = Clock::get()?.unix_timestamp;
@@ -621,21 +710,14 @@ pub fn place_slip_handler<'info>(
                 group_index = None;
             } else {
             let mut found = false;
+            // Match against the pre-validated group snapshots (PDA already checked).
             for g in 0..num_groups as usize {
-                let group_info = &ctx.remaining_accounts[total_leg_accounts + g];
-                // Validate PDA before trusting any deserialized fields
-                let (expected_group_pda, _) = Pubkey::find_program_address(
-                    &[seeds::MARKET_GROUP, group_id.to_le_bytes().as_ref()],
-                    &crate::ID,
-                );
-                if group_info.key() != expected_group_pda {
-                    continue;
-                }
-                let group = deserialize_market_group_info(group_info)?;
-                if group.group_id == group_id {
-                    group_index = Some(g);
-                    found = true;
-                    break;
+                if let Some(group) = &groups[g] {
+                    if group.group_id == group_id {
+                        group_index = Some(g);
+                        found = true;
+                        break;
+                    }
                 }
             }
             require!(found, QuadraticMarketError::MarketGroupNotFound);
@@ -644,8 +726,9 @@ pub fn place_slip_handler<'info>(
 
         // Compute cost — apply correlation adjustment when grouped
         let (leg_cost, leg_price) = if let Some(g_idx) = group_index {
-            let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-            let market_group = deserialize_market_group_info(group_info)?;
+            let market_group = groups[g_idx]
+                .as_ref()
+                .ok_or(QuadraticMarketError::MarketGroupNotFound)?;
 
             // Build correlated q_values array from leg markets already processed
             // plus search remaining_accounts for group peers not yet seen
@@ -821,8 +904,9 @@ pub fn place_slip_handler<'info>(
         if group_exposure_deltas[g_idx] == 0 {
             continue;
         }
-        let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-        let group = deserialize_market_group_info(group_info)?;
+        let group = groups[g_idx]
+            .as_ref()
+            .ok_or(QuadraticMarketError::MarketGroupNotFound)?;
 
         let new_exposure = group
             .total_group_exposure
@@ -834,51 +918,28 @@ pub fn place_slip_handler<'info>(
         );
     }
 
-    // Compute combined odds with house margin and bonus. When multiple legs
-    // belong to a group with a configured same-game state model, collapse those
-    // legs into one joint probability so correlated outcomes are not priced as
-    // independent events.
+    // Multi-leg slips are LMSR positions with an all-or-nothing bonus. Each leg
+    // is priced through LMSR, escrowed by the slip PDA, and only pays the user
+    // if every leg wins. If any leg fails, any winning leg value remains in the
+    // treasury for LPs.
     let house_margin_bps = config.slip_house_margin_bps;
     let bonus = compute_bonus_multiplier(num_legs, config.max_slip_bonus_multiplier_bps)?;
-    // store MarketGroup on heap to keep stack usage low
-    let mut groups: Vec<Box<MarketGroupSnapshot>> = Vec::with_capacity(num_groups as usize);
-    for g_idx in 0..num_groups as usize {
-        let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-        let group = deserialize_market_group_info(group_info)?;
-        groups.push(group);
-    }
-    let combined_odds_fp = compute_group_aware_combined_odds_fp(
-        &legs,
-        num_legs,
-        &leg_prices,
-        &leg_markets,
-        &leg_group_indices,
-        &groups,
-        house_margin_bps,
-        bonus,
-    )?;
-
-    let potential_payout = ((total_cost as u128)
-        .checked_mul(combined_odds_fp as u128)
-        .ok_or(QuadraticMarketError::MathOverflow)?)
-        / SCALE as u128;
-    let potential_payout = potential_payout as u64;
+    let potential_payout = compute_slip_payout_from_legs(&legs, num_legs, bonus)?;
+    let combined_odds_fp = compute_effective_odds_fp(total_cost, potential_payout)?;
 
     require!(
         total_cost <= max_payment,
         QuadraticMarketError::SlipCostExceeded
     );
 
-    // The base payout (total_cost) is self-funded by losing bettors in each market pool —
-    // it does not require LP backing. LP only covers the bonus premium above fair value.
-    // Locking the full potential_payout would massively over-collateralise the protocol.
-    let bonus_gap = potential_payout.saturating_sub(total_cost);
+    let liability_gap = potential_payout.saturating_sub(total_cost);
 
-    // Liquidity check: LP only needs to cover the bonus gap
+    // Liquidity check: stake funds the first part of the payout; LP liquidity
+    // backs the LMSR profit plus the multi-leg bonus.
     let treasury_balance = ctx.accounts.treasury_base_ata.amount;
     let free = config.free_liquidity(treasury_balance);
     require!(
-        free >= bonus_gap,
+        free >= liability_gap,
         QuadraticMarketError::InsufficientLiquidity
     );
 
@@ -958,7 +1019,9 @@ pub fn place_slip_handler<'info>(
                     .ok_or(QuadraticMarketError::MathOverflow)?;
 
                 let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-                let mut market_group = deserialize_market_group_info(group_info)?;
+                let market_group = groups[g_idx]
+                    .as_mut()
+                    .ok_or(QuadraticMarketError::MarketGroupNotFound)?;
 
                 market_group.total_group_exposure = market_group
                     .total_group_exposure
@@ -988,12 +1051,10 @@ pub fn place_slip_handler<'info>(
         leg_idx += 1;
     }
 
-    // Lock only the bonus gap and reserved seed-fee rewards against LP reserves.
-    // The base payout (total_cost) is covered by the losing bettors' stakes
-    // already sitting in each market's pool.
+    // Lock the external liability gap plus reserved seed-fee rewards.
     config.locked_payouts = config
         .locked_payouts
-        .checked_add(bonus_gap)
+        .checked_add(liability_gap)
         .ok_or(QuadraticMarketError::MathOverflow)?
         .checked_add(total_seed_fee_locked)
         .ok_or(QuadraticMarketError::MathOverflow)?;
@@ -1012,7 +1073,7 @@ pub fn place_slip_handler<'info>(
     slip.combined_odds_fp = combined_odds_fp;
     slip.house_margin_bps = house_margin_bps;
     slip.potential_payout = potential_payout;
-    slip.locked_amount = bonus_gap; // only the LP-backed premium, not the full payout
+    slip.locked_amount = liability_gap;
     slip.exposure_locked = total_exposure_locked;
     slip.group_ids = [0u64; MAX_SLIP_LEGS];
     slip.group_exposure_locked = [0u64; MAX_SLIP_LEGS];
@@ -1021,8 +1082,9 @@ pub fn place_slip_handler<'info>(
         if group_exposure_deltas[g_idx] == 0 {
             continue;
         }
-        let group_info = &ctx.remaining_accounts[total_leg_accounts + g_idx];
-        let group = deserialize_market_group_info(group_info)?;
+        let group = groups[g_idx]
+            .as_ref()
+            .ok_or(QuadraticMarketError::MarketGroupNotFound)?;
         let out_idx = slip.num_groups_locked as usize;
         require!(
             out_idx < MAX_SLIP_LEGS,
@@ -1034,6 +1096,440 @@ pub fn place_slip_handler<'info>(
     }
     slip.claimed = false;
     slip.bump = ctx.bumps.bet_slip;
+    slip.status = SlipStatus::Active;
+    slip.legs_added = num_legs;
+    slip.max_payment = max_payment;
+
+    Ok(())
+}
+
+// ─── Multi-leg slip state machine (open / add_leg / finalize / cancel) ──
+//
+// place_slip processes every leg in one transaction, which exhausts the BPF
+// bump heap (it never frees) once enough legs / group snapshots are touched.
+// These instructions assemble a slip across multiple transactions so each
+// transaction starts with a fresh heap and touches at most one market:
+//
+//   open_slip      → create the BetSlip in Building state, escrow the stake
+//   add_slip_leg   → one tx per leg: LMSR-price the leg, mint to the slip, bump
+//                    the market, append the leg (no group/correlation logic —
+//                    multi-leg slips here are priced as independent LMSR legs)
+//   finalize_slip  → require all legs added, compute combined odds + bonus, lock
+//                    the LP-backed liability gap, mark Active
+//   cancel_slip    → abort a partially-built slip and refund the escrowed stake
+//
+// Each add_slip_leg escrows that leg's LMSR cost incrementally, so the slip's
+// running total_stake equals the sum of leg costs. finalize_slip enforces the
+// per-slip max_payment captured at open_slip.
+
+#[derive(Accounts)]
+#[instruction(slip_id: u64, num_legs: u8, max_payment: u64)]
+pub struct OpenSlip<'info> {
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        init,
+        payer = slip_creator,
+        space = BetSlip::LEN,
+        seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub bet_slip: Box<Account<'info, BetSlip>>,
+
+    #[account(mut)]
+    pub slip_creator: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn open_slip_handler(
+    ctx: Context<OpenSlip>,
+    slip_id: u64,
+    num_legs: u8,
+    max_payment: u64,
+) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+    require!(!config.paused, QuadraticMarketError::Paused);
+    require!(num_legs > 0, QuadraticMarketError::SlipNoLegs);
+    require!(
+        num_legs <= MAX_SLIP_LEGS as u8,
+        QuadraticMarketError::SlipTooManyLegs
+    );
+
+    // slip_id must be the next id, and is consumed so it can't be reused.
+    require!(
+        slip_id == config.next_slip_id,
+        QuadraticMarketError::InvalidRemainingAccount
+    );
+    config.next_slip_id = config
+        .next_slip_id
+        .checked_add(1)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+
+    let slip = &mut ctx.accounts.bet_slip;
+    slip.slip_id = slip_id;
+    slip.creator = ctx.accounts.slip_creator.key();
+    slip.legs = [SlipLeg::default(); MAX_SLIP_LEGS];
+    slip.num_legs = num_legs;
+    slip.total_stake = 0;
+    slip.combined_odds_fp = 0;
+    slip.house_margin_bps = config.slip_house_margin_bps;
+    slip.potential_payout = 0;
+    slip.locked_amount = 0;
+    slip.exposure_locked = 0;
+    slip.group_ids = [0u64; MAX_SLIP_LEGS];
+    slip.group_exposure_locked = [0u64; MAX_SLIP_LEGS];
+    slip.num_groups_locked = 0;
+    slip.claimed = false;
+    slip.is_seed = false;
+    slip.seed_group_id = 0;
+    slip.seed_position_index = 0;
+    slip.bump = ctx.bumps.bet_slip;
+    slip.status = SlipStatus::Building;
+    slip.legs_added = 0;
+    slip.max_payment = max_payment;
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(slip_id: u64, leg: SlipLeg)]
+pub struct AddSlipLeg<'info> {
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        mut,
+        seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
+        bump = bet_slip.bump,
+        constraint = bet_slip.creator == slip_creator.key() @ QuadraticMarketError::Unauthorized,
+    )]
+    pub bet_slip: Box<Account<'info, BetSlip>>,
+
+    #[account(
+        mut,
+        seeds = [seeds::MARKET, market.market_id.to_le_bytes().as_ref()],
+        bump = market.bump,
+    )]
+    pub market: Box<Account<'info, Market>>,
+
+    /// CHECK: Treasury PDA
+    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
+    pub treasury: SystemAccount<'info>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = slip_creator)]
+    pub buyer_base_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        constraint = outcome_mint.key() == market.outcome_mints[leg.outcome_id as usize] @ QuadraticMarketError::WrongOutcomeToken,
+    )]
+    pub outcome_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        init_if_needed,
+        payer = slip_creator,
+        associated_token::mint = outcome_mint,
+        associated_token::authority = bet_slip,
+    )]
+    pub slip_outcome_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
+    pub base_mint: Box<Account<'info, Mint>>,
+
+    #[account(mut)]
+    pub slip_creator: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn add_slip_leg_handler(
+    ctx: Context<AddSlipLeg>,
+    _slip_id: u64,
+    leg: SlipLeg,
+) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+    require!(!config.paused, QuadraticMarketError::Paused);
+
+    let market = &mut ctx.accounts.market;
+    require!(
+        market.market_id == leg.market_id,
+        QuadraticMarketError::InvalidRemainingAccount
+    );
+    require!(
+        market.status == MarketStatus::Open,
+        QuadraticMarketError::MarketNotOpen
+    );
+    require!(
+        market.market_mode == MarketMode::Trading,
+        QuadraticMarketError::DirectTradingDisabled
+    );
+    require!(
+        (leg.outcome_id as usize) < market.num_outcomes as usize,
+        QuadraticMarketError::InvalidOutcomeId
+    );
+
+    let now = Clock::get()?.unix_timestamp;
+    require!(now < market.start_time, QuadraticMarketError::MarketExpired);
+
+    // Slip state checks. We deliberately scope the slip's mutable borrow so the
+    // token CPIs below can borrow account infos without conflicting.
+    let slip_key = ctx.accounts.bet_slip.key();
+    let leg_index;
+    {
+        let slip = &ctx.accounts.bet_slip;
+        require!(
+            slip.status == SlipStatus::Building,
+            QuadraticMarketError::SlipNotBuilding
+        );
+        require!(
+            slip.legs_added < slip.num_legs,
+            QuadraticMarketError::SlipLegOutOfOrder
+        );
+        // Reject a second leg on a market already present on the slip — a slip's
+        // legs must be independent markets (all-or-nothing parlay semantics).
+        for i in 0..slip.legs_added as usize {
+            require!(
+                slip.legs[i].market_id != leg.market_id,
+                QuadraticMarketError::SlipDuplicateMarket
+            );
+        }
+        leg_index = slip.legs_added as usize;
+    }
+
+    // Price the leg as an independent LMSR position on its own market.
+    let cost = lmsr_buy_cost(
+        &market.q_values,
+        market.num_outcomes,
+        leg.outcome_id,
+        leg.num_shares,
+        market.lmsr_b,
+    )?;
+
+    let profit = leg.num_shares.saturating_sub(cost);
+    let new_exposure = market
+        .exposure
+        .checked_add(profit)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    require!(
+        new_exposure <= config.max_market_exposure,
+        QuadraticMarketError::MaxExposureReached
+    );
+
+    // Escrow this leg's cost from the buyer to the treasury.
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::Transfer {
+                from: ctx.accounts.buyer_base_ata.to_account_info(),
+                to: ctx.accounts.treasury_base_ata.to_account_info(),
+                authority: ctx.accounts.slip_creator.to_account_info(),
+            },
+        ),
+        cost,
+    )?;
+
+    // Mint outcome tokens to the slip-owned ATA (the slip escrows the position).
+    let market_id_bytes = market.market_id.to_le_bytes();
+    let signer_seeds: &[&[&[u8]]] = &[&[seeds::MARKET, market_id_bytes.as_ref(), &[market.bump]]];
+    token::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            token::MintTo {
+                mint: ctx.accounts.outcome_mint.to_account_info(),
+                to: ctx.accounts.slip_outcome_ata.to_account_info(),
+                authority: market.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        leg.num_shares,
+    )?;
+
+    market.q_values[leg.outcome_id as usize] = market.q_values[leg.outcome_id as usize]
+        .checked_add(leg.num_shares)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    market.exposure = new_exposure;
+    // The leg's escrowed cost joins this market's backing ledger.
+    market.backing = market.backing.saturating_add(cost);
+
+    // Seeder reward: a slip leg has no separate buy fee — the protocol's revenue
+    // on a leg is the house margin baked into the parlay odds. Accrue 5% of that
+    // margin (cost × slip_house_margin_bps) for losing-side seeders.
+    let leg_margin = (cost as u128)
+        .checked_mul(config.slip_house_margin_bps as u128)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10_000u128;
+    crate::trade::accrue_seed_fee(config, market, leg_margin as u64)?;
+
+    // The full minted position is a potential payout liability.
+    config.locked_payouts = config
+        .locked_payouts
+        .checked_add(leg.num_shares)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+
+    let _ = slip_key;
+    let slip = &mut ctx.accounts.bet_slip;
+    slip.legs[leg_index] = leg;
+    slip.legs_added = slip
+        .legs_added
+        .checked_add(1)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    slip.total_stake = slip
+        .total_stake
+        .checked_add(cost)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    require!(
+        slip.total_stake <= slip.max_payment,
+        QuadraticMarketError::SlipCostExceeded
+    );
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(slip_id: u64)]
+pub struct FinalizeSlip<'info> {
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        mut,
+        seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
+        bump = bet_slip.bump,
+        constraint = bet_slip.creator == slip_creator.key() @ QuadraticMarketError::Unauthorized,
+    )]
+    pub bet_slip: Box<Account<'info, BetSlip>>,
+
+    /// CHECK: Treasury PDA
+    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
+    pub treasury: SystemAccount<'info>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
+    pub base_mint: Box<Account<'info, Mint>>,
+
+    pub slip_creator: Signer<'info>,
+}
+
+pub fn finalize_slip_handler(ctx: Context<FinalizeSlip>, _slip_id: u64) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+    require!(!config.paused, QuadraticMarketError::Paused);
+
+    let slip = &mut ctx.accounts.bet_slip;
+    require!(
+        slip.status == SlipStatus::Building,
+        QuadraticMarketError::SlipAlreadyFinalized
+    );
+    require!(
+        slip.legs_added == slip.num_legs,
+        QuadraticMarketError::SlipLegsIncomplete
+    );
+
+    let bonus = compute_bonus_multiplier(slip.num_legs, config.max_slip_bonus_multiplier_bps)?;
+    let potential_payout = compute_slip_payout_from_legs(&slip.legs, slip.num_legs, bonus)?;
+    let combined_odds_fp = compute_effective_odds_fp(slip.total_stake, potential_payout)?;
+    let liability_gap = potential_payout.saturating_sub(slip.total_stake);
+
+    // The bonus gap above the escrowed stake is backed by LP liquidity.
+    let free = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
+    require!(
+        free >= liability_gap,
+        QuadraticMarketError::InsufficientLiquidity
+    );
+
+    config.locked_payouts = config
+        .locked_payouts
+        .checked_add(liability_gap)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+
+    slip.combined_odds_fp = combined_odds_fp;
+    slip.potential_payout = potential_payout;
+    slip.locked_amount = liability_gap;
+    slip.status = SlipStatus::Active;
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+#[instruction(slip_id: u64)]
+pub struct CancelSlip<'info> {
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        mut,
+        seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
+        bump = bet_slip.bump,
+        constraint = bet_slip.creator == slip_creator.key() @ QuadraticMarketError::Unauthorized,
+        close = slip_creator,
+    )]
+    pub bet_slip: Box<Account<'info, BetSlip>>,
+
+    /// CHECK: Treasury PDA
+    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
+    pub treasury: SystemAccount<'info>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = treasury)]
+    pub treasury_base_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(mut, associated_token::mint = base_mint, associated_token::authority = slip_creator)]
+    pub buyer_base_ata: Box<Account<'info, TokenAccount>>,
+
+    #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
+    pub base_mint: Box<Account<'info, Mint>>,
+
+    #[account(mut)]
+    pub slip_creator: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+pub fn cancel_slip_handler(ctx: Context<CancelSlip>, _slip_id: u64) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+
+    let slip = &ctx.accounts.bet_slip;
+    require!(
+        slip.status == SlipStatus::Building,
+        QuadraticMarketError::SlipNotBuilding
+    );
+
+    // Refund the escrowed stake (sum of leg costs added so far). The minted
+    // outcome tokens remain on the slip-owned ATAs; since the slip account is
+    // closed here they become unrecoverable dust, and the q_values bumps stay —
+    // acceptable for an abandoned build. The locked_payouts added per leg are
+    // released here.
+    let refund = slip.total_stake;
+    let mut released: u64 = 0;
+    for i in 0..slip.legs_added as usize {
+        released = released
+            .checked_add(slip.legs[i].num_shares)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+    }
+    config.locked_payouts = config.locked_payouts.saturating_sub(released);
+
+    if refund > 0 {
+        let treasury_seeds: &[&[&[u8]]] = &[&[seeds::TREASURY, &[config.treasury_bump]]];
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: ctx.accounts.treasury_base_ata.to_account_info(),
+                    to: ctx.accounts.buyer_base_ata.to_account_info(),
+                    authority: ctx.accounts.treasury.to_account_info(),
+                },
+                treasury_seeds,
+            ),
+            refund,
+        )?;
+    }
 
     Ok(())
 }
@@ -1068,6 +1564,9 @@ pub struct ClaimSlip<'info> {
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
     pub base_mint: Box<Account<'info, Mint>>,
 
+    // Must be writable: `close = claimer` on bet_slip credits the slip's rent
+    // lamports to the claimer, which changes the claimer account's balance.
+    #[account(mut)]
     pub claimer: Signer<'info>,
     pub token_program: Program<'info, Token>,
 }
@@ -1081,6 +1580,10 @@ pub fn claim_slip_handler<'info>(
     let slip = &mut ctx.accounts.bet_slip;
 
     require!(!slip.claimed, QuadraticMarketError::SlipAlreadyClaimed);
+    require!(
+        slip.status == SlipStatus::Active,
+        QuadraticMarketError::SlipNotActive
+    );
     require!(slip.num_legs > 0, QuadraticMarketError::SlipNoLegs);
 
     // remaining_accounts: [Market, outcome_mint, slip_outcome_ata] × num_legs
@@ -1096,12 +1599,6 @@ pub fn claim_slip_handler<'info>(
     let mut all_won = true;
     let mut slip_voided = false;
     let mut num_legs_settled: u8 = 0;
-    let mut final_leg_prices: Vec<u64> = Vec::with_capacity(slip.num_legs as usize);
-    // keep Market on heap
-    let mut final_leg_markets: Vec<Box<Market>> = Vec::with_capacity(slip.num_legs as usize);
-    let mut final_leg_group_indices: Vec<Option<usize>> =
-        Vec::with_capacity(slip.num_legs as usize);
-    let mut final_groups: Vec<Box<MarketGroupSnapshot>> = Vec::with_capacity(group_accounts);
     for g in 0..group_accounts {
         let group_id = slip.group_ids[g];
         let group_info = &ctx.remaining_accounts[total_leg_accounts + g];
@@ -1118,7 +1615,6 @@ pub fn claim_slip_handler<'info>(
             group.group_id == group_id,
             QuadraticMarketError::InvalidRemainingAccount
         );
-        final_groups.push(group);
     }
     let slip_id_bytes = slip.slip_id.to_le_bytes();
     let slip_seeds: &[&[&[u8]]] = &[&[seeds::BET_SLIP, slip_id_bytes.as_ref(), &[slip.bump]]];
@@ -1142,11 +1638,12 @@ pub fn claim_slip_handler<'info>(
             QuadraticMarketError::InvalidRemainingAccount
         );
 
-        let market = deserialize_market_info(market_info)?;
-        let group_index = market
-            .group_id
-            .and_then(|gid| final_groups.iter().position(|g| g.group_id == gid));
-        final_leg_group_indices.push(group_index);
+        // Read only status + winning_outcome (heap-light): the full Market
+        // deserialize would allocate its String fields per leg and exhaust the
+        // bump heap on multi-leg claims. The token burn below uses the account
+        // infos directly, not the Market struct.
+        let (market_status, market_winning_outcome) =
+            read_market_settlement_fields(market_info)?;
 
         // Validate outcome mint PDA
         let (expected_mint_pda, _) = Pubkey::find_program_address(
@@ -1193,7 +1690,7 @@ pub fn claim_slip_handler<'info>(
             leg.num_shares,
         )?;
 
-        if market.status == MarketStatus::Voided {
+        if market_status == MARKET_STATUS_VOIDED {
             slip_voided = true;
             num_legs_settled += 1;
             leg_idx += 1;
@@ -1201,24 +1698,15 @@ pub fn claim_slip_handler<'info>(
         }
 
         require!(
-            market.status == MarketStatus::Settled,
+            market_status == MARKET_STATUS_SETTLED,
             QuadraticMarketError::SlipNotSettled
         );
         num_legs_settled += 1;
 
-        let price = lmsr_price(
-            &market.q_values,
-            market.num_outcomes,
-            leg.outcome_id,
-            market.lmsr_b,
-        )?;
-        final_leg_prices.push(price);
-
-        if market.winning_outcome != leg.outcome_id {
+        if market_winning_outcome != leg.outcome_id {
             all_won = false;
         }
 
-        final_leg_markets.push(market);
         leg_idx += 1;
     }
 
@@ -1229,34 +1717,13 @@ pub fn claim_slip_handler<'info>(
 
     let mut final_payout: u64 = 0;
     if !slip_voided && all_won {
-        require!(
-            final_leg_prices.len() == slip.num_legs as usize,
-            QuadraticMarketError::InvalidRemainingAccount
-        );
-        let bonus = compute_bonus_multiplier(slip.num_legs, config.max_slip_bonus_multiplier_bps)?;
-        let final_odds_fp = compute_group_aware_combined_odds_fp(
-            &slip.legs,
-            slip.num_legs,
-            &final_leg_prices,
-            &final_leg_markets,
-            &final_leg_group_indices,
-            &final_groups,
-            slip.house_margin_bps,
-            bonus,
-        )?;
-        final_payout = ((slip.total_stake as u128)
-            .checked_mul(final_odds_fp as u128)
-            .ok_or(QuadraticMarketError::MathOverflow)?)
-        .checked_div(SCALE as u128)
-        .ok_or(QuadraticMarketError::MathOverflow)? as u64;
-
-        let final_bonus_gap = final_payout.saturating_sub(slip.total_stake);
-        let available_bonus = config
+        final_payout = slip.potential_payout;
+        let available_payout = config
             .free_liquidity(ctx.accounts.treasury_base_ata.amount)
             .checked_add(slip.locked_amount)
             .ok_or(QuadraticMarketError::MathOverflow)?;
         require!(
-            available_bonus >= final_bonus_gap,
+            available_payout >= final_payout,
             QuadraticMarketError::InsufficientLiquidity
         );
     }
@@ -1366,111 +1833,14 @@ pub struct UpdateSlipLock<'info> {
 }
 
 pub fn update_slip_lock_handler(ctx: Context<UpdateSlipLock>, _slip_id: u64) -> Result<()> {
-    let config = &mut ctx.accounts.global_config;
     let slip = &mut ctx.accounts.bet_slip;
 
     require!(!slip.claimed, QuadraticMarketError::SlipAlreadyClaimed);
     require!(slip.num_legs > 0, QuadraticMarketError::SlipNoLegs);
 
-    let num_legs = slip.num_legs;
-    let group_accounts = slip.num_groups_locked as usize;
-    require!(
-        ctx.remaining_accounts.len() >= num_legs as usize + group_accounts,
-        QuadraticMarketError::InvalidRemainingAccount
-    );
-
-    let mut leg_prices: Vec<u64> = Vec::with_capacity(num_legs as usize);
-    let mut leg_markets: Vec<Box<Market>> = Vec::with_capacity(num_legs as usize);
-    let mut leg_group_indices: Vec<Option<usize>> = Vec::with_capacity(num_legs as usize);
-    let mut groups: Vec<Box<MarketGroupSnapshot>> = Vec::with_capacity(group_accounts);
-
-    for g in 0..group_accounts {
-        let group_id = slip.group_ids[g];
-        let group_info = &ctx.remaining_accounts[num_legs as usize + g];
-        let (expected_group_pda, _) = Pubkey::find_program_address(
-            &[seeds::MARKET_GROUP, group_id.to_le_bytes().as_ref()],
-            &crate::ID,
-        );
-        require!(
-            group_info.key() == expected_group_pda,
-            QuadraticMarketError::InvalidRemainingAccount
-        );
-        let group = deserialize_market_group_info(group_info)?;
-        require!(
-            group.group_id == group_id,
-            QuadraticMarketError::InvalidRemainingAccount
-        );
-        groups.push(group);
-    }
-
-    for leg_idx in 0..num_legs as usize {
-        let leg = &slip.legs[leg_idx];
-        let market_info = &ctx.remaining_accounts[leg_idx];
-
-        let (expected_pda, _) = Pubkey::find_program_address(
-            &[seeds::MARKET, leg.market_id.to_le_bytes().as_ref()],
-            &crate::ID,
-        );
-        require!(
-            market_info.key() == expected_pda,
-            QuadraticMarketError::InvalidRemainingAccount
-        );
-
-        let market = deserialize_market_info(market_info)?;
-        let group_index = market
-            .group_id
-            .and_then(|gid| groups.iter().position(|g| g.group_id == gid));
-
-        let price = lmsr_price(
-            &market.q_values,
-            market.num_outcomes,
-            leg.outcome_id,
-            market.lmsr_b,
-        )?;
-        leg_prices.push(price);
-        leg_group_indices.push(group_index);
-        leg_markets.push(market);
-    }
-
-    let bonus = compute_bonus_multiplier(num_legs, config.max_slip_bonus_multiplier_bps)?;
-    let current_combined_odds_fp = compute_group_aware_combined_odds_fp(
-        &slip.legs,
-        num_legs,
-        &leg_prices,
-        &leg_markets,
-        &leg_group_indices,
-        &groups,
-        slip.house_margin_bps,
-        bonus,
-    )?;
-
-    let current_payout = ((slip.total_stake as u128)
-        .checked_mul(current_combined_odds_fp as u128)
-        .ok_or(QuadraticMarketError::MathOverflow)?)
-        / SCALE as u128;
-    let current_payout = current_payout as u64;
-
-    // locked_amount tracks the bonus gap (payout - stake), not the full payout.
-    // Recompute the current bonus gap to compare against the stored lock.
-    let current_bonus_gap = current_payout.saturating_sub(slip.total_stake);
-
-    if current_bonus_gap > slip.locked_amount {
-        let delta = current_bonus_gap
-            .checked_sub(slip.locked_amount)
-            .ok_or(QuadraticMarketError::MathUnderflow)?;
-        let free = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-        require!(free >= delta, QuadraticMarketError::InsufficientLiquidity);
-        slip.locked_amount = current_bonus_gap;
-        config.locked_payouts = config
-            .locked_payouts
-            .checked_add(delta)
-            .ok_or(QuadraticMarketError::MathOverflow)?;
-    } else if current_bonus_gap < slip.locked_amount {
-        let delta = slip.locked_amount - current_bonus_gap;
-        slip.locked_amount = current_bonus_gap;
-        config.locked_payouts = config.locked_payouts.saturating_sub(delta);
-    }
-
+    // Slips now lock a deterministic all-or-nothing LMSR payout at placement.
+    // Later price movement should not increase or reduce the user's settled
+    // payout, so this legacy instruction is intentionally a no-op.
     Ok(())
 }
 
@@ -1514,9 +1884,11 @@ pub struct CashOutSlip<'info> {
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
     pub base_mint: Box<Account<'info, Mint>>,
 
+    // Must be writable: the slip PDA is closed to the claimer (rent returned).
+    #[account(mut)]
     pub claimer: Signer<'info>,
     pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
 pub fn cash_out_slip_handler<'info>(
@@ -1528,6 +1900,10 @@ pub fn cash_out_slip_handler<'info>(
 
     require!(!config.paused, QuadraticMarketError::Paused);
     require!(!slip.claimed, QuadraticMarketError::SlipAlreadyClaimed);
+    require!(
+        slip.status == SlipStatus::Active,
+        QuadraticMarketError::SlipNotActive
+    );
     require!(slip.num_legs > 0, QuadraticMarketError::SlipNoLegs);
 
     // remaining_accounts layout: [market, outcome_mint, slip_outcome_ata] per leg,

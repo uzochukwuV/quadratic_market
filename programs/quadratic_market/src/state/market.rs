@@ -17,7 +17,7 @@ pub enum MarketMode {
 
 impl Default for MarketMode {
     fn default() -> Self {
-        MarketMode::FixedOdds
+        MarketMode::Trading
     }
 }
 
@@ -63,7 +63,7 @@ pub struct Market {
     pub settlement_time: i64,                  // 8
     pub winning_outcome: u8,                   // 1
     pub outcome_mints: [Pubkey; MAX_OUTCOMES], // 256
-    pub lmsr_b: u64,                           // 8  (Q32.32)
+    pub lmsr_b: u64,                           // 8  (raw lamports, B_raw)
     pub title: String,                         // 4 + 128
     pub description: String,                   // 4 + 256
     pub category: u8,                          // 1
@@ -75,6 +75,22 @@ pub struct Market {
     // Epoch tracking
     pub epoch_id: u64,          // 8 — epoch this market belongs to
     pub settled_in_epoch: bool, // 1 — true when market settlement is counted in epoch
+    // Per-market backing ledger: seed capital + bet costs collected on this market,
+    // decremented by payouts. This is the market's own bankroll (funded by seeders
+    // and bettors), distinct from LP liquidity. Single-market liabilities are
+    // backed by this, so the LP pool only ever backs the multi-leg slip bonus.
+    pub backing: u64, // 8
+    // Accrued seeder reward pool: 5% of every fee this market generates (buy fees
+    // + slip leg margins). Distributed pro-rata to losing-side seeders at
+    // settlement via claim_seed_fee_reward. Reserved in config.locked_payouts.
+    pub seed_fee_pool: u64, // 8
+    // Per-market locked payout counter: total outstanding redemption liability
+    // for single bets on this market (sum of all minted outcome tokens that can
+    // be redeemed 1:1). This is backed by market.backing; the LP pool is never
+    // touched for single-bet payouts. On buy: incremented by num_shares; on
+    // claim/sell: decremented. Stage 2: moves single-bet tracking off global
+    // config.locked_payouts onto per-market ledger.
+    pub locked_payout: u64, // 8
 }
 
 impl Market {
@@ -99,6 +115,8 @@ impl Market {
         + 1   // market_mode
         + 8   // epoch_id
         + 1   // settled_in_epoch
+        + 8   // backing
+        + 8   // seed_fee_pool
         + 3; // padding to align to 8
 
     pub fn active_q_values(&self) -> Vec<u64> {

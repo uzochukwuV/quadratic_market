@@ -462,7 +462,9 @@ pub struct ProcessWithdrawal<'info> {
     )]
     pub withdrawal_request: Account<'info, WithdrawalRequest>,
 
-    #[account(constraint = authority.key() == withdrawal_request.lp @ QuadraticMarketError::Unauthorized)]
+    // Must be writable: `close = authority` on withdrawal_request credits its rent
+    // lamports to the authority, changing the authority account's balance.
+    #[account(mut, constraint = authority.key() == withdrawal_request.lp @ QuadraticMarketError::Unauthorized)]
     pub authority: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -561,6 +563,8 @@ pub struct ActivateLiquidity<'info> {
     )]
     pub pending_liquidity: Account<'info, PendingLiquidity>,
 
+    // Must be writable: the pending_liquidity PDA is closed to the caller.
+    #[account(mut)]
     pub caller: Signer<'info>,
     pub system_program: Program<'info, System>,
 }

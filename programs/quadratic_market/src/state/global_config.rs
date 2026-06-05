@@ -17,7 +17,7 @@ pub struct GlobalConfig {
     pub challenge_window_seconds: i64,      // 8   — short (default 5 min)
     pub settlement_deadline_seconds: i64,   // 8   — auto-void if oracle silent this long
     pub odds_basis: u64,                    // 8
-    pub lmsr_default_b: u64,                // 8   Q32.32
+    pub lmsr_default_b: u64,                // 8   raw lamports (B_raw)
     pub min_first_liquidity: u64,           // 8
     pub slip_house_margin_bps: u64,         // 8
     pub max_slip_bonus_multiplier_bps: u64, // 8

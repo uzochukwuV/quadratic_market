@@ -7,8 +7,11 @@ pub const LN2_FP: i64 = 2_973_032_047;
 
 // LMSR defaults
 pub const MAX_OUTCOMES: usize = 8;
-pub const DEFAULT_LMSR_B: u64 = 100_000_000; // 100 USDC (6-decimal lamports)
-pub const DEFAULT_LMSR_B_FP: u64 = DEFAULT_LMSR_B * SCALE; // Q32.32 representation
+pub const DEFAULT_LMSR_B: u64 = 100_000_000_000; // 100,000 USDC (6-decimal lamports)
+// lmsr_b is stored as raw 6-decimal lamports (NOT Q32.32). The LMSR math only
+// ever uses B_raw, so storing the raw value lets B span the full u64 range
+// instead of being capped at ~4,294 USDC by a B_raw * SCALE packing.
+pub const DEFAULT_LMSR_B_FP: u64 = DEFAULT_LMSR_B; // raw lamports (B_raw)
 
 // ERC4626 inflation fix
 pub const MIN_FIRST_LIQUIDITY: u64 = 1000; // Lock 1000 base units on first deposit
@@ -50,12 +53,16 @@ pub const CORRELATION_MAX_BPS: u64 = 10_000;
 pub const DEFAULT_SEED_FEE_SHARE_BPS: u64 = 500; // 5% of house fees
 pub const DEFAULT_MIN_SEED_VOLUME: u64 = 5_000_000_000; // 5,000 USDC (6 decimals)
 pub const DEFAULT_MAX_SEED_SIDE_SHARE_BPS: u64 = 7_000; // largest seeded side <= 70%
+// Each outcome must be seeded with at least this much real capital before a
+// PreOpen market can be activated. Seeders are early bettors whose escrowed
+// capital backs the market's bounded LMSR max-loss (B·ln(N)).
+pub const MIN_SEED_PER_OUTCOME: u64 = 500_000_000; // 500 USDC (6 decimals)
 
 // Bet slip
 pub const MAX_SLIP_LEGS: usize = 8;
 pub const DEFAULT_SLIP_HOUSE_MARGIN_BPS: u64 = 500; // 5% per leg
 pub const DEFAULT_MAX_SLIP_BONUS_BPS: u64 = 30_000; // 3.0x max bonus
-pub const MIN_SLIP_LEGS_FOR_BONUS: u8 = 5; // bonus kicks in at 5 legs
+pub const MIN_SLIP_LEGS_FOR_BONUS: u8 = 2; // bonus kicks in on multi-leg slips
 pub const SLIP_BONUS_INCREMENT_BPS: u64 = 1_000; // +10% per leg above threshold
 
 // LP epoch / timing

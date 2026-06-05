@@ -8,6 +8,25 @@ pub struct SlipLeg {
     pub num_shares: u64,
 }
 
+/// Lifecycle state of a multi-leg bet slip.
+///
+/// Single-leg slips placed via `place_slip` are created directly as `Active`.
+/// Multi-leg slips are assembled across several transactions: `open_slip`
+/// creates the slip as `Building`, each `add_slip_leg` appends one leg (one
+/// market per transaction, so the heap never holds more than one leg's worth of
+/// state), and `finalize_slip` transitions it to `Active`.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlipStatus {
+    Building,
+    Active,
+}
+
+impl Default for SlipStatus {
+    fn default() -> Self {
+        SlipStatus::Active
+    }
+}
+
 #[account]
 pub struct BetSlip {
     pub slip_id: u64,
@@ -28,6 +47,10 @@ pub struct BetSlip {
     pub seed_group_id: u64,
     pub seed_position_index: u8,
     pub bump: u8,
+    // ── Multi-leg state machine (open_slip / add_slip_leg / finalize_slip) ──
+    pub status: SlipStatus, // Building while legs are being added, Active once finalized
+    pub legs_added: u8,     // number of legs appended so far (Building)
+    pub max_payment: u64,   // per-slip stake cap supplied at open_slip
 }
 
 impl BetSlip {
@@ -49,5 +72,8 @@ impl BetSlip {
         + 1   // is_seed
         + 8   // seed_group_id
         + 1   // seed_position_index
-        + 1; // bump
+        + 1   // bump
+        + 1   // status (SlipStatus enum, 1-byte discriminant)
+        + 1   // legs_added
+        + 8;  // max_payment
 }

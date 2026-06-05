@@ -1,7 +1,6 @@
 use crate::constants::{MAX_OUTCOMES, SCALE};
 use crate::errors::QuadraticMarketError;
 use crate::math::exp_ln::{exp_q32, ln_q32};
-use crate::math::fixed_point::{from_fp, from_fp_ceil, mul_fp_signed, to_fp};
 use anchor_lang::prelude::*;
 
 /// Get the current LMSR price for outcome `outcome_id` given the q_values and liquidity param B.
@@ -27,7 +26,8 @@ pub fn lmsr_price(
     }
 
     // Compute exp((q_i - max_q) / B) for each outcome, and the sum
-    let b_raw = (b_fp >> 32) as u64;
+    // lmsr_b is stored as raw lamports (B_raw), not Q32.32.
+    let b_raw = b_fp;
     require!(b_raw > 0, QuadraticMarketError::InvalidAmount);
     let mut sum_exp: u64 = 0;
     let mut target_exp: u64 = 0;
@@ -79,7 +79,8 @@ pub fn lmsr_buy_cost(
     );
     require!(delta_q > 0, QuadraticMarketError::InvalidAmount);
 
-    let b_raw = (b_fp >> 32) as u64;
+    // lmsr_b is stored as raw lamports (B_raw), not Q32.32.
+    let b_raw = b_fp;
 
     // Find max q for normalization
     let mut max_q: u64 = 0;
@@ -123,23 +124,48 @@ pub fn lmsr_buy_cost(
 
     // cost = B * (ln(new_sum) - ln(old_sum)) in Q32.32, then convert to lamports
     if old_sum == 0 || new_sum == 0 {
-        return Err(QuadraticMarketError::MathUnderflow.into());
+        let mut final_q_values = *q_values;
+        final_q_values[outcome_id as usize] = new_q_outcome;
+        let final_price = lmsr_price(&final_q_values, num_outcomes, outcome_id, b_fp)?;
+        let fallback_cost = (delta_q as u128)
+            .checked_mul(final_price as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            .checked_add(SCALE as u128 - 1)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / SCALE as u128;
+        return Ok(fallback_cost as u64);
     }
 
     let ln_new = ln_q32(new_sum)?;
     let ln_old = ln_q32(old_sum)?;
-    let cost_fp = mul_fp_signed(
-        b_raw as i64 * SCALE as i64,
-        ln_new
+    if ln_new > ln_old {
+        // cost (Q32.32 lamports) = B_raw (lamports) * (ln_new - ln_old) (Q32.32).
+        // We compute the Q32.32 product in i128 and shift down to raw lamports
+        // directly. The old code stored cost in a u64 Q32.32 value, which capped
+        // representable costs at ~4,294 USDC; computing raw lamports in i128 lets
+        // cost span the full u64 lamport range for large B.
+        let ln_diff = ln_new
             .checked_sub(ln_old)
-            .ok_or(QuadraticMarketError::MathUnderflow)?,
-    )?;
-
-    // Cost must be positive
-    require!(cost_fp > 0, QuadraticMarketError::InvalidAmount);
-
-    // Convert from Q32.32 to lamports (round up to protect LPs)
-    Ok(from_fp_ceil(cost_fp as u64))
+            .ok_or(QuadraticMarketError::MathUnderflow)?;
+        let cost_q32 = (b_raw as i128)
+            .checked_mul(ln_diff as i128)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+        require!(cost_q32 > 0, QuadraticMarketError::InvalidAmount);
+        // Round up (ceil) to protect LPs, then clamp to u64.
+        let cost_lamports = (cost_q32 + ((SCALE as i128) - 1)) >> 32;
+        Ok(u64::try_from(cost_lamports).map_err(|_| QuadraticMarketError::MathOverflow)?)
+    } else {
+        let mut final_q_values = *q_values;
+        final_q_values[outcome_id as usize] = new_q_outcome;
+        let final_price = lmsr_price(&final_q_values, num_outcomes, outcome_id, b_fp)?;
+        let fallback_cost = (delta_q as u128)
+            .checked_mul(final_price as u128)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            .checked_add(SCALE as u128 - 1)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / SCALE as u128;
+        Ok(fallback_cost as u64)
+    }
 }
 
 /// Compute the payout for selling `delta_q` shares of outcome `outcome_id` back to the AMM.
@@ -161,7 +187,8 @@ pub fn lmsr_sell_payout(
         QuadraticMarketError::InsufficientShares
     );
 
-    let b_raw = (b_fp >> 32) as u64;
+    // lmsr_b is stored as raw lamports (B_raw), not Q32.32.
+    let b_raw = b_fp;
 
     // Find max q for normalization
     let mut max_q: u64 = 0;
@@ -204,20 +231,23 @@ pub fn lmsr_sell_payout(
         return Err(QuadraticMarketError::MathUnderflow.into());
     }
 
-    // payout = B * (ln(old_sum) - ln(new_sum)) in Q32.32
+    // payout (Q32.32 lamports) = B_raw (lamports) * (ln(old_sum) - ln(new_sum)) (Q32.32).
+    // Computed in i128 and shifted to raw lamports directly so payout can span the
+    // full u64 lamport range for large B (the old u64 Q32.32 form capped it at
+    // ~4,294 USDC).
     let ln_old = ln_q32(old_sum)?;
     let ln_new = ln_q32(new_sum)?;
-    let payout_fp = mul_fp_signed(
-        b_raw as i64 * SCALE as i64,
-        ln_old
-            .checked_sub(ln_new)
-            .ok_or(QuadraticMarketError::MathUnderflow)?,
-    )?;
-
-    require!(payout_fp > 0, QuadraticMarketError::InvalidAmount);
+    let ln_diff = ln_old
+        .checked_sub(ln_new)
+        .ok_or(QuadraticMarketError::MathUnderflow)?;
+    let payout_q32 = (b_raw as i128)
+        .checked_mul(ln_diff as i128)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    require!(payout_q32 > 0, QuadraticMarketError::InvalidAmount);
 
     // Convert to lamports (round down — AMM pays out conservatively)
-    Ok(from_fp(payout_fp as u64))
+    let payout_lamports = payout_q32 >> 32;
+    Ok(u64::try_from(payout_lamports).map_err(|_| QuadraticMarketError::MathOverflow)?)
 }
 
 /// Helper: compute exp((q - max_q) * SCALE / B) in Q32.32
@@ -226,9 +256,7 @@ fn compute_normalized_exp(q: u64, max_q: u64, b_fp: u64) -> Result<u64> {
     let diff = if q >= max_q {
         0i64
     } else {
-        // (q - max_q) is negative. Compute in Q32.32:
-        // (q - max_q) * SCALE / B_raw
-        // b_fp = B_raw * SCALE, so B_raw = b_fp / SCALE
+        // (q - max_q) is negative. Represent the raw lamport difference in Q32.32.
         -(((max_q - q) as i128 * SCALE as i128) >> 32) as i64
     };
 
@@ -236,8 +264,8 @@ fn compute_normalized_exp(q: u64, max_q: u64, b_fp: u64) -> Result<u64> {
         return Err(QuadraticMarketError::MathOverflow.into());
     }
 
-    // b_fp is stored as B_raw * SCALE, so B_raw = b_fp / SCALE
-    let b_raw = (b_fp >> 32) as i64;
+    // lmsr_b is stored as raw lamports (B_raw), not Q32.32.
+    let b_raw = b_fp as i64;
     require!(b_raw > 0, QuadraticMarketError::InvalidAmount);
 
     let exponent = if diff == 0 {
@@ -255,8 +283,8 @@ mod tests {
     use super::*;
 
     fn default_b_fp() -> u64 {
-        // B = 100 USDC in Q32.32: 100_000_000 * 2^32
-        100_000_000 * SCALE
+        // B = 100 USDC as raw 6-decimal lamports (B_raw)
+        100_000_000
     }
 
     #[test]
