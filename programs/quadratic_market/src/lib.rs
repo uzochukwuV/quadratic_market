@@ -1,12 +1,13 @@
 use anchor_lang::prelude::*;
 
-declare_id!("3MsEuMziRKjA1w1WTPeW5NvDUCjGoep2QZ5zBthGq23Z");
+declare_id!("54kfyBYeASZr4BqyWatkTqmBJTzgQ8XoEs5vaC8wxkRU");
 
 pub mod constants;
 pub mod errors;
 pub mod math;
 pub mod state;
 pub mod utils;
+pub mod queries;
 
 // Instruction modules
 pub mod admin;
@@ -329,10 +330,7 @@ pub mod quadratic_market {
         set_outcome_state_mask_handler(ctx, group_id, market_index, outcome_id, state_mask)
     }
 
-    pub fn activate_seeded_market(
-        ctx: Context<ActivateSeededMarket>,
-        group_id: u64,
-    ) -> Result<()> {
+    pub fn activate_seeded_market(ctx: Context<ActivateSeededMarket>, group_id: u64) -> Result<()> {
         activate_seeded_market_handler(ctx, group_id)
     }
 
@@ -493,4 +491,114 @@ pub mod quadratic_market {
     pub fn close_epoch(ctx: Context<CloseEpoch>) -> Result<()> {
         close_epoch_handler(ctx)
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // VIEW FUNCTIONS (Read-only queries for frontend)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// Quote the cost for buying outcome shares
+    pub fn view_quote_buy(
+        ctx: Context<ViewQuoteBuy>,
+        outcome_id: u8,
+        num_shares: u64,
+    ) -> Result<queries::QuoteBuyResult> {
+        queries::quote_buy(&ctx.accounts.market, outcome_id, num_shares)
+    }
+
+    /// Quote the proceeds for selling outcome shares
+    pub fn view_quote_sell(
+        ctx: Context<ViewQuoteSell>,
+        outcome_id: u8,
+        num_shares: u64,
+    ) -> Result<queries::QuoteSellResult> {
+        queries::quote_sell(&ctx.accounts.market, outcome_id, num_shares)
+    }
+
+    /// Quote a multi-leg parlay slip (simplified, no correlations)
+    pub fn view_quote_slip(
+        ctx: Context<ViewQuoteSlip>,
+        outcomes: Vec<u8>,
+        shares_per_leg: Vec<u64>,
+    ) -> Result<queries::QuoteSlipResult> {
+        // Remaining accounts should be Market accounts for each leg
+        let num_markets = ctx.remaining_accounts.len();
+        require!(
+            num_markets == outcomes.len() && num_markets == shares_per_leg.len(),
+            errors::QuadraticMarketError::SlipNoLegs
+        );
+
+        let mut markets = Vec::with_capacity(num_markets);
+        for market_info in ctx.remaining_accounts.iter() {
+            let market_data = market_info.try_borrow_data()?;
+            // Manually deserialize to avoid lifetime issues
+            let market: state::Market = state::Market::try_deserialize(&mut &market_data[..])?;
+            markets.push(market);
+        }
+
+        queries::quote_slip_simple(&markets, &outcomes, &shares_per_leg)
+    }
+
+    /// Get comprehensive market statistics
+    pub fn view_market_stats(ctx: Context<ViewMarketStats>) -> Result<queries::MarketStatsResult> {
+        let clock = Clock::get()?;
+        queries::get_market_stats(&ctx.accounts.market, clock.unix_timestamp)
+    }
+
+    /// Get LP pool statistics
+    pub fn view_lp_stats(ctx: Context<ViewLpStats>) -> Result<queries::LpStatsResult> {
+        queries::get_lp_stats(
+            &ctx.accounts.global_config,
+            ctx.accounts.treasury_base_ata.amount,
+        )
+    }
+
+    /// Calculate current cash-out value for an active slip
+    pub fn view_cash_out_value(ctx: Context<ViewCashOutValue>) -> Result<queries::CashOutResult> {
+        // Remaining accounts should be Market accounts for each leg
+        let mut markets = Vec::with_capacity(ctx.remaining_accounts.len());
+        for market_info in ctx.remaining_accounts.iter() {
+            let market_data = market_info.try_borrow_data()?;
+            // Manually deserialize to avoid lifetime issues
+            let market: state::Market = state::Market::try_deserialize(&mut &market_data[..])?;
+            markets.push(market);
+        }
+
+        queries::calculate_cash_out_value(&ctx.accounts.bet_slip, &markets)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VIEW FUNCTION ACCOUNT CONTEXTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Accounts)]
+pub struct ViewQuoteBuy<'info> {
+    pub market: Account<'info, state::Market>,
+}
+
+#[derive(Accounts)]
+pub struct ViewQuoteSell<'info> {
+    pub market: Account<'info, state::Market>,
+}
+
+#[derive(Accounts)]
+pub struct ViewQuoteSlip {
+    // Markets passed as remaining_accounts
+}
+
+#[derive(Accounts)]
+pub struct ViewMarketStats<'info> {
+    pub market: Account<'info, state::Market>,
+}
+
+#[derive(Accounts)]
+pub struct ViewLpStats<'info> {
+    pub global_config: Account<'info, state::GlobalConfig>,
+    pub treasury_base_ata: Account<'info, anchor_spl::token::TokenAccount>,
+}
+
+#[derive(Accounts)]
+pub struct ViewCashOutValue<'info> {
+    pub bet_slip: Account<'info, state::BetSlip>,
+    // Markets passed as remaining_accounts
 }

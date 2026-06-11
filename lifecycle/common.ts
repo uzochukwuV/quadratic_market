@@ -234,6 +234,7 @@ export interface MarketState {
   groupId: string;
   numOutcomes: number;
   winningOutcome: number; // chosen winner for settlement (Phase 1 decides)
+  seedCapital: string; // Total seed capital deposited
 }
 
 export interface SingleBetState {
@@ -243,6 +244,8 @@ export interface SingleBetState {
   outcomeId: number;
   shares: string;
   outcomeAta: string;
+  cost: string; // Total cost paid (excluding fee)
+  fee: string;  // Buy fee (1%)
 }
 
 export interface SlipLegState {
@@ -257,6 +260,8 @@ export interface SlipState {
   user: KeypairJson;
   userLabel: string;
   legs: SlipLegState[];
+  stake: string;        // Total stake paid
+  potentialPayout: string; // Expected payout if all legs win
 }
 
 export interface LpState {

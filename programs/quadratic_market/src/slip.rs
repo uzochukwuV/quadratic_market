@@ -46,6 +46,60 @@ fn read_market_settlement_fields(market_info: &AccountInfo) -> Result<(u8, u8)> 
     Ok((status, winning_outcome))
 }
 
+/// Reduce market.backing to credit winning leg value to LP when slip loses.
+/// Uses zero-copy write to avoid deserializing the entire Market (heap-heavy).
+fn reduce_market_backing(market_info: &AccountInfo, amount: u64) -> Result<()> {
+    // Market struct layout (Borsh):
+    //   disc(8) + market_id(8) + creator(32) + start_time(8) + status(1) +
+    //   num_outcomes(1) + q_values(64) + exposure(8) + settlement_time(8) +
+    //   winning_outcome(1) + outcome_mints(256) + lmsr_b(8) +
+    //   title(4+len) + description(4+len) + category(1) + bump(1) +
+    //   group_id(9) + group_market_index(1) + market_mode(1) + epoch_id(8) +
+    //   settled_in_epoch(1) + backing(8)
+    //
+    // Strings are variable-length, so we parse from the fixed-length fields to
+    // find where backing starts.
+    const LMSR_B_OFFSET: usize = 8 + 8 + 32 + 8 + 1 + 1 + 64 + 8 + 8 + 1 + 256; // = 395
+    
+    let mut data = market_info.try_borrow_mut_data()?;
+    
+    // Read title length (4 bytes after lmsr_b)
+    let title_len_offset = LMSR_B_OFFSET + 8;
+    let title_len = u32::from_le_bytes(
+        data[title_len_offset..title_len_offset + 4]
+            .try_into()
+            .unwrap()
+    ) as usize;
+    
+    // Read description length (4 bytes after title)
+    let desc_len_offset = title_len_offset + 4 + title_len;
+    let desc_len = u32::from_le_bytes(
+        data[desc_len_offset..desc_len_offset + 4]
+            .try_into()
+            .unwrap()
+    ) as usize;
+    
+    // Calculate backing offset:
+    //   after description + category(1) + bump(1) + group_id(9) +
+    //   group_market_index(1) + market_mode(1) + epoch_id(8) + settled_in_epoch(1)
+    let backing_offset = desc_len_offset + 4 + desc_len + 1 + 1 + 9 + 1 + 1 + 8 + 1;
+    
+    // Read current backing
+    let mut backing = u64::from_le_bytes(
+        data[backing_offset..backing_offset + 8]
+            .try_into()
+            .map_err(|_| QuadraticMarketError::InvalidRemainingAccount)?
+    );
+    
+    // Reduce backing (saturating to avoid underflow)
+    backing = backing.saturating_sub(amount);
+    
+    // Write back
+    data[backing_offset..backing_offset + 8].copy_from_slice(&backing.to_le_bytes());
+    
+    Ok(())
+}
+
 // MarketStatus Borsh discriminants (ordinal order in the enum).
 const MARKET_STATUS_SETTLED: u8 = 5;
 const MARKET_STATUS_VOIDED: u8 = 6;
@@ -214,7 +268,11 @@ fn write_group_total_exposure(group_info: &AccountInfo, value: u64) -> Result<()
     write_group_u64(group_info, GROUP_TOTAL_EXPOSURE_OFFSET, value)
 }
 
-fn write_group_seed_fee_pool(group_info: &AccountInfo, market_index: usize, value: u64) -> Result<()> {
+fn write_group_seed_fee_pool(
+    group_info: &AccountInfo,
+    market_index: usize,
+    value: u64,
+) -> Result<()> {
     write_group_u64(
         group_info,
         GROUP_SEED_FEE_POOLS_OFFSET + market_index * 8,
@@ -279,7 +337,7 @@ fn compute_group_aware_combined_odds_fp(
     let mut same_game_discount_bps: u128 = CORRELATION_MAX_BPS as u128;
 
     for leg_idx in 0..num_legs as usize {
-            if let Some(g_idx) = leg_group_indices[leg_idx] {
+        if let Some(g_idx) = leg_group_indices[leg_idx] {
             if processed_groups[g_idx] {
                 continue;
             }
@@ -297,16 +355,15 @@ fn compute_group_aware_combined_odds_fp(
             let market_group = &groups[g_idx];
             let mut used_same_game_model = false;
             if group_leg_count > 1 && market_group.num_states > 0 {
-                let mut logical_outcomes: Vec<LogicalOutcome> =
-                    Vec::with_capacity(group_leg_count);
+                let mut logical_outcomes: Vec<LogicalOutcome> = Vec::with_capacity(group_leg_count);
                 let mut all_masks_configured = true;
 
                 for local_idx in 0..group_leg_count {
                     let actual_leg_idx = group_leg_indices[local_idx];
                     let market = &leg_markets[actual_leg_idx];
                     let leg = &legs[actual_leg_idx];
-                    let mask = market_group.outcome_state_masks
-                        [market.group_market_index as usize][leg.outcome_id as usize];
+                    let mask = market_group.outcome_state_masks[market.group_market_index as usize]
+                        [leg.outcome_id as usize];
                     if mask == 0 {
                         all_masks_configured = false;
                         break;
@@ -645,13 +702,15 @@ pub fn place_slip_handler<'info>(
     // heap. Each group account is validated against its canonical PDA before its
     // fields are trusted — a snapshot whose stored group_id does not match its PDA
     // is left as None and rejected during leg resolution.
-    let mut groups: Vec<Option<Box<MarketGroupSnapshot>>> =
-        Vec::with_capacity(num_groups as usize);
+    let mut groups: Vec<Option<Box<MarketGroupSnapshot>>> = Vec::with_capacity(num_groups as usize);
     for g in 0..num_groups as usize {
         let group_info = &ctx.remaining_accounts[total_leg_accounts + g];
         let snapshot = deserialize_market_group_info(group_info)?;
         let (expected_group_pda, _) = Pubkey::find_program_address(
-            &[seeds::MARKET_GROUP, snapshot.group_id.to_le_bytes().as_ref()],
+            &[
+                seeds::MARKET_GROUP,
+                snapshot.group_id.to_le_bytes().as_ref(),
+            ],
             &crate::ID,
         );
         if group_info.key() == expected_group_pda {
@@ -709,18 +768,18 @@ pub fn place_slip_handler<'info>(
                 require!(num_legs == 1, QuadraticMarketError::MarketGroupNotFound);
                 group_index = None;
             } else {
-            let mut found = false;
-            // Match against the pre-validated group snapshots (PDA already checked).
-            for g in 0..num_groups as usize {
-                if let Some(group) = &groups[g] {
-                    if group.group_id == group_id {
-                        group_index = Some(g);
-                        found = true;
-                        break;
+                let mut found = false;
+                // Match against the pre-validated group snapshots (PDA already checked).
+                for g in 0..num_groups as usize {
+                    if let Some(group) = &groups[g] {
+                        if group.group_id == group_id {
+                            group_index = Some(g);
+                            found = true;
+                            break;
+                        }
                     }
                 }
-            }
-            require!(found, QuadraticMarketError::MarketGroupNotFound);
+                require!(found, QuadraticMarketError::MarketGroupNotFound);
             }
         }
 
@@ -818,8 +877,8 @@ pub fn place_slip_handler<'info>(
                     .checked_mul(market_group.seed_fee_share_bps as u128)
                     .ok_or(QuadraticMarketError::MathOverflow)?
                     / CORRELATION_MAX_BPS as u128;
-                let market_seed_fee = &mut group_seed_fee_deltas[g_idx]
-                    [market.group_market_index as usize];
+                let market_seed_fee =
+                    &mut group_seed_fee_deltas[g_idx][market.group_market_index as usize];
                 *market_seed_fee = market_seed_fee
                     .checked_add(seed_fee as u64)
                     .ok_or(QuadraticMarketError::MathOverflow)?;
@@ -1249,11 +1308,7 @@ pub struct AddSlipLeg<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn add_slip_leg_handler(
-    ctx: Context<AddSlipLeg>,
-    _slip_id: u64,
-    leg: SlipLeg,
-) -> Result<()> {
+pub fn add_slip_leg_handler(ctx: Context<AddSlipLeg>, _slip_id: u64, leg: SlipLeg) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);
 
@@ -1321,6 +1376,10 @@ pub fn add_slip_leg_handler(
         new_exposure <= config.max_market_exposure,
         QuadraticMarketError::MaxExposureReached
     );
+
+    // Stage 2: Both single and multi-leg positions are self-backed by market.backing.
+    // LP liquidity only backs the multi-leg slip bonus (potential_payout - total_cost).
+    // No backing check needed here; finalize_slip checks LP liquidity for the bonus.
 
     // Escrow this leg's cost from the buyer to the treasury.
     token::transfer(
@@ -1619,6 +1678,9 @@ pub fn claim_slip_handler<'info>(
     let slip_id_bytes = slip.slip_id.to_le_bytes();
     let slip_seeds: &[&[&[u8]]] = &[&[seeds::BET_SLIP, slip_id_bytes.as_ref(), &[slip.bump]]];
 
+    // Track winning legs to credit their value to LP when slip loses
+    let mut winning_leg_info: Vec<(usize, u64)> = Vec::new(); // (base_idx, num_shares)
+
     let mut leg_idx: u8 = 0;
     while leg_idx < slip.num_legs {
         let leg = &slip.legs[leg_idx as usize];
@@ -1642,8 +1704,7 @@ pub fn claim_slip_handler<'info>(
         // deserialize would allocate its String fields per leg and exhaust the
         // bump heap on multi-leg claims. The token burn below uses the account
         // infos directly, not the Market struct.
-        let (market_status, market_winning_outcome) =
-            read_market_settlement_fields(market_info)?;
+        let (market_status, market_winning_outcome) = read_market_settlement_fields(market_info)?;
 
         // Validate outcome mint PDA
         let (expected_mint_pda, _) = Pubkey::find_program_address(
@@ -1703,7 +1764,10 @@ pub fn claim_slip_handler<'info>(
         );
         num_legs_settled += 1;
 
-        if market_winning_outcome != leg.outcome_id {
+        // Track if this leg won (before we lose the market_winning_outcome value)
+        if market_winning_outcome == leg.outcome_id {
+            winning_leg_info.push((base_idx, leg.num_shares));
+        } else {
             all_won = false;
         }
 
@@ -1796,6 +1860,19 @@ pub fn claim_slip_handler<'info>(
             ),
             final_payout,
         )?;
+    } else if !slip_voided && !winning_leg_info.is_empty() {
+        // Lost slip with winning legs: credit winning leg value to LP/treasury.
+        // The shares were already burned above. At settlement, winning shares are
+        // worth 1:1 (num_shares USDC). By reducing market.backing, we transfer
+        // that value from the market's self-backing pool to LP revenue.
+        //
+        // Example: User bets 2,621 USDC on 2-leg slip. Leg1 wins (3k shares = 3k USDC
+        // value), Leg2 loses. Slip pays 0 to user. The 3k USDC from Leg1's winning
+        // position should go to LP as revenue from a losing slip.
+        for (base_idx, num_shares) in winning_leg_info {
+            let market_info = &ctx.remaining_accounts[base_idx];
+            reduce_market_backing(market_info, num_shares)?;
+        }
     }
     // Lost slip: house keeps total_stake, nothing transferred
 

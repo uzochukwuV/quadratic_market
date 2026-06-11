@@ -102,7 +102,7 @@ pub struct ClaimPayout<'info> {
 
 pub fn claim_payout_handler(ctx: Context<ClaimPayout>, _market_id: u64) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
-    let market = &ctx.accounts.market;
+    let market = &mut ctx.accounts.market;
 
     require!(
         market.status == MarketStatus::Settled,
@@ -126,6 +126,10 @@ pub fn claim_payout_handler(ctx: Context<ClaimPayout>, _market_id: u64) -> Resul
     )?;
 
     // Pay 1 base token per outcome token (1:1 redemption)
+    require!(
+        market.backing >= amount,
+        QuadraticMarketError::InsufficientMarketBacking
+    );
     let treasury_seeds = &[seeds::TREASURY, &[config.treasury_bump]];
     token::transfer(
         CpiContext::new_with_signer(
@@ -140,7 +144,8 @@ pub fn claim_payout_handler(ctx: Context<ClaimPayout>, _market_id: u64) -> Resul
         amount,
     )?;
 
-    config.locked_payouts = config.locked_payouts.saturating_sub(amount);
+    market.backing = market.backing.saturating_sub(amount);
+    market.locked_payout = market.locked_payout.saturating_sub(amount);
 
     Ok(())
 }

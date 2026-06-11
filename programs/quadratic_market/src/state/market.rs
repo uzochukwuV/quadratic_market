@@ -85,11 +85,11 @@ pub struct Market {
     // settlement via claim_seed_fee_reward. Reserved in config.locked_payouts.
     pub seed_fee_pool: u64, // 8
     // Per-market locked payout counter: total outstanding redemption liability
-    // for single bets on this market (sum of all minted outcome tokens that can
+    // for positions on this market (sum of all minted outcome tokens that can
     // be redeemed 1:1). This is backed by market.backing; the LP pool is never
-    // touched for single-bet payouts. On buy: incremented by num_shares; on
-    // claim/sell: decremented. Stage 2: moves single-bet tracking off global
-    // config.locked_payouts onto per-market ledger.
+    // touched for single-bet payouts. On seed/buy: incremented by minted
+    // outcome tokens; on claim/sell/void: decremented. Stage 2 moves the
+    // liability off global config.locked_payouts onto this per-market ledger.
     pub locked_payout: u64, // 8
 }
 

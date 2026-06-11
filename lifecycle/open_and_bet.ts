@@ -348,6 +348,7 @@ async function main() {
       .rpc();
 
     const m: any = await program.account.market.fetch(mPda);
+    const totalSeedCapital = def.seeds.reduce((a, b) => a.add(b), new BN(0));
     logLine(`Status: ${JSON.stringify(m.status)} (start_time ${m.startTime})`);
     markets.push({
       marketId: marketId.toString(),
@@ -358,6 +359,7 @@ async function main() {
       groupId: GROUP_ID.toString(),
       numOutcomes: def.numOutcomes,
       winningOutcome: def.winningOutcome,
+      seedCapital: totalSeedCapital.toString(),
     });
 
     await printOdds(program, mPda, def.title);
@@ -443,9 +445,12 @@ async function main() {
       .signers([user])
       .rpc();
     const balAfter = await tokenBalance(connection, userBase);
-    const cost = Number(balBefore) - Number(balAfter);
+    const totalCost = Number(balBefore) - Number(balAfter);
+    // Cost includes 1% buy fee: total_cost = cost + (cost * 0.01) = cost * 1.01
+    const costOnly = totalCost / 1.01;
+    const fee = totalCost - costOnly;
     sub(
-      `${userLabels[p.idx]} bet outcome ${p.outcome} (${market0.outcomeNames[p.outcome]}) cost ${toUsdc(cost)}`
+      `${userLabels[p.idx]} bet outcome ${p.outcome} (${market0.outcomeNames[p.outcome]}) cost ${toUsdc(totalCost)} (${toUsdc(costOnly)} + ${toUsdc(fee)} fee)`
     );
     singleBets.push({
       user: kpToJson(user),
@@ -454,6 +459,8 @@ async function main() {
       outcomeId: p.outcome,
       shares: SINGLE_BET.toString(),
       outcomeAta: userOutcomeAta.toBase58(),
+      cost: Math.floor(costOnly).toString(),
+      fee: Math.floor(fee).toString(),
     });
   }
   await printOdds(program, m0Pda, "after single bets (market 0)");
@@ -564,6 +571,8 @@ async function main() {
       user: kpToJson(user),
       userLabel: userLabels[plan.idx],
       legs: legStates,
+      stake: slip.totalStake.toString(),
+      potentialPayout: slip.potentialPayout.toString(),
     });
   }
 

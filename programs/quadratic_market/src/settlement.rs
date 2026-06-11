@@ -227,14 +227,15 @@ pub fn finalize_result_handler(ctx: Context<FinalizeResult>, _market_id: u64) ->
     market.status = MarketStatus::Settled;
     dispute.status = DisputeStatus::Settled;
 
-    // Release locked_payouts for all LOSING outcomes — their shares will never be claimed.
+    // Release the per-market locked payout for all LOSING outcomes — their
+    // shares will never be claimed.
     // winning outcome shares remain locked until claimed individually via claim_payout.
     // Using market.exposure here would be wrong: exposure = LP net-risk delta, not losing shares.
     let losing_total: u64 = (0..market.num_outcomes as usize)
         .filter(|&i| i != winning)
         .map(|i| market.q_values[i])
         .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(losing_total);
+    market.locked_payout = market.locked_payout.saturating_sub(losing_total);
 
     // Update epoch settlement tracking (only once per market)
     if !market.settled_in_epoch {

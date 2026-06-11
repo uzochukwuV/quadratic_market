@@ -122,6 +122,7 @@ pub fn create_market_handler(
     market.settled_in_epoch = false;
     market.backing = 0;
     market.seed_fee_pool = 0;
+    market.locked_payout = 0;
 
     config.next_market_id = config
         .next_market_id
@@ -290,13 +291,13 @@ pub fn void_market_handler(ctx: Context<VoidMarket>) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     let epoch = &mut ctx.accounts.epoch;
     // Release the full outstanding share liability (sum of all q_values), not
-    // market.exposure. locked_payouts was incremented by num_shares per buy;
-    // market.exposure is the LP net-risk delta (num_shares - cost), which is
-    // always less. Using exposure left the difference permanently frozen.
+    // market.exposure. market.locked_payout tracks the 1:1 redemption
+    // obligation; market.exposure is the net-risk delta (num_shares - cost),
+    // which is always less. Using exposure would leave the difference frozen.
     let total_locked: u64 = (0..market.num_outcomes as usize)
         .map(|i| market.q_values[i])
         .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    market.locked_payout = market.locked_payout.saturating_sub(total_locked);
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
         epoch.num_settled_markets = epoch
@@ -362,7 +363,7 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
     let total_locked: u64 = (0..market.num_outcomes as usize)
         .map(|i| market.q_values[i])
         .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    market.locked_payout = market.locked_payout.saturating_sub(total_locked);
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
         epoch.num_settled_markets = epoch

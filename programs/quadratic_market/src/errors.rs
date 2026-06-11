@@ -15,6 +15,8 @@ pub enum QuadraticMarketError {
     MathOverflow = 4,
     #[msg("Math underflow")]
     MathUnderflow = 5,
+    #[msg("Market backing insufficient to cover position liability")]
+    InsufficientMarketBacking = 6,
 
     // 100-199: Market errors
     #[msg("Market not open for trading")]
