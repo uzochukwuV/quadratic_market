@@ -37,6 +37,7 @@ import {
   treasuryPda,
   lpMintPda,
   marketPda,
+  marketGroupPda,
   outcomeMintPda,
   epochPda,
   disputePda,
@@ -76,6 +77,8 @@ interface Accounting {
   };
   payouts: {
     singleWinners: number;
+    seedWinners: number;
+    seedFeeRewards: number;
     slipWinners: number;
     winningLegValueToLP: number; // New: winning legs from losing slips
   };
@@ -115,6 +118,8 @@ async function main() {
     },
     payouts: {
       singleWinners: 0,
+      seedWinners: 0,
+      seedFeeRewards: 0,
       slipWinners: 0,
       winningLegValueToLP: 0,
     },
@@ -160,15 +165,11 @@ async function main() {
   for (const slip of state.slips) {
     const stake = Number(slip.stake) / ONE_USDC;
     accounting.betsCollected.slipStakes += stake;
-    
-    // Slip margins: 5% per leg, split across markets
-    const marginPerLeg = (stake * 0.05) / slip.legs.length;
+
     for (const leg of slip.legs) {
       const pool = accounting.marketPools[leg.marketId];
-      const legCost = Number(leg.numShares) / ONE_USDC; // Cost for this leg
+      const legCost = Number(leg.cost ?? leg.numShares) / ONE_USDC;
       pool.betsReceived += legCost;
-      pool.feesCollected += marginPerLeg;
-      accounting.betsCollected.totalSlipMargins += marginPerLeg;
     }
   }
 
@@ -244,6 +245,94 @@ async function main() {
     const m: any = await program.account.market.fetch(mPda);
     sub(
       `finalized → status ${JSON.stringify(m.status)}, winning_outcome ${m.winningOutcome}`
+    );
+  }
+
+  // ── 2b. Claim seed winners ────────────────────────────────────────────────
+  banner("SEED CLAIMS");
+  const adminBaseAta = ataAddress(baseMint, admin.publicKey);
+  for (const mkt of state.markets) {
+    const marketPda = new PublicKey(mkt.marketPda);
+    const market: any = await program.account.market.fetch(marketPda);
+    const winningMint = new PublicKey(market.outcomeMints[market.winningOutcome]);
+    const adminWinningAta = await getOrCreateAta(
+      connection,
+      admin,
+      winningMint,
+      admin.publicKey
+    );
+    const balBefore = await tokenBalance(connection, adminBaseAta);
+    await program.methods
+      .claimPayout(new BN(mkt.marketId))
+      .accounts({
+        globalConfig: gcPda,
+        market: marketPda,
+        treasury: trPda,
+        claimerOutcomeAta: adminWinningAta,
+        claimerBaseAta: adminBaseAta,
+        treasuryBaseAta,
+        outcomeMint: winningMint,
+        baseMint,
+        claimer: admin.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      })
+      .signers([admin])
+      .rpc();
+    const balAfter = await tokenBalance(connection, adminBaseAta);
+    const payout = Number(balAfter) - Number(balBefore);
+    const payoutUsdc = payout / ONE_USDC;
+    accounting.payouts.seedWinners += payoutUsdc;
+    accounting.marketPools[mkt.marketId].payoutsGiven += payoutUsdc;
+    sub(
+      `Admin seed claim market ${mkt.marketId}: claimed ${toUsdc(payout)} from winning outcome ${mkt.outcomeNames[market.winningOutcome]}`
+    );
+  }
+
+  const mgPda = marketGroupPda(new BN(state.groupId));
+  const marketGroup: any = await program.account.marketGroup.fetch(mgPda);
+
+  // Claim the seed-fee rewards accumulated on losing seed positions.
+  // These are real protocol liabilities, so they need to be realized before LP withdrawal.
+  banner("SEED FEE REWARDS");
+  for (let i = 0; i < marketGroup.numSeedPositions; i++) {
+    const seed = marketGroup.seedPositions[i];
+    const market = state.markets[seed.marketIndex];
+    if (!market) {
+      continue;
+    }
+    if (seed.rewardClaimed || seed.refunded) {
+      continue;
+    }
+    if (seed.outcomeId === market.winningOutcome) {
+      continue;
+    }
+
+    const marketPda = new PublicKey(market.marketPda);
+    const claimerBaseAta = adminBaseAta;
+    const balBefore = await tokenBalance(connection, claimerBaseAta);
+    await program.methods
+      .claimSeedFeeReward(new BN(state.groupId), i)
+      .accounts({
+        globalConfig: gcPda,
+        marketGroup: mgPda,
+        market: marketPda,
+        treasury: trPda,
+        treasuryBaseAta,
+        claimerBaseAta,
+        baseMint,
+        claimer: admin.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([admin])
+      .rpc();
+    const balAfter = await tokenBalance(connection, claimerBaseAta);
+    const reward = Number(balAfter) - Number(balBefore);
+    const rewardUsdc = reward / ONE_USDC;
+    accounting.payouts.seedFeeRewards += rewardUsdc;
+    accounting.marketPools[market.marketId].payoutsGiven += rewardUsdc;
+    sub(
+      `Seed fee reward market ${market.marketId}, seed #${i}: claimed ${toUsdc(reward)}`
     );
   }
 
@@ -358,9 +447,12 @@ async function main() {
       const payoutUsdc = delta / ONE_USDC;
       accounting.payouts.slipWinners += payoutUsdc;
       // Split payout across markets proportionally to their contribution
-      const totalPotential = Number(slip.potentialPayout) / ONE_USDC;
+      const totalLegCost = slip.legs.reduce((sum, leg) => {
+        return sum + Number(leg.cost ?? leg.numShares) / ONE_USDC;
+      }, 0);
       for (const leg of slip.legs) {
-        const legShare = (Number(leg.numShares) / ONE_USDC) / totalPotential;
+        const legCost = Number(leg.cost ?? leg.numShares) / ONE_USDC;
+        const legShare = totalLegCost > 0 ? legCost / totalLegCost : 0;
         accounting.marketPools[leg.marketId].payoutsGiven += payoutUsdc * legShare;
       }
     } else {
@@ -519,7 +611,7 @@ async function main() {
     logLine(`   💸 Payouts:`);
     logLine(`      Winners paid:           ${pool.payoutsGiven.toFixed(2)} USDC`);
     if (pool.winningLegsToLP > 0) {
-      logLine(`      Winning legs → LP:      ${pool.winningLegsToLP.toFixed(2)} USDC`);
+      logLine(`      Liability released:     ${pool.winningLegsToLP.toFixed(2)} USDC`);
     }
     logLine(`      ─────────────────────────────────────`);
     logLine(`      Total outflow:          ${(pool.payoutsGiven).toFixed(2)} USDC`);
@@ -558,7 +650,7 @@ async function main() {
   logLine(`  Single bet costs:          ${accounting.betsCollected.singleBets.toFixed(2)} USDC`);
   logLine(`  Single bet fees (1%):      ${accounting.betsCollected.totalBuyFees.toFixed(2)} USDC`);
   logLine(`  Slip stakes:               ${accounting.betsCollected.slipStakes.toFixed(2)} USDC`);
-  logLine(`  Slip margins (5%/leg):     ${accounting.betsCollected.totalSlipMargins.toFixed(2)} USDC`);
+  logLine(`  Slip margins (not cash):   ${accounting.betsCollected.totalSlipMargins.toFixed(2)} USDC`);
   const totalCollected = accounting.betsCollected.singleBets + accounting.betsCollected.slipStakes;
   const totalFees = accounting.betsCollected.totalBuyFees + accounting.betsCollected.totalSlipMargins;
   logLine(`  Total collected:           ${totalCollected.toFixed(2)} USDC`);
@@ -567,9 +659,15 @@ async function main() {
   logLine("");
   logLine("💸 PAYOUTS MADE");
   logLine(`  Single bet winners:        ${accounting.payouts.singleWinners.toFixed(2)} USDC`);
+  logLine(`  Seed winners:              ${accounting.payouts.seedWinners.toFixed(2)} USDC`);
+  logLine(`  Seed fee rewards:          ${accounting.payouts.seedFeeRewards.toFixed(2)} USDC`);
   logLine(`  Slip winners:              ${accounting.payouts.slipWinners.toFixed(2)} USDC`);
-  logLine(`  Winning legs → LP:         ${accounting.payouts.winningLegValueToLP.toFixed(2)} USDC`);
-  const totalPaid = accounting.payouts.singleWinners + accounting.payouts.slipWinners;
+  logLine(`  Liability released:        ${accounting.payouts.winningLegValueToLP.toFixed(2)} USDC`);
+  const totalPaid =
+    accounting.payouts.singleWinners +
+    accounting.payouts.seedWinners +
+    accounting.payouts.seedFeeRewards +
+    accounting.payouts.slipWinners;
   logLine(`  Total paid to users:       ${totalPaid.toFixed(2)} USDC`);
   
   logLine("");
@@ -592,9 +690,6 @@ async function main() {
   
   logLine("");
   logLine("✅ RECONCILIATION");
-  // Market backings are PART OF treasury, not separate. Treasury = market backings + LP liquidity.
-  // When we reduce market.backing for winning legs, we transfer that value from market self-backing
-  // to LP revenue (still in treasury, just different accounting bucket).
   const expectedTreasury = accounting.initial.treasuryBalance + totalCollected - totalPaid - accounting.final.lpWithdrawn;
   const reconciled = Math.abs(expectedTreasury - accounting.final.treasuryBalance) < 0.01;
   logLine(`  Treasury start:            ${accounting.initial.treasuryBalance.toFixed(2)} USDC`);
@@ -607,17 +702,18 @@ async function main() {
   logLine(`  Status:                    ${reconciled ? '✓ RECONCILED' : '✗ MISMATCH'}`);
   logLine(``);
   logLine(`  Note: Winning leg transfer (${accounting.payouts.winningLegValueToLP.toFixed(2)} USDC) reduces market.backing`);
-  logLine(`        but stays in treasury as LP revenue (already counted in LP profit).`);
+  logLine(`        but is liability release, not a fresh treasury inflow.`);
   
   logLine("");
   logLine("📈 PROTOCOL REVENUE BREAKDOWN");
-  const losingBets = totalCollected - totalPaid - accounting.payouts.winningLegValueToLP;
+  const userNet = totalCollected - (accounting.payouts.singleWinners + accounting.payouts.slipWinners);
+  const totalRevenue = totalFees + userNet - accounting.payouts.seedFeeRewards;
   logLine(`  Fees collected:            ${totalFees.toFixed(2)} USDC`);
-  logLine(`  Losing bets (house edge):  ${losingBets.toFixed(2)} USDC`);
-  logLine(`  Winning legs from losses:  ${accounting.payouts.winningLegValueToLP.toFixed(2)} USDC`);
-  const totalRevenue = totalFees + losingBets + accounting.payouts.winningLegValueToLP;
+  logLine(`  User net flow:             ${userNet.toFixed(2)} USDC`);
+  logLine(`  Seed fee rewards:          ${accounting.payouts.seedFeeRewards.toFixed(2)} USDC`);
+  logLine(`  Liability released:        ${accounting.payouts.winningLegValueToLP.toFixed(2)} USDC`);
   logLine(`  Total protocol revenue:    ${totalRevenue.toFixed(2)} USDC`);
-  logLine(`  (Matches LP profit:        ${Math.abs(totalRevenue - lpProfit) < 0.01 ? '✓ YES' : '✗ NO'})`);
+  logLine(`  (Seed payouts excluded; matches LP profit: ${Math.abs(totalRevenue - lpProfit) < 0.01 ? '✓ YES' : '✗ NO'})`);
   
   logLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 

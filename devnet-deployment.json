@@ -1,0 +1,12 @@
+{
+  "network": "devnet",
+  "programId": "54kfyBYeASZr4BqyWatkTqmBJTzgQ8XoEs5vaC8wxkRU",
+  "globalConfig": "CRna9jPmY8iKL7dgtDKa1T2RWx9omK7FW6hwatsWnvvK",
+  "lpMint": "BJtvd9JE3BTSg9Vgp46umX1Qq6GdF1YMiNxpYsnzTZfz",
+  "treasury": "De4x3pBfBBYwvaR4CUSMqXCi1WpoHJuggVDNwpNzwHB3",
+  "treasuryBaseAta": "G57eDCvj5ZW9XkexHWhRZ3GX2y1KvdbcSsa8etHZotT9",
+  "baseMint": "8x97aHWPoTY4m9T4tEGDjf4EHYv29nJiX9uEGZHqMyPP",
+  "oracle": "A7iqUH6D5doRL9Fe7kYh9YBPdKoJ9jyhNpRhswSDx4oK",
+  "admin": "4xR9XSbHN1ZwX1izrHr4R4iBJcqc1Pb4GFCufAj44bRX",
+  "timestamp": "2026-06-06T02:08:18.036Z"
+}

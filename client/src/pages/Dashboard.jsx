@@ -6,26 +6,43 @@ import LiveMatches from "@/components/tradebook/LiveMatches";
 import MarketTabs from "@/components/tradebook/MarketTabs";
 import OddsTable from "@/components/tradebook/OddsTable";
 import BetSlip from "@/components/tradebook/BetSlip";
-import { initialBetSlip } from "@/lib/sportsData";
+import { exclusiveGroups } from "@/lib/sportsData";
+
+/** Return the exclusive group that contains `colKey`, or null if independent. */
+function getExclusiveGroup(colKey) {
+  return exclusiveGroups.find((g) => g.includes(colKey)) ?? null;
+}
 
 export default function Dashboard() {
   const [activeNav, setActiveNav] = useState("Pre-Match");
   const [activeSport, setActiveSport] = useState("Football");
   const [activeMarket, setActiveMarket] = useState("All Markets");
-  const [betSlip, setBetSlip] = useState(initialBetSlip);
+  const [betSlip, setBetSlip] = useState([]);
 
   const selectedOdds = betSlip.map((b) => ({ matchId: b.matchId, market: b.market }));
 
   const handleOddsClick = useCallback((selection) => {
     setBetSlip((prev) => {
-      const exists = prev.find(
+      // Toggle off if exact same outcome already selected
+      const exact = prev.find(
         (b) => b.matchId === selection.matchId && b.market === selection.market
       );
-      if (exists) {
-        return prev.filter((b) => b.id !== exists.id);
+      if (exact) {
+        return prev.filter((b) => b.id !== exact.id);
       }
+
+      // Remove any bet from the same match that belongs to the same exclusive group
+      // e.g. clicking "X" removes "1" if both are in the 1X2 group for the same match
+      const group = getExclusiveGroup(selection.market);
+      const filtered = group
+        ? prev.filter(
+            (b) =>
+              !(b.matchId === selection.matchId && group.includes(b.market))
+          )
+        : prev;
+
       return [
-        ...prev,
+        ...filtered,
         {
           id: `bet-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
           ...selection,

@@ -22,10 +22,82 @@ from solders.instruction import AccountMeta
 from chain import ChainClient, load_keypair, market_pda
 import os
 import json
-from dotenv import load_dotenv
+import time
 import asyncio
+import httpx
+from dotenv import load_dotenv
 
 load_dotenv(".env")
+
+app = FastAPI()
+
+# ─── Direct JSON-RPC helpers (bypass solana-py to avoid parser panics) ────────
+
+async def _rpc_post(method: str, params: list, retries: int = 4):
+    """Send a raw JSON-RPC request with exponential backoff."""
+    payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+    for attempt in range(retries):
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(RPC_URL, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                if "error" in data:
+                    code = data["error"].get("code", 0)
+                    if code in (-32429, -32005, 429) and attempt < retries - 1:
+                        await asyncio.sleep(2.0 * (attempt + 1))
+                        continue
+                    raise Exception(f"RPC error {data['error']}")
+                return data.get("result")
+        except httpx.TimeoutException:
+            if attempt < retries - 1:
+                await asyncio.sleep(1.5 * (attempt + 1))
+            else:
+                raise
+    return None
+
+
+async def rpc_get_account_data(pubkey_str: str) -> bytes | None:
+    """Fetch a single account's raw data as bytes. Returns None if not found."""
+    result = await _rpc_post(
+        "getAccountInfo", [pubkey_str, {"encoding": "base64"}]
+    )
+    if result is None or result.get("value") is None:
+        return None
+    raw_b64 = result["value"]["data"][0]
+    import base64
+    return base64.b64decode(raw_b64)
+
+
+async def rpc_get_multiple_accounts(pubkey_strs: list[str]) -> list[bytes | None]:
+    """Batch-fetch multiple accounts. Returns list of bytes or None per account."""
+    result = await _rpc_post(
+        "getMultipleAccounts", [pubkey_strs, {"encoding": "base64"}]
+    )
+    if result is None:
+        return [None] * len(pubkey_strs)
+    import base64
+    out = []
+    for val in result.get("value", []):
+        if val is None:
+            out.append(None)
+        else:
+            out.append(base64.b64decode(val["data"][0]))
+    return out
+
+
+# ─── Simple in-memory TTL cache ───────────────────────────────────────────────
+
+_cache: dict = {}
+
+def cache_get(key: str):
+    entry = _cache.get(key)
+    if entry and time.time() < entry[1]:
+        return entry[0]
+    return None
+
+def cache_set(key: str, value, ttl: float = 30.0):
+    _cache[key] = (value, time.time() + ttl)
 
 app = FastAPI()
 
@@ -264,7 +336,6 @@ async def mint_test_usdc(req: MintRequest):
 
     # Lazy import solana and spl packages, they may not be installed in every environment
     try:
-        from solana.rpc.async_api import AsyncClient
         from solana.publickey import PublicKey
         from spl.token.async_client import AsyncToken
         from spl.token.constants import TOKEN_PROGRAM_ID
@@ -392,17 +463,14 @@ class QuoteRequest(BaseModel):
 async def view_quote_buy(req: QuoteRequest):
     """Calculate quote for buying outcome tokens using LMSR math."""
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         
         chain = await get_chain()
         m_pda, _ = market_pda(chain.program_id, req.market_id)
         
-        async with AsyncClient(RPC_URL) as client:
-            resp = await client.get_account_info(m_pda)
-            if resp.value is None:
-                raise HTTPException(status_code=404, detail="Market not found")
-            data = resp.value.data
+        data = await rpc_get_account_data(str(m_pda))
+        if data is None:
+            raise HTTPException(status_code=404, detail="Market not found")
         
         import struct
         num_outcomes = data[57]
@@ -457,18 +525,15 @@ async def view_quote_buy(req: QuoteRequest):
 async def view_quote_sell(req: QuoteRequest):
     """Calculate quote for selling outcome tokens (LMSR-based). Read-only."""
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         import struct
 
         chain = await get_chain()
         m_pda, _ = market_pda(chain.program_id, req.market_id)
 
-        async with AsyncClient(RPC_URL) as client:
-            resp = await client.get_account_info(m_pda)
-            if resp.value is None:
-                raise HTTPException(status_code=404, detail="Market not found")
-            data = bytes(resp.value.data)
+        data = await rpc_get_account_data(str(m_pda))
+        if data is None:
+            raise HTTPException(status_code=404, detail="Market not found")
 
         OFFSET = 8
         num_outcomes = data[OFFSET+49] if len(data) > OFFSET+49 else 0
@@ -531,7 +596,6 @@ async def view_quote_slip(req: SlipQuoteRequest):
     The slip total = sum of leg costs (simplified, no correlation adjustment).
     """
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         import struct
 
@@ -547,13 +611,11 @@ async def view_quote_slip(req: SlipQuoteRequest):
         leg_q_values_after = []
         leg_odds_after = []
 
-        async with AsyncClient(RPC_URL) as client:
-            for mid, oid, shares in zip(req.market_ids, req.outcomes, req.shares_per_leg):
+        for mid, oid, shares in zip(req.market_ids, req.outcomes, req.shares_per_leg):
                 m_pda, _ = market_pda(chain.program_id, mid)
-                resp = await client.get_account_info(m_pda)
-                if resp.value is None:
+                data = await rpc_get_account_data(str(m_pda))
+                if data is None:
                     raise HTTPException(status_code=404, detail=f"Market {mid} not found")
-                data = bytes(resp.value.data)
                 if len(data) < 200:
                     raise HTTPException(status_code=500, detail=f"Invalid market {mid} data")
 
@@ -622,28 +684,21 @@ class MarketStatsRequest(BaseModel):
 @app.get('/view_global_config')
 async def view_global_config():
     """Fetch global config to see market count."""
+    cached = cache_get('global_config')
+    if cached is not None:
+        return cached
     try:
-        from solana.rpc.async_api import AsyncClient
-        from solders.pubkey import Pubkey
-        
-        chain = await get_chain()
-        
-        async with AsyncClient(RPC_URL) as client:
-            resp = await client.get_account_info(chain.global_config)
-            if resp.value is None:
-                raise HTTPException(status_code=404, detail="GlobalConfig not found")
-            
-            data = resp.value.data
-        
-        import struct
-        next_market_id = struct.unpack('<Q', data[194:202])[0]
-        current_epoch = struct.unpack('<Q', data[266:274])[0]
-        
-        return {
-            "next_market_id": next_market_id,
-            "current_epoch": current_epoch,
-            "global_config": str(chain.global_config)
+        chain  = await get_chain()
+        data   = await rpc_get_account_data(str(chain.global_config))
+        if data is None:
+            raise HTTPException(status_code=404, detail="GlobalConfig not found")
+        result = {
+            "next_market_id": int.from_bytes(data[194:202], "little"),
+            "current_epoch":  int.from_bytes(data[266:274], "little"),
+            "global_config":  str(chain.global_config),
         }
+        cache_set('global_config', result, ttl=15.0)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -653,47 +708,47 @@ async def view_global_config():
 @app.get('/markets')
 async def list_markets():
     """List all markets with their data (id, title, status, q_values, prices, etc.)."""
+    # Serve from cache if fresh
+    cached = cache_get('markets')
+    if cached is not None:
+        return cached
+
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         import struct
-        
+
         chain = await get_chain()
-        async with AsyncClient(RPC_URL) as client:
-            resp = await client.get_account_info(chain.global_config)
-            if resp.value is None:
-                raise HTTPException(status_code=404, detail="GlobalConfig not found")
-            gc_data = resp.value.data
-        
-        # next_market_id at offset 194
+
+        # Fetch GlobalConfig with direct JSON-RPC (no solana-py parser panics)
+        gc_data = await rpc_get_account_data(str(chain.global_config))
+        if gc_data is None:
+            raise HTTPException(status_code=404, detail="GlobalConfig not found")
         next_market_id = int.from_bytes(gc_data[194:202], "little")
-        
-        # Pre-defined status names matching the IDL
-        status_names = ["PreOpen", "Open", "Suspended", "AwaitingResult", "Proposed", "Settled", "Voided"]
-        market_mode_names = ["FixedOdds", "Trading"]
+
+        status_names   = ["PreOpen", "Open", "Suspended", "AwaitingResult", "Proposed", "Settled", "Voided"]
         category_names = {0: "MatchResult", 1: "BTTS", 2: "Totals"}
-        
-        markets = []
-        # Build list of market PDAs
+
+        # Derive all market PDAs
         market_pdas = []
         for market_id in range(1, next_market_id + 1):
             mkt_pda, _ = Pubkey.find_program_address(
                 [b"market", market_id.to_bytes(8, "little")], chain.program_id
             )
-            market_pdas.append((market_id, mkt_pda))
-        
-        # Batch fetch markets in chunks of 50 (avoids RPC limits)
+            market_pdas.append((market_id, str(mkt_pda)))
+
+        # Batch-fetch all market accounts in chunks of 50
         CHUNK = 50
         all_accounts = []
-        async with AsyncClient(RPC_URL) as client:
-            for i in range(0, len(market_pdas), CHUNK):
-                chunk = market_pdas[i:i+CHUNK]
-                keys = [pda for _, pda in chunk]
-                resp = await client.get_multiple_accounts(keys)
-                for (mid, _), acc in zip(chunk, resp.value):
-                    if acc is not None:
-                        all_accounts.append((mid, bytes(acc.data)))
-        
+        for i in range(0, len(market_pdas), CHUNK):
+            chunk = market_pdas[i:i+CHUNK]
+            raw_list = await rpc_get_multiple_accounts([pk for _, pk in chunk])
+            for (mid, _), raw in zip(chunk, raw_list):
+                if raw is not None:
+                    all_accounts.append((mid, raw))
+
+        markets = []
+        current_time = int(time.time())
+        OFFSET = 8
         for m_market_id, data in all_accounts:
             if len(data) < 200:
                 continue
@@ -701,63 +756,38 @@ async def list_markets():
                 mkt_pda, _ = Pubkey.find_program_address(
                     [b"market", m_market_id.to_bytes(8, "little")], chain.program_id
                 )
-                # 8 bytes discriminator first, then fields
-                OFFSET = 8
-                creator = str(Pubkey(data[OFFSET+8:OFFSET+40]))
-                start_time = struct.unpack('<q', data[OFFSET+40:OFFSET+48])[0]
-                status_byte = data[OFFSET+48]
+                creator      = str(Pubkey(data[OFFSET+8:OFFSET+40]))
+                start_time   = struct.unpack('<q', data[OFFSET+40:OFFSET+48])[0]
+                status_byte  = data[OFFSET+48]
                 num_outcomes = data[OFFSET+49]
-                q_values = []
-                for i in range(8):
-                    q = struct.unpack('<Q', data[OFFSET+50 + i*8:OFFSET+50 + (i+1)*8])[0]
-                    q_values.append(q)
-                exposure = struct.unpack('<Q', data[OFFSET+114:OFFSET+122])[0] if len(data) > OFFSET+122 else 0
+                q_values     = [struct.unpack('<Q', data[OFFSET+50+i*8:OFFSET+58+i*8])[0] for i in range(8)]
+                exposure     = struct.unpack('<Q', data[OFFSET+114:OFFSET+122])[0] if len(data) > OFFSET+122 else 0
                 settlement_time = struct.unpack('<q', data[OFFSET+122:OFFSET+130])[0] if len(data) > OFFSET+130 else 0
                 winning_outcome = data[OFFSET+130] if len(data) > OFFSET+130 else 0
-                outcome_mints = []
-                for i in range(8):
-                    if OFFSET+131 + (i+1)*32 <= len(data):
-                        outcome_mints.append(str(Pubkey(data[OFFSET+131 + i*32:OFFSET+131 + (i+1)*32])))
+                outcome_mints   = [
+                    str(Pubkey(data[OFFSET+131+i*32:OFFSET+163+i*32]))
+                    for i in range(8) if OFFSET+163+i*32 <= len(data)
+                ]
                 lmsr_b = struct.unpack('<Q', data[OFFSET+387:OFFSET+395])[0] if len(data) > OFFSET+395 else 0
-                if len(data) > OFFSET+399:
-                    title_len = struct.unpack('<I', data[OFFSET+395:OFFSET+399])[0]
-                    title_bytes = data[OFFSET+399:OFFSET+399+title_len] if OFFSET+399+title_len <= len(data) else b''
-                    title = title_bytes.decode('utf-8', errors='ignore').rstrip('\x00')
-                else:
-                    title = ""
-                desc_offset = OFFSET+399 + (title_len if len(data) > OFFSET+399 else 0)
-                if desc_offset + 4 <= len(data):
-                    desc_len = struct.unpack('<I', data[desc_offset:desc_offset+4])[0]
-                    desc_bytes = data[desc_offset+4:desc_offset+4+desc_len] if desc_offset+4+desc_len <= len(data) else b''
-                    description = desc_bytes.decode('utf-8', errors='ignore').rstrip('\x00')
-                else:
-                    description = ""
-                cat_offset = desc_offset + 4 + (desc_len if desc_offset + 4 <= len(data) else 0)
-                category = data[cat_offset] if cat_offset < len(data) else 0
-                
-                # Calculate prices/odds
-                total_q = sum(q_values[:num_outcomes])
-                if total_q == 0:
-                    total_q = 1
-                prices = []
-                current_odds = []
-                implied_probs = []
-                for i in range(num_outcomes):
-                    if q_values[i] == 0:
-                        prices.append(0.0)
-                        current_odds.append(0)
-                        implied_probs.append(0)
+                title_len = struct.unpack('<I', data[OFFSET+395:OFFSET+399])[0] if len(data) > OFFSET+399 else 0
+                title     = data[OFFSET+399:OFFSET+399+title_len].decode('utf-8', errors='ignore').rstrip('\x00') if title_len else ""
+                desc_off  = OFFSET+399+title_len
+                desc_len  = struct.unpack('<I', data[desc_off:desc_off+4])[0] if desc_off+4 <= len(data) else 0
+                description = data[desc_off+4:desc_off+4+desc_len].decode('utf-8', errors='ignore').rstrip('\x00') if desc_len else ""
+                cat_off   = desc_off+4+desc_len
+                category  = data[cat_off] if cat_off < len(data) else 0
+
+                total_q = sum(q_values[:num_outcomes]) or 1
+                prices, current_odds, implied_probs = [], [], []
+                for q in q_values[:num_outcomes]:
+                    if q == 0:
+                        prices.append(0.0); current_odds.append(0); implied_probs.append(0)
                     else:
-                        prob = q_values[i] / total_q
+                        prob = q / total_q
                         prices.append(round(prob, 4))
-                        current_odds.append(int((total_q * 10000) / q_values[i]))
+                        current_odds.append(int(total_q * 10000 / q))
                         implied_probs.append(int(prob * 10000))
-                
-                import time
-                current_time = int(time.time())
-                time_to_close = start_time - current_time
-                time_to_settlement = settlement_time - current_time
-                
+
                 markets.append({
                     "market_id": m_market_id,
                     "pda": str(mkt_pda),
@@ -778,18 +808,20 @@ async def list_markets():
                     "winning_outcome": winning_outcome,
                     "category": category_names.get(category, f"Unknown({category})"),
                     "outcome_mints": outcome_mints[:num_outcomes],
-                    "time_to_close": time_to_close,
-                    "time_to_settlement": time_to_settlement,
+                    "time_to_close": start_time - current_time,
+                    "time_to_settlement": settlement_time - current_time,
                 })
             except Exception:
                 continue
-        
-        return {
+
+        result = {
             "total_markets": len(markets),
             "next_market_id": next_market_id,
             "current_epoch": int.from_bytes(gc_data[266:274], "little"),
-            "markets": markets
-         }
+            "markets": markets,
+        }
+        cache_set('markets', result, ttl=30.0)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -800,7 +832,6 @@ async def list_markets():
 async def get_market(market_id: int):
     """Get detailed data for a single market by ID."""
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         import struct
         
@@ -809,13 +840,9 @@ async def get_market(market_id: int):
             [b"market", market_id.to_bytes(8, "little")], chain.program_id
         )
         
-        async with AsyncClient(RPC_URL) as client:
-            resp = await client.get_account_info(mkt_pda)
-        
-        if resp.value is None:
+        data = await rpc_get_account_data(str(mkt_pda))
+        if data is None:
             raise HTTPException(status_code=404, detail=f"Market {market_id} not found")
-        
-        data = resp.value.data
         if len(data) < 200:
             raise HTTPException(status_code=500, detail="Invalid market data")
         
@@ -896,18 +923,15 @@ async def get_market(market_id: int):
 async def view_market_stats(req: MarketStatsRequest):
     """Fetch a specific market's stats by ID. Read-only."""
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         import struct
 
         chain = await get_chain()
         mkt_pda, _ = market_pda(chain.program_id, req.market_id)
 
-        async with AsyncClient(RPC_URL) as client:
-            resp = await client.get_account_info(mkt_pda)
-            if resp.value is None:
-                raise HTTPException(status_code=404, detail="Market not found")
-            data = bytes(resp.value.data)
+        data = await rpc_get_account_data(str(mkt_pda))
+        if data is None:
+            raise HTTPException(status_code=404, detail="Market not found")
 
         if len(data) < 200:
             raise HTTPException(status_code=500, detail="Invalid market data")
@@ -999,8 +1023,10 @@ class LpStatsRequest(BaseModel):
 @app.post('/view_lp_stats')
 async def view_lp_stats(_: LpStatsRequest = None):
     """Fetch LP stats directly without anchorpy."""
+    cached = cache_get('lp_stats')
+    if cached is not None:
+        return cached
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         
         chain = await get_chain()
@@ -1009,22 +1035,18 @@ async def view_lp_stats(_: LpStatsRequest = None):
             raise HTTPException(status_code=500, detail='treasuryBaseAta missing in deployment')
         
         # Fetch global config
-        async with AsyncClient(RPC_URL) as client:
-            # Get global config
-            resp = await client.get_account_info(chain.global_config)
-            if resp.value is None:
-                raise HTTPException(status_code=404, detail="GlobalConfig not found")
-            gc_data = resp.value.data
-            
-            # Get treasury ATA balance
-            treasury_pubkey = Pubkey.from_string(treasury_ata)
-            treasury_balance = 0
-            try:
-                resp_ata = await client.get_token_account_balance(treasury_pubkey)
-                if resp_ata.value:
-                    treasury_balance = int(resp_ata.value.amount)
-            except Exception:
-                pass  # ATA might not exist yet
+        gc_data = await rpc_get_account_data(str(chain.global_config))
+        if gc_data is None:
+            raise HTTPException(status_code=404, detail="GlobalConfig not found")
+        
+        # Get treasury token balance via direct JSON-RPC
+        treasury_balance = 0
+        try:
+            result = await _rpc_post("getTokenAccountBalance", [deployment.get("treasuryBaseAta")])
+            if result and result.get("value"):
+                treasury_balance = int(result["value"]["amount"])
+        except Exception:
+            pass
         
         import struct
         
@@ -1040,7 +1062,7 @@ async def view_lp_stats(_: LpStatsRequest = None):
         if total_lp_supply > 0:
             nav_per_share = (treasury_balance * 1_000_000) // total_lp_supply
         
-        return {
+        result = {
             "total_tvl": treasury_balance,
             "total_lp_supply": total_lp_supply,
             "locked_exposure": locked_payouts,
@@ -1049,6 +1071,8 @@ async def view_lp_stats(_: LpStatsRequest = None):
             "total_markets": 0,
             "active_markets": 0
         }
+        cache_set('lp_stats', result, ttl=30.0)
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -1069,7 +1093,6 @@ async def view_cash_out_value(req: CashOutRequest):
     leg payouts minus a house margin (if leg is still open).
     """
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         import struct
 
@@ -1078,11 +1101,9 @@ async def view_cash_out_value(req: CashOutRequest):
             [b"bet_slip", req.slip_id.to_bytes(8, "little")], chain.program_id
         )
 
-        async with AsyncClient(RPC_URL) as client:
-            resp = await client.get_account_info(slip_pda)
-        if resp.value is None:
+        slip_data = await rpc_get_account_data(str(slip_pda))
+        if slip_data is None:
             raise HTTPException(status_code=404, detail=f"BetSlip {req.slip_id} not found")
-        slip_data = bytes(resp.value.data)
         slip = _parse_bet_slip(slip_data)
 
         if slip.get("error"):
@@ -1096,8 +1117,7 @@ async def view_cash_out_value(req: CashOutRequest):
         leg_market_ids = []
         leg_outcome_ids = []
 
-        async with AsyncClient(RPC_URL) as client:
-            for leg in slip["legs"]:
+        for leg in slip["legs"]:
                 mid = leg["market_id"]
                 oid = leg["outcome_id"]
                 shares = leg["num_shares"]
@@ -1105,13 +1125,12 @@ async def view_cash_out_value(req: CashOutRequest):
                 leg_outcome_ids.append(oid)
 
                 m_pda, _ = market_pda(chain.program_id, mid)
-                resp = await client.get_account_info(m_pda)
-                if resp.value is None:
+                data = await rpc_get_account_data(str(m_pda))
+                if data is None:
                     # Market doesn't exist; leg is likely refunded
                     leg_payouts.append(0)
                     leg_remaining_shares.append(0)
                     continue
-                data = bytes(resp.value.data)
                 num_outcomes = data[OFFSET+49] if len(data) > OFFSET+49 else 0
                 if oid >= num_outcomes:
                     leg_payouts.append(0)
@@ -1262,7 +1281,6 @@ async def user_positions(req: UserWalletRequest):
     Read-only - never signs transactions.
     """
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
         from spl.token.instructions import get_associated_token_address
         import struct
@@ -1271,75 +1289,78 @@ async def user_positions(req: UserWalletRequest):
         base_mint = Pubkey.from_string(BASE_MINT)
         user_pubkey = Pubkey.from_string(req.wallet)
 
-        # USDC balance
+        # USDC balance via direct RPC
         user_base_ata = get_associated_token_address(user_pubkey, base_mint)
         usdc_balance = 0
         usdc_decimals = 6
-        async with AsyncClient(RPC_URL) as client:
-            try:
-                resp = await client.get_token_account_balance(user_base_ata)
-                if resp.value:
-                    usdc_balance = int(resp.value.amount)
-                    usdc_decimals = resp.value.decimals
-            except Exception:
-                pass
+        try:
+            result = await _rpc_post("getTokenAccountBalance", [str(user_base_ata)])
+            if result and result.get("value"):
+                usdc_balance = int(result["value"]["amount"])
+                usdc_decimals = result["value"]["decimals"]
+        except Exception:
+            pass
 
-            # Get protocol state
-            resp = await client.get_account_info(chain.global_config)
-            if resp.value is None:
-                raise HTTPException(status_code=404, detail="GlobalConfig not found")
-            gc_data = resp.value.data
+        # Get protocol state
+        gc_data = await rpc_get_account_data(str(chain.global_config))
+        if gc_data is None:
+            raise HTTPException(status_code=404, detail="GlobalConfig not found")
             next_market_id = int.from_bytes(gc_data[194:202], "little")
 
         # Fetch all outcome token accounts for this wallet via getTokenAccountsByOwner
         positions = []
-        async with AsyncClient(RPC_URL) as client:
-            # Use program filter on Token program, then filter for our outcome mints
-            # Simpler: compute all outcome mints and batch getMultipleAccounts
-            outcome_mints = []
+        # Use cached markets data to avoid per-market RPC calls
+        markets_cached = cache_get('markets')
+        outcome_mints = []
+        if markets_cached:
+            for m in markets_cached.get('markets', []):
+                mid = m['market_id']
+                for oid in range(m['num_outcomes']):
+                    om, _ = Pubkey.find_program_address(
+                        [b"outcome_mint", mid.to_bytes(8, "little"), bytes([oid])], chain.program_id
+                    )
+                    outcome_mints.append((mid, oid, om))
+        else:
+            # Fallback: fetch market count and derive outcome mints
             for mid in range(1, next_market_id + 1):
                 m_pda, _ = Pubkey.find_program_address(
                     [b"market", mid.to_bytes(8, "little")], chain.program_id
                 )
-                # Read num_outcomes from market data
-                resp = await client.get_account_info(m_pda)
-                if resp.value is None:
+                m_data = await rpc_get_account_data(str(m_pda))
+                if m_data is None:
                     continue
-                num_outcomes = resp.value.data[8 + 49] if len(resp.value.data) > 8 + 49 else 0
+                num_outcomes = m_data[8 + 49] if len(m_data) > 8 + 49 else 0
                 for oid in range(num_outcomes):
                     om, _ = Pubkey.find_program_address(
                         [b"outcome_mint", mid.to_bytes(8, "little"), bytes([oid])], chain.program_id
                     )
                     outcome_mints.append((mid, oid, om))
 
-        # Batch fetch ATAs and balances
-        atas = [get_associated_token_address(user_pubkey, om) for _, _, om in outcome_mints]
-        # chunk to avoid huge RPC calls
+        # Batch fetch token balances for all outcome ATAs at once
+        atas = [str(get_associated_token_address(user_pubkey, om)) for _, _, om in outcome_mints]
         CHUNK = 100
-        all_accounts = []
-        async with AsyncClient(RPC_URL) as client:
-            for i in range(0, len(atas), CHUNK):
-                chunk = atas[i:i+CHUNK]
-                resp = await client.get_multiple_accounts(chunk)
-                for om, acc in zip([t[2] for t in outcome_mints[i:i+CHUNK]], resp.value):
-                    all_accounts.append((om, acc))
-
-        # Now get balances via batch getTokenAccountBalance
-        for (mid, oid, om), ata in zip(outcome_mints, atas):
-            try:
-                async with AsyncClient(RPC_URL) as client:
-                    resp = await client.get_token_account_balance(ata)
-                    if resp.value and int(resp.value.amount) > 0:
+        for i in range(0, len(atas), CHUNK):
+            chunk_atas = atas[i:i+CHUNK]
+            chunk_mints = outcome_mints[i:i+CHUNK]
+            raw_list = await rpc_get_multiple_accounts(chunk_atas)
+            for (mid, oid, om), raw in zip(chunk_mints, raw_list):
+                if raw is None or len(raw) < 64:
+                    continue
+                # SPL token account: amount is at bytes 64-72 (little-endian u64)
+                try:
+                    import struct as _struct
+                    amount = _struct.unpack('<Q', raw[64:72])[0]
+                    if amount > 0:
                         positions.append({
                             "market_id": mid,
                             "outcome_id": oid,
                             "outcome_mint": str(om),
-                            "balance": int(resp.value.amount),
-                            "decimals": resp.value.decimals,
-                            "ui_balance": float(resp.value.ui_amount_string or 0),
+                            "balance": amount,
+                            "decimals": 6,
+                            "ui_balance": amount / 1_000_000,
                         })
-            except Exception:
-                continue
+                except Exception:
+                    continue
 
         return {
             "wallet": req.wallet,
@@ -1377,7 +1398,6 @@ class BetSlipHistoryRequest(BaseModel):
 async def get_bet_slip(req: SlipRequest):
     """Fetch a single bet slip account by slip_id. Read-only."""
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
 
         chain = await get_chain()
@@ -1385,13 +1405,11 @@ async def get_bet_slip(req: SlipRequest):
             [b"bet_slip", req.slip_id.to_bytes(8, "little")], chain.program_id
         )
 
-        async with AsyncClient(RPC_URL) as client:
-            resp = await client.get_account_info(slip_pda)
-
-        if resp.value is None:
+        raw = await rpc_get_account_data(str(slip_pda))
+        if raw is None:
             raise HTTPException(status_code=404, detail=f"BetSlip {req.slip_id} not found")
 
-        parsed = _parse_bet_slip(bytes(resp.value.data))
+        parsed = _parse_bet_slip(raw)
         parsed["pda"] = str(slip_pda)
         return parsed
     except HTTPException:
@@ -1406,7 +1424,6 @@ async def user_slips(req: UserSlipsRequest):
     Read-only - never signs transactions.
     """
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
 
         chain = await get_chain()
@@ -1420,17 +1437,16 @@ async def user_slips(req: UserSlipsRequest):
             )
             slip_pdas.append((sid, sp))
 
-        # Batch fetch
+        # Batch fetch using direct JSON-RPC
         CHUNK = 50
         all_accounts = []
-        async with AsyncClient(RPC_URL) as client:
-            for i in range(0, len(slip_pdas), CHUNK):
-                chunk = slip_pdas[i:i+CHUNK]
-                keys = [p for _, p in chunk]
-                resp = await client.get_multiple_accounts(keys)
-                for (sid, _), acc in zip(chunk, resp.value):
-                    if acc is not None:
-                        all_accounts.append((sid, bytes(acc.data)))
+        for i in range(0, len(slip_pdas), CHUNK):
+            chunk = slip_pdas[i:i+CHUNK]
+            keys = [str(p) for _, p in chunk]
+            raw_list = await rpc_get_multiple_accounts(keys)
+            for (sid, _), raw in zip(chunk, raw_list):
+                if raw is not None:
+                    all_accounts.append((sid, raw))
 
         # Parse and filter by wallet
         slips = []
@@ -1470,7 +1486,6 @@ async def user_bet_history(req: BetSlipHistoryRequest):
     Read-only - never signs transactions.
     """
     try:
-        from solana.rpc.async_api import AsyncClient
         from solders.pubkey import Pubkey
 
         chain = await get_chain()
@@ -1517,6 +1532,40 @@ async def user_bet_history(req: BetSlipHistoryRequest):
             "history_count": len(history),
             "history": history,
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {type(e).__name__}: {str(e)}")
+
+
+@app.get('/protocol_config')
+async def protocol_config():
+    """Return all static on-chain addresses the frontend needs to build transactions.
+    Also fetches the next_slip_id and next_market_id from GlobalConfig.
+    Read-only — cached for 10 s.
+    """
+    cached = cache_get('protocol_config')
+    if cached is not None:
+        return cached
+    try:
+        chain = await get_chain()
+        data  = await rpc_get_account_data(str(chain.global_config))
+        if data is None:
+            raise HTTPException(status_code=404, detail="GlobalConfig not found")
+        result = {
+            "program_id":        deployment.get("programId"),
+            "global_config":     str(chain.global_config),
+            "treasury":          deployment.get("treasury"),
+            "treasury_base_ata": deployment.get("treasuryBaseAta"),
+            "base_mint":         deployment.get("baseMint"),
+            "lp_mint":           deployment.get("lpMint"),
+            "rpc_url":           RPC_URL,
+            "next_slip_id":      int.from_bytes(data[258:266], "little"),
+            "next_market_id":    int.from_bytes(data[194:202], "little"),
+            "current_epoch":     int.from_bytes(data[266:274], "little"),
+        }
+        cache_set('protocol_config', result, ttl=10.0)
+        return result
     except HTTPException:
         raise
     except Exception as e:

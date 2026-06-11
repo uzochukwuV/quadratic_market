@@ -514,6 +514,7 @@ async function main() {
       const mPda = new PublicKey(mkt.marketPda);
       const omPda = outcomeMintPda(mId, leg.outcome);
       const slipOutcomeAta = ataAddress(omPda, slipPda, true);
+      const balBefore = await tokenBalance(connection, userBase);
       await program.methods
         .addSlipLeg(slipId, {
           marketId: mId,
@@ -537,11 +538,14 @@ async function main() {
         })
         .signers([user])
         .rpc();
+      const balAfter = await tokenBalance(connection, userBase);
+      const legCost = Number(balBefore) - Number(balAfter);
       legStates.push({
         marketId: mkt.marketId,
         outcomeId: leg.outcome,
         numShares: SLIP_LEG_SHARES.toString(),
         mint: omPda.toBase58(),
+        cost: legCost.toString(),
       });
     }
 

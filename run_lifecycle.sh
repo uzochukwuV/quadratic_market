@@ -18,6 +18,7 @@ VALIDATOR_LOG="/tmp/lifecycle-validator.log"
 export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 export ANCHOR_PROVIDER_URL="$RPC_URL"
 export ANCHOR_WALLET="$WALLET"
+export PROGRAM_ID
 # Match the project's ts-mocha setup: transpile only, skip type checking.
 export TS_NODE_TRANSPILE_ONLY=1
 
@@ -27,10 +28,8 @@ echo "Wallet     : $WALLET"
 echo "RPC URL    : $RPC_URL"
 echo ""
 
-if [ ! -f "$PROGRAM_SO" ]; then
-  echo ">>> Program .so not found — building..."
-  cargo build-sbf 2>&1
-fi
+echo ">>> Building program..."
+cargo build-sbf 2>&1
 
 echo ">>> Cleaning up old validator processes..."
 pkill -f "solana-test-validator" 2>/dev/null || true
