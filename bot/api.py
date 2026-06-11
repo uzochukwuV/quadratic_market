@@ -1500,14 +1500,13 @@ async def user_bet_history(req: BetSlipHistoryRequest):
 
         CHUNK = 50
         all_accounts = []
-        async with AsyncClient(RPC_URL) as client:
-            for i in range(0, len(slip_pdas), CHUNK):
-                chunk = slip_pdas[i:i+CHUNK]
-                keys = [p for _, p in chunk]
-                resp = await client.get_multiple_accounts(keys)
-                for (sid, _), acc in zip(chunk, resp.value):
-                    if acc is not None:
-                        all_accounts.append((sid, bytes(acc.data)))
+        for i in range(0, len(slip_pdas), CHUNK):
+            chunk = slip_pdas[i:i+CHUNK]
+            keys = [str(p) for _, p in chunk]
+            raw_list = await rpc_get_multiple_accounts(keys)
+            for (sid, _), raw in zip(chunk, raw_list):
+                if raw is not None:
+                    all_accounts.append((sid, raw))
 
         history = []
         for sid, data in all_accounts:
