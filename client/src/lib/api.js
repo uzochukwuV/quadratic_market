@@ -46,6 +46,13 @@ export const getMarket = (marketId) => getJSON(`/view-market/${marketId}`);
 
 export const getOddsTable = () => getJSON('/odds-table');
 
+// ─── Market Groups (fixture) ─────────────────────────────────────
+
+// A market group represents one real-world game with multiple market types
+export const getMarketGroups = () => getJSON('/market-groups');
+
+export const getMarketGroup = (groupId) => getJSON(`/market-group/${groupId}`);
+
 // ─── Quotes (read-only LMSR math) ───────────────────────────────
 
 // These still need to be implemented on the TS server

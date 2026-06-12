@@ -531,11 +531,15 @@ app.get("/protocol-config", async (req, res) => {
     let nextSlipId = 1;
     try {
       const gcData = await connection.getAccountInfo(GLOBAL_CONFIG, 'confirmed');
-      if (gcData && gcData.data.length > 8) {
-        const data = gcData.data.slice(8);
-        if (data.length >= 40) {
-          nextSlipId = Number(data.readBigUInt64LE(32));
-        }
+      if (gcData && gcData.data.length > 266) {
+        // GlobalConfig layout (after 8-byte discriminator):
+        // admin(32) + paused(1) + oracle(32) + max_market_exposure(8) + locked_payouts(8) + 
+        // total_lp_supply(8) + lp_mint(32) + base_mint(32) + treasury(32) + treasury_bump(1) +
+        // next_market_id(8) + challenge_window(8) + settlement_deadline(8) + odds_basis(8) +
+        // lmsr_default_b(8) + min_first_liquidity(8) + slip_house_margin_bps(8) + 
+        // max_slip_bonus_multiplier_bps(8) + next_slip_id(8) + ...
+        // next_slip_id is at offset 258 in data (after discriminator)
+        nextSlipId = Number(gcData.data.readBigUInt64LE(258)) + 1;
       }
     } catch (err) {
       console.log("Could not read slip ID:", err);
@@ -948,19 +952,22 @@ app.get("/view-market/:marketId", async (req, res) => {
       };
     });
     
+    // Determine status string
+    let statusStr = "Unknown";
+    if ('open' in marketAccount.status) statusStr = 'open';
+    else if ('preOpen' in marketAccount.status) statusStr = 'preOpen';
+    else if ('suspended' in marketAccount.status) statusStr = 'suspended';
+    else if ('awaitingResult' in marketAccount.status) statusStr = 'awaitingResult';
+    else if ('settled' in marketAccount.status) statusStr = 'settled';
+    else if ('voided' in marketAccount.status) statusStr = 'voided';
+    
     res.json({
       marketId: marketId,
       marketPda: marketPda.toBase58(),
       title: marketAccount.title,
       category: marketAccount.category,
       status: marketAccount.status,
-      statusName: 'open' in marketAccount.status ? 'Open' : 
-                 'preOpen' in marketAccount.status ? 'PreOpen' :
-                 'suspended' in marketAccount.status ? 'Suspended' :
-                 'awaitingResult' in marketAccount.status ? 'AwaitingResult' :
-                 'proposed' in marketAccount.status ? 'Proposed' :
-                 'settled' in marketAccount.status ? 'Settled' :
-                 'voided' in marketAccount.status ? 'Voided' : 'Unknown',
+      statusName: statusStr,
       numOutcomes: marketAccount.numOutcomes,
       qValues: qValues,
       sumQ: sumQ,
@@ -968,9 +975,237 @@ app.get("/view-market/:marketId", async (req, res) => {
       lmsrB: Number(marketAccount.lmsrB),
       startTime: Number(marketAccount.startTime),
       epochId: Number(marketAccount.epochId),
+      groupId: marketAccount.groupId ? Number(marketAccount.groupId) : null,
+      groupMarketIndex: marketAccount.groupMarketIndex ? Number(marketAccount.groupMarketIndex) : null,
     });
   } catch (e: any) {
     console.error("view-market error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get all market groups (fixtures)
+app.get("/market-groups", async (req, res) => {
+  try {
+    const groups = [];
+    const programId = new PublicKey(deploy.programId);
+    
+    // Query groups 1-20
+    for (let groupId = 1; groupId <= 20; groupId++) {
+      const buf = Buffer.alloc(8);
+      buf.writeBigUInt64LE(BigInt(groupId), 0);
+      const groupPda = PublicKey.findProgramAddressSync(
+        [Buffer.from("market_group"), buf],
+        programId
+      )[0];
+      
+      try {
+        const groupInfo = await connection.getAccountInfo(groupPda, 'confirmed');
+        if (!groupInfo || groupInfo.data.length < 100) continue;
+        
+        const data = groupInfo.data.slice(8); // Skip discriminator
+        
+        // Parse fields: group_id(8) + creator(32) + total_exposure(8) + max_exposure(8) + num_markets(1) + market_ids(64)
+        let offset = 8 + 8 + 32 + 8 + 8; // Skip to num_markets
+        const numMarkets = data[offset];
+        offset += 1;
+        
+        // Get market IDs
+        const marketIds = [];
+        for (let i = 0; i < 8; i++) {
+          const mktId = Number(data.readBigUInt64LE(offset));
+          offset += 8;
+          if (mktId > 0) marketIds.push(mktId);
+        }
+        
+        if (marketIds.length === 0) continue;
+        
+        // Parse title - after correlations, states, etc.
+        // Title is at the end: title(String) + bump(1)
+        // We need to find it by scanning backwards or use the IDL layout
+        // For now, use "Match {groupId}" as placeholder
+        const title = `Match ${groupId}`;
+        
+        // Fetch each market's details
+        const markets = [];
+        for (const mId of marketIds) {
+          try {
+            const mBuf = Buffer.alloc(8);
+            mBuf.writeBigUInt64LE(BigInt(mId), 0);
+            const mPda = PublicKey.findProgramAddressSync(
+              [Buffer.from("market"), mBuf],
+              programId
+            )[0];
+            
+            const mData = await program.account.market.fetch(mPda);
+            
+            // Determine status
+            let status = 'inactive';
+            let statusName = 'Inactive';
+            if ('open' in mData.status) {
+              status = 'open';
+              statusName = 'Open';
+            } else if ('preOpen' in mData.status) {
+              status = 'preOpen';
+              statusName = 'Pre-Open';
+            } else if ('suspended' in mData.status) {
+              status = 'suspended';
+              statusName = 'Suspended';
+            }
+            
+            // Calculate odds
+            let sumQ = 0;
+            const qValues = [];
+            for (const q of mData.qValues) {
+              const val = Number(q);
+              qValues.push(val);
+              sumQ += val;
+            }
+            
+            const outcomes = qValues.slice(0, mData.numOutcomes).map((q, idx) => {
+              const probability = sumQ > 0 ? q / sumQ : 0;
+              const odds = probability > 0 ? Math.round((1 / probability) * 100) / 100 : 0;
+              return {
+                id: idx,
+                name: idx === 0 ? 'Home' : idx === 1 ? 'Draw' : idx === 2 ? 'Away' : `Outcome ${idx}`,
+                odds: odds,
+                qValue: q,
+                enabled: status === 'open',
+              };
+            });
+            
+            markets.push({
+              marketId: mId,
+              title: mData.title,
+              category: mData.category,
+              status: status,
+              statusName: statusName,
+              numOutcomes: mData.numOutcomes,
+              outcomes: outcomes,
+              startTime: Number(mData.startTime),
+            });
+          } catch {
+            // Market not found, skip
+          }
+        }
+        
+        if (markets.length > 0) {
+          groups.push({
+            groupId: groupId,
+            title: title,
+            startTime: null,
+            markets: markets,
+            numMarkets: markets.length,
+          });
+        }
+      } catch {
+        // Group doesn't exist
+      }
+    }
+    
+    res.json({ groups });
+  } catch (e: any) {
+    console.error("market-groups error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get single market group
+app.get("/market-group/:groupId", async (req, res) => {
+  try {
+    const groupId = parseInt(req.params.groupId);
+    if (isNaN(groupId)) {
+      return res.status(400).json({ error: "Invalid group ID" });
+    }
+    
+    const buf = Buffer.alloc(8);
+    buf.writeBigUInt64LE(BigInt(groupId), 0);
+    const groupPda = PublicKey.findProgramAddressSync(
+      [Buffer.from("market_group"), buf],
+      new PublicKey(deploy.programId)
+    )[0];
+    
+    const groupInfo = await connection.getAccountInfo(groupPda, 'confirmed');
+    if (!groupInfo || groupInfo.data.length < 100) {
+      return res.status(404).json({ error: "Market group not found" });
+    }
+    
+    const data = groupInfo.data.slice(8);
+    
+    // Parse market IDs
+    const marketIds = [];
+    let offset = 8 + 8 + 32 + 8 + 8 + 1; // Skip to market_ids
+    for (let i = 0; i < 8; i++) {
+      const mktId = Number(data.readBigUInt64LE(offset));
+      offset += 8;
+      if (mktId > 0) marketIds.push(mktId);
+    }
+    
+    const markets = [];
+    const programId = new PublicKey(deploy.programId);
+    
+    for (const mId of marketIds) {
+      try {
+        const mBuf = Buffer.alloc(8);
+        mBuf.writeBigUInt64LE(BigInt(mId), 0);
+        const mPda = PublicKey.findProgramAddressSync(
+          [Buffer.from("market"), mBuf],
+          programId
+        )[0];
+        
+        const mData = await program.account.market.fetch(mPda);
+        
+        // Determine status
+        let status = 'inactive';
+        if ('open' in mData.status) status = 'open';
+        else if ('preOpen' in mData.status) status = 'preOpen';
+        
+        // Calculate odds
+        let sumQ = 0;
+        const qValues = [];
+        for (const q of mData.qValues) {
+          const val = Number(q);
+          qValues.push(val);
+          sumQ += val;
+        }
+        
+        const outcomes = qValues.slice(0, mData.numOutcomes).map((q, idx) => {
+          const probability = sumQ > 0 ? q / sumQ : 0;
+          const odds = probability > 0 ? Math.round((1 / probability) * 100) / 100 : 0;
+          return {
+            id: idx,
+            name: idx === 0 ? 'Home' : idx === 1 ? 'Draw' : idx === 2 ? 'Away' : `Outcome ${idx}`,
+            odds: odds,
+            qValue: q,
+            enabled: status === 'open',
+          };
+        });
+        
+        markets.push({
+          marketId: mId,
+          title: mData.title,
+          category: mData.category,
+          status: status,
+          statusName: status === 'open' ? 'Open' : status === 'preOpen' ? 'Pre-Open' : 'Inactive',
+          numOutcomes: mData.numOutcomes,
+          outcomes: outcomes,
+          startTime: Number(mData.startTime),
+        });
+      } catch {
+        // Skip invalid markets
+      }
+    }
+    
+    res.json({
+      groupId: groupId,
+      groupPda: groupPda.toBase58(),
+      title: `Match ${groupId}`,
+      startTime: null,
+      markets: markets,
+      numMarkets: markets.length,
+    });
+  } catch (e: any) {
+    console.error("market-group error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
