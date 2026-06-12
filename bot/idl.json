@@ -1,5 +1,5 @@
 {
-  "address": "3MsEuMziRKjA1w1WTPeW5NvDUCjGoep2QZ5zBthGq23Z",
+  "address": "54kfyBYeASZr4BqyWatkTqmBJTzgQ8XoEs5vaC8wxkRU",
   "metadata": {
     "name": "quadratic_market",
     "version": "0.1.0",
@@ -73,6 +73,7 @@
         },
         {
           "name": "caller",
+          "writable": true,
           "signer": true
         },
         {
@@ -122,6 +123,7 @@
         },
         {
           "name": "market_group",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -811,6 +813,424 @@
         {
           "name": "operator",
           "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "add_slip_leg",
+      "discriminator": [
+        129,
+        155,
+        57,
+        124,
+        168,
+        231,
+        116,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bet_slip",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  101,
+                  116,
+                  95,
+                  115,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "slip_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.market_id",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer_base_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "slip_creator"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "treasury_base_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "outcome_mint",
+          "writable": true
+        },
+        {
+          "name": "slip_outcome_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "bet_slip"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "outcome_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "slip_creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "slip_id",
+          "type": "u64"
+        },
+        {
+          "name": "leg",
+          "type": {
+            "defined": {
+              "name": "SlipLeg"
+            }
+          }
         }
       ]
     },
@@ -2425,6 +2845,290 @@
       ]
     },
     {
+      "name": "cancel_slip",
+      "discriminator": [
+        169,
+        107,
+        81,
+        11,
+        186,
+        195,
+        81,
+        117
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bet_slip",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  101,
+                  116,
+                  95,
+                  115,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "slip_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_base_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "buyer_base_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "slip_creator"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "slip_creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "slip_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "cash_out_slip",
       "discriminator": [
         253,
@@ -2693,6 +3397,7 @@
         },
         {
           "name": "claimer",
+          "writable": true,
           "signer": true
         },
         {
@@ -2700,8 +3405,8 @@
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": [
@@ -2983,6 +3688,7 @@
         },
         {
           "name": "claimer",
+          "writable": true,
           "signer": true
         },
         {
@@ -3359,7 +4065,8 @@
           }
         },
         {
-          "name": "outcome_mint"
+          "name": "outcome_mint",
+          "writable": true
         },
         {
           "name": "base_mint"
@@ -3454,6 +4161,7 @@
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -3967,6 +4675,7 @@
         },
         {
           "name": "claimer",
+          "writable": true,
           "signer": true
         },
         {
@@ -4944,6 +5653,195 @@
       ]
     },
     {
+      "name": "finalize_slip",
+      "discriminator": [
+        28,
+        107,
+        74,
+        162,
+        62,
+        73,
+        226,
+        0
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bet_slip",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  101,
+                  116,
+                  95,
+                  115,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "slip_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_base_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "slip_creator",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "slip_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "init_epoch",
       "docs": [
         "Create the on-chain Epoch account for the current epoch.",
@@ -5342,6 +6240,95 @@
         },
         {
           "name": "max_market_exposure",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "open_slip",
+      "discriminator": [
+        234,
+        150,
+        162,
+        89,
+        190,
+        253,
+        233,
+        61
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bet_slip",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  101,
+                  116,
+                  95,
+                  115,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "slip_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "slip_creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "slip_id",
+          "type": "u64"
+        },
+        {
+          "name": "num_legs",
+          "type": "u8"
+        },
+        {
+          "name": "max_payment",
           "type": "u64"
         }
       ]
@@ -6382,6 +7369,7 @@
         },
         {
           "name": "authority",
+          "writable": true,
           "signer": true
         },
         {
@@ -6571,8 +7559,322 @@
           }
         },
         {
-          "name": "authority",
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "seeder_base_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "seeder"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "treasury_base_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "outcome_mint",
+          "writable": true
+        },
+        {
+          "name": "seeder_outcome_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "seeder"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "outcome_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "seeder",
+          "writable": true,
           "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -6581,8 +7883,8 @@
           "type": "u64"
         },
         {
-          "name": "seeder",
-          "type": "pubkey"
+          "name": "market_id",
+          "type": "u64"
         },
         {
           "name": "market_index",
@@ -8770,6 +10072,196 @@
       ]
     },
     {
+      "name": "view_cash_out_value",
+      "docs": [
+        "Calculate current cash-out value for an active slip"
+      ],
+      "discriminator": [
+        12,
+        24,
+        119,
+        224,
+        39,
+        128,
+        55,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "bet_slip"
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "CashOutResult"
+        }
+      }
+    },
+    {
+      "name": "view_lp_stats",
+      "docs": [
+        "Get LP pool statistics"
+      ],
+      "discriminator": [
+        146,
+        74,
+        73,
+        248,
+        107,
+        84,
+        109,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "global_config"
+        },
+        {
+          "name": "treasury_base_ata"
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "LpStatsResult"
+        }
+      }
+    },
+    {
+      "name": "view_market_stats",
+      "docs": [
+        "Get comprehensive market statistics"
+      ],
+      "discriminator": [
+        68,
+        40,
+        205,
+        186,
+        64,
+        255,
+        192,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "MarketStatsResult"
+        }
+      }
+    },
+    {
+      "name": "view_quote_buy",
+      "docs": [
+        "Quote the cost for buying outcome shares"
+      ],
+      "discriminator": [
+        15,
+        141,
+        71,
+        159,
+        187,
+        103,
+        209,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        }
+      ],
+      "args": [
+        {
+          "name": "outcome_id",
+          "type": "u8"
+        },
+        {
+          "name": "num_shares",
+          "type": "u64"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "QuoteBuyResult"
+        }
+      }
+    },
+    {
+      "name": "view_quote_sell",
+      "docs": [
+        "Quote the proceeds for selling outcome shares"
+      ],
+      "discriminator": [
+        252,
+        46,
+        111,
+        211,
+        212,
+        66,
+        98,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        }
+      ],
+      "args": [
+        {
+          "name": "outcome_id",
+          "type": "u8"
+        },
+        {
+          "name": "num_shares",
+          "type": "u64"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "QuoteSellResult"
+        }
+      }
+    },
+    {
+      "name": "view_quote_slip",
+      "docs": [
+        "Quote a multi-leg parlay slip (simplified, no correlations)"
+      ],
+      "discriminator": [
+        216,
+        238,
+        246,
+        198,
+        91,
+        190,
+        54,
+        66
+      ],
+      "accounts": [],
+      "args": [
+        {
+          "name": "outcomes",
+          "type": "bytes"
+        },
+        {
+          "name": "shares_per_leg",
+          "type": {
+            "vec": "u64"
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "QuoteSlipResult"
+        }
+      }
+    },
+    {
       "name": "void_if_expired",
       "discriminator": [
         24,
@@ -9157,6 +10649,11 @@
       "msg": "Math underflow"
     },
     {
+      "code": 6006,
+      "name": "InsufficientMarketBacking",
+      "msg": "Market backing insufficient to cover position liability"
+    },
+    {
       "code": 6100,
       "name": "MarketNotOpen",
       "msg": "Market not open for trading"
@@ -9472,6 +10969,36 @@
       "msg": "Seeded market has not reached minimum bootstrapping requirements"
     },
     {
+      "code": 6727,
+      "name": "SlipNotBuilding",
+      "msg": "Bet slip is not in the building state"
+    },
+    {
+      "code": 6728,
+      "name": "SlipLegOutOfOrder",
+      "msg": "Bet slip leg index is out of order or already added"
+    },
+    {
+      "code": 6729,
+      "name": "SlipAlreadyFinalized",
+      "msg": "Bet slip already finalized"
+    },
+    {
+      "code": 6730,
+      "name": "SlipLegsIncomplete",
+      "msg": "Bet slip legs are not all added yet"
+    },
+    {
+      "code": 6731,
+      "name": "SlipNotActive",
+      "msg": "Bet slip is not active"
+    },
+    {
+      "code": 6732,
+      "name": "SlipDuplicateMarket",
+      "msg": "Bet slip leg duplicates an existing leg's market"
+    },
+    {
       "code": 6800,
       "name": "EpochNotComplete",
       "msg": "Epoch has not completed — not all markets are settled"
@@ -9603,6 +11130,56 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "SlipStatus"
+              }
+            }
+          },
+          {
+            "name": "legs_added",
+            "type": "u8"
+          },
+          {
+            "name": "max_payment",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CashOutResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "current_value",
+            "type": "u64"
+          },
+          {
+            "name": "original_stake",
+            "type": "u64"
+          },
+          {
+            "name": "profit_loss",
+            "type": "i64"
+          },
+          {
+            "name": "profit_loss_pct",
+            "type": "i64"
+          },
+          {
+            "name": "legs_status",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "LegStatus"
+                }
+              }
+            }
           }
         ]
       }
@@ -9928,6 +11505,38 @@
       }
     },
     {
+      "name": "LegStatus",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "outcome_id",
+            "type": "u8"
+          },
+          {
+            "name": "current_odds",
+            "type": "u64"
+          },
+          {
+            "name": "original_odds",
+            "type": "u64"
+          },
+          {
+            "name": "market_settled",
+            "type": "bool"
+          },
+          {
+            "name": "is_winner",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "LimitOrder",
       "docs": [
         "A peer-to-peer limit order for outcome tokens.",
@@ -9999,6 +11608,42 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LpStatsResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "total_tvl",
+            "type": "u64"
+          },
+          {
+            "name": "total_lp_supply",
+            "type": "u64"
+          },
+          {
+            "name": "locked_exposure",
+            "type": "u64"
+          },
+          {
+            "name": "free_liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "nav_per_share",
+            "type": "u64"
+          },
+          {
+            "name": "total_markets",
+            "type": "u64"
+          },
+          {
+            "name": "active_markets",
+            "type": "u64"
           }
         ]
       }
@@ -10107,6 +11752,18 @@
           {
             "name": "settled_in_epoch",
             "type": "bool"
+          },
+          {
+            "name": "backing",
+            "type": "u64"
+          },
+          {
+            "name": "seed_fee_pool",
+            "type": "u64"
+          },
+          {
+            "name": "locked_payout",
+            "type": "u64"
           }
         ]
       }
@@ -10311,6 +11968,62 @@
       }
     },
     {
+      "name": "MarketStatsResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "current_odds",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "implied_probs",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "total_volume",
+            "type": "u64"
+          },
+          {
+            "name": "liquidity",
+            "type": "u64"
+          },
+          {
+            "name": "exposure",
+            "type": "u64"
+          },
+          {
+            "name": "locked_payout",
+            "type": "u64"
+          },
+          {
+            "name": "num_outcomes",
+            "type": "u8"
+          },
+          {
+            "name": "time_to_close",
+            "type": "i64"
+          },
+          {
+            "name": "time_to_settlement",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "MarketStatus",
       "type": {
         "kind": "enum",
@@ -10408,6 +12121,132 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteBuyResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "cost",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "total_payment",
+            "type": "u64"
+          },
+          {
+            "name": "new_q_values",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "new_odds",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "price_impact_bps",
+            "type": "u64"
+          },
+          {
+            "name": "shares_received",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteSellResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proceeds",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "net_received",
+            "type": "u64"
+          },
+          {
+            "name": "new_q_values",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "new_odds",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "price_impact_bps",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteSlipResult",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "total_cost",
+            "type": "u64"
+          },
+          {
+            "name": "house_margin",
+            "type": "u64"
+          },
+          {
+            "name": "total_stake",
+            "type": "u64"
+          },
+          {
+            "name": "potential_payout",
+            "type": "u64"
+          },
+          {
+            "name": "individual_odds",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "parlay_odds",
+            "type": "u64"
+          },
+          {
+            "name": "correlation_bonus_bps",
+            "type": "u64"
+          },
+          {
+            "name": "implied_probability",
+            "type": "u64"
+          },
+          {
+            "name": "expected_value",
+            "type": "i64"
+          },
+          {
+            "name": "lp_exposure",
+            "type": "u64"
           }
         ]
       }
@@ -10524,6 +12363,29 @@
           {
             "name": "num_shares",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SlipStatus",
+      "docs": [
+        "Lifecycle state of a multi-leg bet slip.",
+        "",
+        "Single-leg slips placed via `place_slip` are created directly as `Active`.",
+        "Multi-leg slips are assembled across several transactions: `open_slip`",
+        "creates the slip as `Building`, each `add_slip_leg` appends one leg (one",
+        "market per transaction, so the heap never holds more than one leg's worth of",
+        "state), and `finalize_slip` transitions it to `Active`."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Building"
+          },
+          {
+            "name": "Active"
           }
         ]
       }

@@ -110,7 +110,12 @@ pub(crate) fn compute_seed_readiness(
         0
     };
 
-    Ok((total_seed_volume, seeded_sides, largest_side_bps, smallest_side))
+    Ok((
+        total_seed_volume,
+        seeded_sides,
+        largest_side_bps,
+        smallest_side,
+    ))
 }
 
 pub(crate) fn compute_seed_lmsr_q_values(
@@ -859,6 +864,10 @@ pub fn register_seed_position_handler(
         .backing
         .checked_add(amount)
         .ok_or(QuadraticMarketError::MathOverflow)?;
+    market.locked_payout = market
+        .locked_payout
+        .checked_add(amount)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
 
     let idx = group.num_seed_positions as usize;
     group.seed_positions[idx] = SeedPosition {
@@ -1067,7 +1076,8 @@ mod tests {
         positions[1] = seed(0, 1, 2_000);
         positions[1].refunded = true;
 
-        let (total, sides, largest, smallest) = compute_seed_readiness(&positions, 2, 0, 2).unwrap();
+        let (total, sides, largest, smallest) =
+            compute_seed_readiness(&positions, 2, 0, 2).unwrap();
         assert_eq!(total, 3_000);
         assert_eq!(sides, 1);
         assert_eq!(largest, 10_000);

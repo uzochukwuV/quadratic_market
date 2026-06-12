@@ -103,6 +103,15 @@ export const marketColumnMap = {
   "Clean Sheet": ["1", "2"],
 };
 
+// Mutually exclusive groups — picking any key in a group locks the others
+// for the same match row. Keys not in any group are independent.
+export const exclusiveGroups = [
+  ["1", "X", "2"],       // 1X2 / Match Result
+  ["1X", "X2", "12"],    // Double Chance
+  ["GG", "NG"],          // BTTS
+  ["O2.5", "U2.5"],      // Over/Under
+];
+
 export const matchesByLeague = [
   {
     league: "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League",

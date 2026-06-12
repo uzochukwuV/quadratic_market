@@ -1,6 +1,4 @@
-use crate::constants::{
-    seeds, DEFAULT_SEED_FEE_SHARE_BPS, MAX_GROUP_MARKETS, MAX_OUTCOMES, SCALE,
-};
+use crate::constants::{seeds, DEFAULT_SEED_FEE_SHARE_BPS, MAX_GROUP_MARKETS, MAX_OUTCOMES, SCALE};
 use crate::errors::QuadraticMarketError;
 use crate::math::correlation::compute_adjusted_q_values;
 use crate::math::lmsr::{lmsr_buy_cost, lmsr_price, lmsr_sell_payout};
@@ -144,11 +142,12 @@ pub fn buy_shares_handler(
         QuadraticMarketError::MaxExposureReached
     );
 
-    let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(
-        free_liquidity >= num_shares,
-        QuadraticMarketError::InsufficientLiquidity
-    );
+    // Stage 2: Single positions are self-backed; no backing check needed.
+    // The market's accumulated backing from previous bets covers the liability.
+    let backing_after_payment = market
+        .backing
+        .checked_add(total_charge)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Transfer total_charge (cost + fee) from buyer to treasury
     token::transfer(
@@ -184,15 +183,10 @@ pub fn buy_shares_handler(
         .ok_or(QuadraticMarketError::MathOverflow)?;
     market.exposure = new_exposure;
     // The bettor's payment (cost + fee) joins this market's own backing ledger.
-    market.backing = market.backing.saturating_add(total_charge);
+    market.backing = backing_after_payment;
     // Accrue the seeder reward: 5% of this trade's fee, reserved for losing-side
     // seeders. (5% of revenue, where revenue = the protocol fee on this bet.)
     accrue_seed_fee(config, market, fee)?;
-    // Lock the full potential payout (num_shares = 1:1 at settlement)
-    config.locked_payouts = config
-        .locked_payouts
-        .checked_add(num_shares)
-        .ok_or(QuadraticMarketError::MathOverflow)?;
 
     Ok(())
 }
@@ -305,10 +299,9 @@ pub fn sell_shares_handler(
 
     require!(payout >= min_payout, QuadraticMarketError::LmsrSellBelowMin);
 
-    let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
     require!(
-        free_liquidity >= payout,
-        QuadraticMarketError::InsufficientLiquidity
+        market.backing >= payout,
+        QuadraticMarketError::InsufficientMarketBacking
     );
 
     // Burn outcome tokens
@@ -342,9 +335,10 @@ pub fn sell_shares_handler(
     market.q_values[outcome_id as usize] = market.q_values[outcome_id as usize]
         .checked_sub(num_shares)
         .ok_or(QuadraticMarketError::MathUnderflow)?;
+    market.backing = market.backing.saturating_sub(payout);
     let profit_exposure_reduction = num_shares.saturating_sub(payout);
     market.exposure = market.exposure.saturating_sub(profit_exposure_reduction);
-    config.locked_payouts = config.locked_payouts.saturating_sub(num_shares);
+    market.locked_payout = market.locked_payout.saturating_sub(num_shares);
 
     Ok(())
 }
@@ -523,11 +517,11 @@ pub fn buy_shares_correlated_handler<'info>(
         market.exposure = new_exposure;
     }
 
-    let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(
-        free_liquidity >= num_shares,
-        QuadraticMarketError::InsufficientLiquidity
-    );
+    // Stage 2: Single positions are self-backed; no backing check needed.
+    let backing_after_payment = market
+        .backing
+        .checked_add(total_charge)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
 
     token::transfer(
         CpiContext::new(
@@ -560,13 +554,9 @@ pub fn buy_shares_correlated_handler<'info>(
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     // The bettor's payment (cost + fee) joins this market's own backing ledger.
-    market.backing = market.backing.saturating_add(total_charge);
+    market.backing = backing_after_payment;
     // Accrue the 5% seeder reward from this trade's fee.
     accrue_seed_fee(config, market, fee)?;
-    config.locked_payouts = config
-        .locked_payouts
-        .checked_add(num_shares)
-        .ok_or(QuadraticMarketError::MathOverflow)?;
 
     Ok(())
 }
@@ -693,10 +683,9 @@ pub fn sell_shares_correlated_handler<'info>(
 
     require!(payout >= min_payout, QuadraticMarketError::LmsrSellBelowMin);
 
-    let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
     require!(
-        free_liquidity >= payout,
-        QuadraticMarketError::InsufficientLiquidity
+        market.backing >= payout,
+        QuadraticMarketError::InsufficientMarketBacking
     );
 
     let profit_exposure_reduction = num_shares.saturating_sub(payout);
@@ -737,7 +726,8 @@ pub fn sell_shares_correlated_handler<'info>(
     market.q_values[outcome_id as usize] = market.q_values[outcome_id as usize]
         .checked_sub(num_shares)
         .ok_or(QuadraticMarketError::MathUnderflow)?;
-    config.locked_payouts = config.locked_payouts.saturating_sub(num_shares);
+    market.backing = market.backing.saturating_sub(payout);
+    market.locked_payout = market.locked_payout.saturating_sub(num_shares);
 
     Ok(())
 }

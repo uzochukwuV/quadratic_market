@@ -93,7 +93,13 @@ mod tests {
             max_group_exposure: 0x2122232425262728u64,
             num_markets: 3,
             market_ids: [0x3132333435363738u64; MAX_GROUP_MARKETS],
-            correlations: [CorrelationPair { market_a_index: 1, outcome_a_id: 2, market_b_index: 3, outcome_b_id: 4, weight_bps: 0x5152535455565758u64 }; MAX_CORRELATION_PAIRS],
+            correlations: [CorrelationPair {
+                market_a_index: 1,
+                outcome_a_id: 2,
+                market_b_index: 3,
+                outcome_b_id: 4,
+                weight_bps: 0x5152535455565758u64,
+            }; MAX_CORRELATION_PAIRS],
             num_correlations: 1,
             num_states: 4,
             state_probabilities: [0x6162636465666768u64; MAX_SAME_GAME_STATES],
@@ -107,7 +113,15 @@ mod tests {
             seed_fee_share_bps: 0xA1A2A3A4A5A6A7A8u64,
             seed_min_volume: 0xB1B2B3B4B5B6B7B8u64,
             seed_max_side_share_bps: 0xC1C2C3C4C5C6C7C8u64,
-            seed_positions: [SeedPosition { seeder: Pubkey::new_from_array([0xD1u8; 32]), slip_id: 0xE1E2E3E4E5E6E7E8u64, market_index: 5, outcome_id: 6, amount: 0xF1F2F3F4F5F6F7F8u64, reward_claimed: true, refunded: false }; MAX_SEED_POSITIONS],
+            seed_positions: [SeedPosition {
+                seeder: Pubkey::new_from_array([0xD1u8; 32]),
+                slip_id: 0xE1E2E3E4E5E6E7E8u64,
+                market_index: 5,
+                outcome_id: 6,
+                amount: 0xF1F2F3F4F5F6F7F8u64,
+                reward_claimed: true,
+                refunded: false,
+            }; MAX_SEED_POSITIONS],
             num_seed_positions: 1,
             event_start_time: 0x0102030405060708i64,
             correlation_locked: true,
@@ -139,16 +153,48 @@ mod tests {
             u64::from_le_bytes(bytes)
         }
 
-        assert_eq!(read_u64(data, 40), 0x1112131415161718u64, "total_group_exposure offset");
+        assert_eq!(
+            read_u64(data, 40),
+            0x1112131415161718u64,
+            "total_group_exposure offset"
+        );
         assert_eq!(data[56], 3u8, "num_markets offset");
-        assert_eq!(read_u64(data, 121 + 4), 0x5152535455565758u64, "correlations[0].weight_bps offset");
+        assert_eq!(
+            read_u64(data, 121 + 4),
+            0x5152535455565758u64,
+            "correlations[0].weight_bps offset"
+        );
         assert_eq!(data[314], 4u8, "num_states offset");
-        assert_eq!(read_u64(data, 315), 0x6162636465666768u64, "state_probabilities[0] offset");
-        assert_eq!(read_u64(data, 827), 0x7172737475767778u64, "outcome_state_masks[0][0] offset");
-        assert_eq!(read_u64(data, 1339), 0x8182838485868788u64, "statistical_discount_bps offset");
-        assert_eq!(read_u64(data, 1347), 0x9192939495969798u64, "seed_fee_pools[0] offset");
-        assert_eq!(read_u64(data, 1411), 0xA1A2A3A4A5A6A7A8u64, "seed_fee_share_bps offset");
-        assert_eq!(read_u64(data, 1435 + 32), 0xE1E2E3E4E5E6E7E8u64, "seed_positions[0].slip_id offset");
+        assert_eq!(
+            read_u64(data, 315),
+            0x6162636465666768u64,
+            "state_probabilities[0] offset"
+        );
+        assert_eq!(
+            read_u64(data, 827),
+            0x7172737475767778u64,
+            "outcome_state_masks[0][0] offset"
+        );
+        assert_eq!(
+            read_u64(data, 1339),
+            0x8182838485868788u64,
+            "statistical_discount_bps offset"
+        );
+        assert_eq!(
+            read_u64(data, 1347),
+            0x9192939495969798u64,
+            "seed_fee_pools[0] offset"
+        );
+        assert_eq!(
+            read_u64(data, 1411),
+            0xA1A2A3A4A5A6A7A8u64,
+            "seed_fee_share_bps offset"
+        );
+        assert_eq!(
+            read_u64(data, 1435 + 32),
+            0xE1E2E3E4E5E6E7E8u64,
+            "seed_positions[0].slip_id offset"
+        );
         assert_eq!(data[2267], 1u8, "num_seed_positions offset");
     }
 }

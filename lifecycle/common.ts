@@ -38,6 +38,7 @@ export const USDC_DECIMALS = 6;
 export const ONE_USDC = 1_000_000;
 
 export const STATE_PATH = path.resolve(__dirname, "state.json");
+const DEFAULT_PROGRAM_ID = "3MsEuMziRKjA1w1WTPeW5NvDUCjGoep2QZ5zBthGq23Z";
 
 export const SEEDS = {
   GLOBAL_CONFIG: Buffer.from("global_config"),
@@ -103,6 +104,46 @@ export function sub(msg: string): void {
   console.log(`     ${msg}`);
 }
 
+function resolveIdlPath(): string {
+  const candidates = [
+    process.env.ANCHOR_IDL_PATH,
+    path.resolve(__dirname, "..", "target", "idl", "quadratic_market.json"),
+    path.resolve(
+      __dirname,
+      "..",
+      "programs",
+      "quadratic_market",
+      "target",
+      "idl",
+      "quadratic_market.json"
+    ),
+    path.resolve(__dirname, "..", "bot", "idl.json"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `Unable to find quadratic_market IDL. Looked in ${candidates.join(", ")}`
+  );
+}
+
+export function loadIdl(): anchor.Idl {
+  const idlPath = resolveIdlPath();
+  const idl = JSON.parse(fs.readFileSync(idlPath, "utf8")) as anchor.Idl;
+
+  const programId =
+    process.env.PROGRAM_ID || process.env.ANCHOR_PROGRAM_ID || DEFAULT_PROGRAM_ID;
+  if (programId && (idl as { address?: string }).address !== programId) {
+    (idl as { address?: string }).address = programId;
+  }
+
+  return idl;
+}
+
 // ─── Connection / program wiring ─────────────────────────────────────────────
 export interface Ctx {
   connection: Connection;
@@ -114,12 +155,7 @@ export interface Ctx {
 export function makeCtx(): Ctx {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const idl: anchor.Idl = JSON.parse(
-    fs.readFileSync(
-      path.resolve(__dirname, "..", "target", "idl", "quadratic_market.json"),
-      "utf8"
-    )
-  );
+  const idl = loadIdl();
   const program = new anchor.Program(idl, provider);
   const admin = (provider.wallet as anchor.Wallet).payer;
   return { connection: provider.connection, provider, program, admin };
@@ -234,6 +270,7 @@ export interface MarketState {
   groupId: string;
   numOutcomes: number;
   winningOutcome: number; // chosen winner for settlement (Phase 1 decides)
+  seedCapital: string; // Total seed capital deposited
 }
 
 export interface SingleBetState {
@@ -243,6 +280,8 @@ export interface SingleBetState {
   outcomeId: number;
   shares: string;
   outcomeAta: string;
+  cost: string; // Total cost paid (excluding fee)
+  fee: string;  // Buy fee (1%)
 }
 
 export interface SlipLegState {
@@ -250,6 +289,7 @@ export interface SlipLegState {
   outcomeId: number;
   numShares: string;
   mint: string;
+  cost?: string;
 }
 
 export interface SlipState {
@@ -257,6 +297,8 @@ export interface SlipState {
   user: KeypairJson;
   userLabel: string;
   legs: SlipLegState[];
+  stake: string;        // Total stake paid
+  potentialPayout: string; // Expected payout if all legs win
 }
 
 export interface LpState {

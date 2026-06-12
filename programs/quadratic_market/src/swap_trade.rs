@@ -150,11 +150,17 @@ pub fn buy_shares_with_swap_handler(
         QuadraticMarketError::MaxExposureReached
     );
 
-    // Liquidity check
-    let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
+    let backing_after_payment = market
+        .backing
+        .checked_add(cost)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    let liability_after_buy = market
+        .locked_payout
+        .checked_add(num_shares)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
     require!(
-        free_liquidity >= cost,
-        QuadraticMarketError::InsufficientLiquidity
+        backing_after_payment >= liability_after_buy,
+        QuadraticMarketError::InsufficientMarketBacking
     );
 
     // Transfer base tokens from buyer to treasury
@@ -186,16 +192,12 @@ pub fn buy_shares_with_swap_handler(
     )?;
 
     // Update state
-    // locked_payouts must track num_shares (the 1:1 settlement obligation),
-    // not cost (what the buyer paid). Using cost understates the liability.
     market.q_values[outcome_id as usize] = market.q_values[outcome_id as usize]
         .checked_add(num_shares)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     market.exposure = new_exposure;
-    config.locked_payouts = config
-        .locked_payouts
-        .checked_add(num_shares)
-        .ok_or(QuadraticMarketError::MathOverflow)?;
+    market.backing = backing_after_payment;
+    market.locked_payout = liability_after_buy;
 
     Ok(())
 }

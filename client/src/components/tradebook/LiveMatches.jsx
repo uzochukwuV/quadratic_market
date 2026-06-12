@@ -1,10 +1,41 @@
-import React, { useRef, useState } from "react";
-import { liveMatches } from "@/lib/sportsData";
+import React, { useRef, useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useMarkets } from "@/lib/api";
 
 export default function LiveMatches({ onOddsClick, selectedOdds }) {
   const scrollRef = useRef(null);
   const [animatingId, setAnimatingId] = useState(null);
+  const { data, isLoading, error } = useMarkets();
+
+  const matches = useMemo(() => {
+    if (!data?.markets) return [];
+    return data.markets
+      .filter((m) => m.num_outcomes >= 2)
+      .map((m, idx) => {
+        const home = m.title || `Market ${m.market_id}`;
+        const outcomes = m.prices || [];
+        const odds = m.current_odds || [];
+        // Try to split title on "vs"
+        const parts = home.split(/ vs | -/i);
+        const homeName = parts[0]?.trim() || home;
+        const awayName = parts[1]?.trim() || "—";
+        return {
+          id: `mkt-${m.market_id}`,
+          marketId: m.market_id,
+          league: m.category || "Market",
+          minute: m.status,
+          home: homeName,
+          away: awayName,
+          homeScore: m.num_outcomes === 3 ? Math.round(outcomes[0] * 100) : "—",
+          awayScore: m.num_outcomes === 3 ? Math.round(outcomes[2] * 100) : "—",
+          odds: {
+            "1": (odds[0] || 0) / 10000,
+            "X": outcomes[1] != null ? (odds[1] / 10000) : 0,
+            "2": (odds[2] || odds[1] || 0) / 10000,
+          },
+        };
+      });
+  }, [data]);
 
   const scroll = (dir) => {
     if (scrollRef.current) {
@@ -17,7 +48,7 @@ export default function LiveMatches({ onOddsClick, selectedOdds }) {
     setAnimatingId(id);
     setTimeout(() => setAnimatingId(null), 200);
     onOddsClick({
-      matchId: match.id,
+      matchId: match.marketId,
       match: `${match.home} vs ${match.away}`,
       selection: `${market} (${market === "1" ? "Home" : market === "2" ? "Away" : "Draw"})`,
       market,
@@ -25,18 +56,38 @@ export default function LiveMatches({ onOddsClick, selectedOdds }) {
     });
   };
 
-  const isSelected = (matchId, market) => {
-    return selectedOdds.some((o) => o.matchId === matchId && o.market === market);
+  const isSelected = (marketId, market) => {
+    return selectedOdds.some((o) => o.matchId === marketId && o.market === market);
   };
+
+  if (isLoading) {
+    return (
+      <div className="mb-6 text-sm text-silver-ash">Loading markets…</div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="mb-6 text-sm text-red-500">
+        Failed to load markets: {error.message}
+      </div>
+    );
+  }
+  if (matches.length === 0) {
+    return (
+      <div className="mb-6 text-sm text-silver-ash">
+        No markets available yet.
+      </div>
+    );
+  }
 
   return (
     <div className="mb-6">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-red-500 live-pulse" />
-          <h2 className="font-inter text-lg font-bold text-midnight">LIVE NOW</h2>
+          <span className="w-2 h-2 rounded-full bg-green-500 live-pulse" />
+          <h2 className="font-inter text-lg font-bold text-midnight">MARKETS</h2>
           <span className="bg-sunset-orange/10 text-sunset-orange font-inter text-xs font-semibold px-2.5 py-0.5 rounded-full">
-            {liveMatches.length} Live
+            {matches.length} Live
           </span>
         </div>
         <div className="flex gap-1">
@@ -50,13 +101,13 @@ export default function LiveMatches({ onOddsClick, selectedOdds }) {
       </div>
 
       <div ref={scrollRef} className="flex gap-3 overflow-x-auto hide-scrollbar pb-1">
-        {liveMatches.map((match) => (
+        {matches.map((match) => (
           <div
             key={match.id}
             className="bg-slate-mist rounded-lg p-4 min-w-[272px] shrink-0 flex flex-col"
           >
             <div className="flex items-center gap-1.5 mb-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 live-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 live-pulse" />
               <span className="font-inter text-[12px] text-silver-ash">
                 {match.league} • {match.minute}
               </span>
@@ -69,8 +120,9 @@ export default function LiveMatches({ onOddsClick, selectedOdds }) {
             </div>
             <div className="flex gap-2 mt-auto">
               {Object.entries(match.odds).map(([market, odds]) => {
+                if (!odds) return null;
                 const btnId = `live-${match.id}-${market}`;
-                const sel = isSelected(match.id, market);
+                const sel = isSelected(match.marketId, market);
                 return (
                   <button
                     key={market}

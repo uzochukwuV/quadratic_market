@@ -1,4 +1,6 @@
 import { Toaster } from "@/components/ui/toaster"
+import WalletConnection from '@/components/tradebook/WalletConnection'
+import MintUsdc from '@/pages/MintUsdc'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
@@ -17,7 +19,8 @@ const AuthenticatedApp = () => {
      
       <Route path="/" element={<Landing />} />
      
-        <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/mint-usdc" element={<MintUsdc />} />
      
       <Route path="*" element={<PageNotFound />} />
     </Routes>

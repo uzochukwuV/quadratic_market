@@ -67,6 +67,12 @@ export default function PageNotFound({}) {
                             </svg>
                             Go Home
                         </button>
+                        <button 
+                            onClick={() => window.location.href = '/mint-usdc'} 
+                            className="ml-3 inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-midnight rounded-lg hover:opacity-95 transition-colors duration-200"
+                        >
+                            Mint Test USDC
+                        </button>
                     </div>
                 </div>
             </div>

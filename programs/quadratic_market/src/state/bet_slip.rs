@@ -75,5 +75,5 @@ impl BetSlip {
         + 1   // bump
         + 1   // status (SlipStatus enum, 1-byte discriminant)
         + 1   // legs_added
-        + 8;  // max_payment
+        + 8; // max_payment
 }
