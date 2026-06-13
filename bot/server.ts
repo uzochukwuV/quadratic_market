@@ -1210,6 +1210,11 @@ app.get("/market-group/:groupId", async (req, res) => {
   }
 });
 
+// ─── Football API Routes ──────────────────────────────────────────
+
+import { footballRouter } from "./footballApi";
+app.use("/football", footballRouter);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n=== API Server running on port ${PORT} ===`);
