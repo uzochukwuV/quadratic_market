@@ -76,9 +76,20 @@ pub fn is_before(timestamp: i64, end: i64) -> bool {
     timestamp < end
 }
 
-/// Calculate the difference between two timestamps (can be negative).
+/// Calculate the difference between two timestamps.
 pub fn timestamp_diff(a: i64, b: i64) -> i64 {
+    // For i64, saturating_sub saturates at i64::MIN, not 0
+    // Use checked_sub to get negative values when appropriate
     a.saturating_sub(b)
+}
+
+/// Calculate the positive difference between two timestamps.
+pub fn positive_timestamp_diff(a: i64, b: i64) -> i64 {
+    if a >= b {
+        a - b
+    } else {
+        b - a
+    }
 }
 
 /// Validate that a slip cancel deadline is reasonable (not too far in future).
@@ -152,4 +163,125 @@ pub fn sat_add(a: u64, b: u64) -> u64 {
 /// Saturating subtraction (returns 0 on underflow instead of error).
 pub fn sat_sub(a: u64, b: u64) -> u64 {
     a.saturating_sub(b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── Bitmask Helper Tests ────────────────────────────────────
+
+    #[test]
+    fn test_create_mask() {
+        assert_eq!(create_mask(0), 0);
+        assert_eq!(create_mask(1), 0b1);
+        assert_eq!(create_mask(3), 0b111);
+        assert_eq!(create_mask(8), 0b11111111);
+        assert_eq!(create_mask(16), 0xFFFF);
+        assert_eq!(create_mask(20), 0xFFFF); // Clamped to 16 bits
+    }
+
+    #[test]
+    fn test_is_valid_index() {
+        assert!(is_valid_index(0, 5));
+        assert!(is_valid_index(4, 5));
+        assert!(!is_valid_index(5, 5));
+        assert!(!is_valid_index(10, 5));
+    }
+
+    #[test]
+    fn test_count_bits() {
+        assert_eq!(count_bits(0b0000), 0);
+        assert_eq!(count_bits(0b0101), 2);
+        assert_eq!(count_bits(0b1111), 4);
+        assert_eq!(count_bits(0xFFFF), 16);
+    }
+
+    #[test]
+    fn test_bit_operations() {
+        let mask: u16 = 0b0101; // bits 0 and 2 set
+        
+        assert!(has_all_bits(mask, 0b0101));
+        assert!(has_all_bits(mask, 0b0100));
+        assert!(!has_all_bits(mask, 0b1000));
+        
+        // has_any_bit checks if ANY bit in the second arg is set in mask
+        assert!(has_any_bit(mask, 0b0100)); // bit 2 is set in both
+        assert!(has_any_bit(mask, 0b0001)); // bit 0 is set in both
+        assert!(has_any_bit(mask, 0b0101)); // both bits 0 and 2 are set
+        assert!(!has_any_bit(mask, 0b1010)); // bits 1 and 3 not in mask
+        
+        assert_eq!(set_bit(mask, 3), 0b1101);
+        assert_eq!(clear_bit(mask, 0), 0b0100);
+        assert_eq!(is_bit_set(mask, 0), true);
+        assert_eq!(is_bit_set(mask, 1), false);
+    }
+
+    // ─── Time Helper Tests ───────────────────────────────────────
+
+    #[test]
+    fn test_is_within_window() {
+        assert!(is_within_window(100, 50, 150));
+        assert!(is_within_window(100, 100, 150));
+        assert!(!is_within_window(100, 150, 200)); // After window
+        assert!(!is_within_window(100, 50, 100));  // End is exclusive
+    }
+
+    #[test]
+    fn test_timestamp_diff() {
+        assert_eq!(timestamp_diff(100, 50), 50);
+        assert_eq!(timestamp_diff(50, 100), -50); // Can be negative
+    }
+
+    #[test]
+    fn test_positive_timestamp_diff() {
+        assert_eq!(positive_timestamp_diff(100, 50), 50);
+        assert_eq!(positive_timestamp_diff(50, 100), 50); // Always positive
+    }
+
+    // ─── Fixed-Point Helper Tests ─────────────────────────────────
+
+    #[test]
+    fn test_min_max_fp() {
+        let a = 1_000_000_000u64; // ~0.23
+        let b = 4_000_000_000u64; // ~0.93
+        
+        assert_eq!(min_fp(a, b), a);
+        assert_eq!(max_fp(a, b), b);
+    }
+
+    #[test]
+    fn test_bps_conversions() {
+        // 500 bps = 5% = SCALE + 5%
+        let mult = bps_to_multiplier(500); // 5%
+        let expected = SCALE + (SCALE / 10000 * 500);
+        assert_eq!(mult, expected);
+        
+        // Round trip (approximate due to integer math)
+        let bps = multiplier_to_bps(mult);
+        assert!(bps >= 499 && bps <= 501); // Allow 1 bps tolerance
+    }
+
+    // ─── Overflow Protection Tests ─────────────────────────────────
+
+    #[test]
+    fn test_safe_arithmetic() {
+        assert_eq!(safe_add(1, 2).unwrap(), 3);
+        assert!(safe_add(u64::MAX, 1).is_err());
+        
+        assert_eq!(safe_sub(5, 3).unwrap(), 2);
+        assert!(safe_sub(3, 5).is_err());
+        
+        assert_eq!(safe_mul(3, 4).unwrap(), 12);
+        assert!(safe_mul(u64::MAX, 2).is_err());
+        
+        assert_eq!(safe_div(12, 4).unwrap(), 3);
+        assert!(safe_div(12, 0).is_err());
+    }
+
+    #[test]
+    fn test_saturating_arithmetic() {
+        assert_eq!(sat_add(u64::MAX, 1), u64::MAX);
+        assert_eq!(sat_sub(3, 5), 0);
+    }
 }

@@ -862,4 +862,176 @@ mod tests {
         slip.legs_won_mask = 0b0011;
         assert!(!slip.all_legs_won());
     }
+
+    #[test]
+    fn test_can_cancel() {
+        let mut slip = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 3,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0b0001, // Only leg 0 bought
+            legs_settled_mask: 0,
+            legs_won_mask: 0,
+            total_stake: 1000,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Pending,
+            created_at: 0,
+            cancel_deadline: 1000,
+            bump: 1,
+            claimed: false,
+        };
+
+        // Deadline not passed yet
+        assert!(!slip.can_cancel(500));
+
+        // Deadline passed, not all bought
+        assert!(slip.can_cancel(1001));
+
+        // All legs bought - can't cancel
+        slip.legs_bought_mask = 0b0111;
+        assert!(!slip.can_cancel(1001));
+    }
+
+    #[test]
+    fn test_legs_remaining() {
+        let slip = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 5,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0b0011, // legs 0 and 1 bought
+            legs_settled_mask: 0,
+            legs_won_mask: 0,
+            total_stake: 1000,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Pending,
+            created_at: 0,
+            cancel_deadline: 0,
+            bump: 1,
+            claimed: false,
+        };
+
+        assert_eq!(slip.legs_remaining(), 3);
+    }
+
+    #[test]
+    fn test_legs_count_helpers() {
+        let mut slip = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 4,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0b0101, // legs 0 and 2 bought
+            legs_settled_mask: 0b0101, // legs 0 and 2 settled
+            legs_won_mask: 0b0100, // only leg 2 won
+            total_stake: 1000,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Active,
+            created_at: 0,
+            cancel_deadline: 0,
+            bump: 1,
+            claimed: false,
+        };
+
+        assert_eq!(slip.legs_bought_count(), 2);
+        assert_eq!(slip.legs_settled_count(), 2);
+        assert_eq!(slip.legs_won_count(), 1);
+        assert_eq!(slip.legs_lost_count(), 1);
+    }
+
+    #[test]
+    fn test_is_finalized() {
+        let slip_pending = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 2,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0,
+            legs_settled_mask: 0,
+            legs_won_mask: 0,
+            total_stake: 0,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Pending,
+            created_at: 0,
+            cancel_deadline: 0,
+            bump: 1,
+            claimed: false,
+        };
+        assert!(!slip_pending.is_finalized());
+
+        let slip_won = Slip {
+            status: SlipStatus::Won,
+            ..slip_pending
+        };
+        assert!(slip_won.is_finalized());
+
+        let slip_lost = Slip {
+            status: SlipStatus::Lost,
+            ..slip_pending
+        };
+        assert!(slip_lost.is_finalized());
+
+        let slip_cancelled = Slip {
+            status: SlipStatus::Cancelled,
+            ..slip_pending
+        };
+        assert!(slip_cancelled.is_finalized());
+    }
+
+    #[test]
+    fn test_is_leg_bought_settled_won() {
+        let slip = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 4,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0b0101, // legs 0 and 2
+            legs_settled_mask: 0b0101,
+            legs_won_mask: 0b0100, // only leg 2
+            total_stake: 1000,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Active,
+            created_at: 0,
+            cancel_deadline: 0,
+            bump: 1,
+            claimed: false,
+        };
+
+        assert!(slip.is_leg_bought(0));
+        assert!(!slip.is_leg_bought(1));
+        assert!(slip.is_leg_bought(2));
+        assert!(!slip.is_leg_bought(3));
+
+        assert!(slip.is_leg_settled(0));
+        assert!(!slip.is_leg_settled(1));
+
+        assert!(!slip.is_leg_won(0));
+        assert!(slip.is_leg_won(2));
+
+        // Out of range
+        assert!(!slip.is_leg_bought(10));
+        assert!(!slip.is_leg_settled(10));
+        assert!(!slip.is_leg_won(10));
+    }
 }
