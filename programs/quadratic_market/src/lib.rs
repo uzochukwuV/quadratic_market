@@ -16,6 +16,7 @@ pub mod market_ops;
 pub mod trade;
 pub mod swap_trade;
 pub mod settlement;
+pub mod settlement_ops;
 pub mod claim;
 pub mod market_group;
 pub mod slip;
@@ -31,6 +32,7 @@ use market_ops::*;
 use trade::*;
 use swap_trade::*;
 use settlement::*;
+use settlement_ops::*;
 use claim::*;
 use market_group::*;
 use slip::*;
@@ -215,6 +217,69 @@ pub mod quadratic_market {
         finalize_result_handler(ctx, market_id)
     }
 
+    // ─── Settlement Multisig ────────────────────────────────
+
+    /// Initialize the settlement council (admin only, one-time)
+    pub fn initialize_settlement_council(
+        ctx: Context<InitializeSettlementCouncil>,
+        min_stake: u64,
+        required_confirmations: u8,
+    ) -> Result<()> {
+        initialize_settlement_council_handler(ctx, min_stake, required_confirmations)
+    }
+
+    /// Add a settlement operator to the council
+    pub fn add_settlement_operator(
+        ctx: Context<AddSettlementOperator>,
+        operator: Pubkey,
+        stake: u64,
+    ) -> Result<()> {
+        add_settlement_operator_handler(ctx, operator, stake)
+    }
+
+    /// Remove a settlement operator from the council
+    pub fn remove_settlement_operator(
+        ctx: Context<RemoveSettlementOperator>,
+        operator: Pubkey,
+    ) -> Result<()> {
+        remove_settlement_operator_handler(ctx, operator)
+    }
+
+    /// Propose a settlement outcome (first operator opens the proposal)
+    pub fn propose_settlement(
+        ctx: Context<ProposeSettlement>,
+        market_id: u64,
+        proposed_outcome: u8,
+        tx_hash_ref: [u8; 32],
+    ) -> Result<()> {
+        propose_settlement_handler(ctx, market_id, proposed_outcome, tx_hash_ref)
+    }
+
+    /// Confirm an existing settlement proposal
+    pub fn confirm_settlement(
+        ctx: Context<ConfirmSettlement>,
+        market_id: u64,
+    ) -> Result<()> {
+        confirm_settlement_handler(ctx, market_id)
+    }
+
+    /// Dispute a settlement proposal (alternative outcome)
+    pub fn dispute_settlement(
+        ctx: Context<DisputeSettlement>,
+        market_id: u64,
+        alternative_outcome: u8,
+    ) -> Result<()> {
+        dispute_settlement_handler(ctx, market_id, alternative_outcome)
+    }
+
+    /// Finalize a settlement once quorum is reached (permissionless)
+    pub fn finalize_settlement(
+        ctx: Context<FinalizeSettlement>,
+        market_id: u64,
+    ) -> Result<()> {
+        finalize_settlement_handler(ctx, market_id)
+    }
+
     // ─── Claims ───────────────────────────────────────────────
 
     pub fn claim_payout(ctx: Context<ClaimPayout>, market_id: u64) -> Result<()> {
@@ -287,37 +352,52 @@ pub mod quadratic_market {
         sell_shares_correlated_handler(ctx, outcome_id, num_shares, min_payout)
     }
 
-    // ─── Bet Slip ───────────────────────────────────────────────
+    // ─── Bet Slip (New Decomposed System) ───────────────────────
 
-    pub fn place_slip<'info>(
-        ctx: Context<'_, '_, '_, 'info, PlaceSlip<'info>>,
+    /// Place slip await: escrows stake, records legs, locks fixed odds.
+    /// Backend then fires N × buy_leg_for_slip.
+    pub fn place_slip_await<'info>(
+        ctx: Context<'_, '_, '_, 'info, PlaceSlipAwait<'info>>,
         legs: Vec<SlipLeg>,
-        max_payment: u64,
-        num_groups: u8,
+        stake: u64,
+        fixed_odds: Vec<u64>,
+        cancel_deadline: i64,
     ) -> Result<()> {
-        place_slip_handler(ctx, legs, max_payment, num_groups)
+        place_slip_await_handler(ctx, legs, stake, fixed_odds, cancel_deadline)
     }
 
-    pub fn claim_slip<'info>(
-        ctx: Context<'_, '_, '_, 'info, ClaimSlip<'info>>,
+    /// Buy one leg for slip. Backend calls this N times after place_slip_await.
+    pub fn buy_leg_for_slip<'info>(
+        ctx: Context<'_, '_, '_, 'info, BuyLegForSlip<'info>>,
         slip_id: u64,
-        num_groups: u8,
+        leg_index: u8,
     ) -> Result<()> {
-        claim_slip_handler(ctx, slip_id, num_groups)
+        buy_leg_for_slip_handler(ctx, slip_id, leg_index)
     }
 
-    pub fn update_slip_lock(
-        ctx: Context<UpdateSlipLock>,
+    /// Cancel slip if deadline passed or legs not bought.
+    pub fn cancel_slip<'info>(
+        ctx: Context<'_, '_, '_, 'info, CancelSlip<'info>>,
         slip_id: u64,
     ) -> Result<()> {
-        update_slip_lock_handler(ctx, slip_id)
+        cancel_slip_handler(ctx, slip_id)
     }
 
-    pub fn cash_out_slip<'info>(
-        ctx: Context<'_, '_, '_, 'info, CashOutSlip<'info>>,
+    /// Settle one leg of a slip. Permissionless.
+    pub fn settle_slip_leg<'info>(
+        ctx: Context<'_, '_, '_, 'info, SettleSlipLeg<'info>>,
+        slip_id: u64,
+        leg_index: u8,
+    ) -> Result<()> {
+        settle_slip_leg_handler(ctx, slip_id, leg_index)
+    }
+
+    /// Resolve slip: finalize payout after all legs settled.
+    pub fn resolve_slip<'info>(
+        ctx: Context<'_, '_, '_, 'info, ResolveSlip<'info>>,
         slip_id: u64,
     ) -> Result<()> {
-        cash_out_slip_handler(ctx, slip_id)
+        resolve_slip_handler(ctx, slip_id)
     }
 
     // ─── Peer-to-Peer Order Book ────────────────────────────────
@@ -385,5 +465,42 @@ pub mod quadratic_market {
     /// Normally auto-triggered when the last market in the epoch settles.
     pub fn close_epoch(ctx: Context<CloseEpoch>) -> Result<()> {
         close_epoch_handler(ctx)
+    }
+
+    // ─── Epoch Vault Operations (Step 2) ────────────────────────
+
+    /// Publish an epoch and its vault — announcement LPs see before opting in.
+    pub fn publish_epoch(
+        ctx: Context<PublishEpoch>,
+        epoch_id: u64,
+        market_ids: Vec<u64>,
+    ) -> Result<()> {
+        publish_epoch_handler(ctx, epoch_id, market_ids)
+    }
+
+    /// Opt into an epoch's liquidity pool.
+    pub fn opt_in_epoch_liquidity(
+        ctx: Context<OptInEpochLiquidity>,
+        epoch_id: u64,
+        amount: u64,
+    ) -> Result<()> {
+        opt_in_epoch_liquidity_handler(ctx, epoch_id, amount)
+    }
+
+    /// Withdraw liquidity after epoch settlement.
+    pub fn withdraw_epoch_liquidity(
+        ctx: Context<WithdrawEpochLiquidity>,
+        epoch_id: u64,
+        shares: u64,
+    ) -> Result<()> {
+        withdraw_epoch_liquidity_handler(ctx, epoch_id, shares)
+    }
+
+    /// Enable withdrawals on an epoch vault (called when epoch settles).
+    pub fn enable_epoch_withdrawals(
+        ctx: Context<EnableEpochWithdrawals>,
+        epoch_id: u64,
+    ) -> Result<()> {
+        enable_epoch_withdrawals_handler(ctx, epoch_id)
     }
 }

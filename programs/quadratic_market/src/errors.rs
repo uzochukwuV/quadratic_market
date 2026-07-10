@@ -169,4 +169,38 @@ pub enum QuadraticMarketError {
     NoActiveEpoch = 805,
     #[msg("Bet is not refundable — protocol is not paused")]
     NotPaused = 806,
+
+    // 900-999: Settlement errors
+    #[msg("Settlement council not found")]
+    SettlementCouncilNotFound = 900,
+    #[msg("Operator is not a valid settlement operator")]
+    InvalidSettlementOperator = 901,
+    #[msg("Operator has insufficient stake for settlement duties")]
+    InsufficientOperatorStake = 902,
+    #[msg("Settlement proposal already exists for this market")]
+    ProposalAlreadyExists = 903,
+    #[msg("Settlement proposal not found")]
+    ProposalNotFound = 904,
+    #[msg("Proposal outcome does not match")]
+    ProposalOutcomeMismatch = 905,
+    #[msg("Operator has already confirmed this proposal")]
+    AlreadyConfirmed = 906,
+    #[msg("Confirmation deadline has passed")]
+    ConfirmationDeadlinePassed = 907,
+    #[msg("Quorum not reached for settlement")]
+    QuorumNotReached = 908,
+    #[msg("Proposal already finalized")]
+    ProposalAlreadyFinalized = 909,
+    #[msg("Proposal is disputed")]
+    ProposalDisputed = 910,
+    #[msg("Invalid operator index")]
+    InvalidOperatorIndex = 911,
+    #[msg("Minimum stake requirement not met")]
+    MinStakeNotMet = 912,
+    #[msg("Confirmation window still active")]
+    ConfirmationWindowActive = 913,
+    #[msg("Operator list is full")]
+    OperatorListFull = 914,
+    #[msg("Operator not in council")]
+    OperatorNotInCouncil = 915,
 }

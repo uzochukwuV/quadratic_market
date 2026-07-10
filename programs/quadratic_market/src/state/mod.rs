@@ -7,6 +7,9 @@ pub mod bet_slip;
 pub mod pending_liquidity;
 pub mod order;
 pub mod epoch;
+pub mod epoch_vault;
+pub mod settlement_council;
+pub mod settlement_proposal;
 
 pub use global_config::*;
 pub use market::*;
@@ -17,3 +20,6 @@ pub use bet_slip::*;
 pub use pending_liquidity::*;
 pub use order::*;
 pub use epoch::*;
+pub use epoch_vault::*;
+pub use settlement_council::*;
+pub use settlement_proposal::*;

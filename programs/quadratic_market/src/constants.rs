@@ -39,7 +39,18 @@ pub mod seeds {
     pub const PENDING: &[u8] = b"pending";
     pub const ORDER: &[u8] = b"order";
     pub const EPOCH: &[u8] = b"epoch";
+    pub const EPOCH_VAULT: &[u8] = b"epoch_vault";
+    pub const SETTLEMENT_COUNCIL: &[u8] = b"settlement_council";
+    pub const SETTLEMENT_PROPOSAL: &[u8] = b"settlement_proposal";
+    pub const SLIP: &[u8] = b"slip";
 }
+
+// Settlement council
+pub const MAX_SETTLEMENT_OPERATORS: usize = 8;
+pub const MAX_CONFIRMATIONS: usize = MAX_SETTLEMENT_OPERATORS;
+pub const DEFAULT_MIN_SETTLEMENT_STAKE: u64 = 10_000_000_000; // 10,000 USDC
+pub const DEFAULT_REQUIRED_CONFIRMATIONS: u8 = 2;
+pub const DEFAULT_CONFIRMATION_WINDOW_SECONDS: i64 = 300; // 5 minutes
 
 // Correlated markets
 pub const MAX_GROUP_MARKETS: usize = MAX_OUTCOMES;
