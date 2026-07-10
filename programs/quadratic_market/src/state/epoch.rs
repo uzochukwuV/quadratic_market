@@ -42,4 +42,42 @@ impl Epoch {
             false
         }
     }
+
+    /// Returns true if the epoch is currently active (started but not ended).
+    pub fn is_active(&self, now: i64) -> bool {
+        now >= self.start_time && now < self.end_time
+    }
+
+    /// Returns true if the epoch has expired (current time is past end_time).
+    pub fn is_expired(&self, now: i64) -> bool {
+        now >= self.end_time
+    }
+
+    /// Returns true if withdrawals are allowed for this epoch.
+    pub fn can_withdraw(&self) -> bool {
+        self.withdrawals_enabled && self.all_markets_settled
+    }
+
+    /// Returns the time remaining until the epoch starts (negative if already started).
+    pub fn time_until_start(&self, now: i64) -> i64 {
+        self.start_time.saturating_sub(now)
+    }
+
+    /// Returns the time remaining until the epoch ends (negative if already ended).
+    pub fn time_until_end(&self, now: i64) -> i64 {
+        self.end_time.saturating_sub(now)
+    }
+
+    /// Returns the number of markets still pending settlement.
+    pub fn pending_settlements(&self) -> u16 {
+        self.num_markets.saturating_sub(self.num_settled_markets)
+    }
+
+    /// Returns the settlement progress as basis points (0-10000 for 0.00%-100.00%).
+    pub fn settlement_progress_bps(&self) -> u16 {
+        if self.num_markets == 0 {
+            return 10000; // Fully settled if no markets
+        }
+        (self.num_settled_markets as u32 * 10000 / self.num_markets as u32) as u16
+    }
 }

@@ -3,7 +3,7 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use crate::state::{
     GlobalConfig, Market, MarketStatus, MarketMode, Epoch, EpochVault,
-    SlipStatus, SlipLeg, Slip,
+    SlipLeg,
 };
 use crate::errors::QuadraticMarketError;
 use crate::constants::{
@@ -56,6 +56,7 @@ pub struct Slip {
     pub status: SlipStatus,
     pub created_at: i64,
     pub cancel_deadline: i64,
+    pub claimed: bool,             // Whether paused bet has been reclaimed
     pub bump: u8,
 }
 
@@ -77,6 +78,7 @@ impl Slip {
         + 1   // status
         + 8   // created_at
         + 8   // cancel_deadline
+        + 1   // claimed
         + 1;  // bump
 
     /// Check if all legs have been bought
@@ -95,6 +97,78 @@ impl Slip {
     pub fn all_legs_won(&self) -> bool {
         let expected = ((1u16 << self.num_legs) - 1) as u16;
         self.legs_won_mask == expected
+    }
+
+    /// Returns true if the slip can be cancelled (deadline passed or not all legs bought).
+    pub fn can_cancel(&self, now: i64) -> bool {
+        matches!(self.status, SlipStatus::Pending | SlipStatus::Active)
+            && now >= self.cancel_deadline
+            && !self.all_legs_bought()
+    }
+
+    /// Returns the number of legs remaining to be bought.
+    pub fn legs_remaining(&self) -> u8 {
+        self.legs_bought_mask.count_ones() as u8;
+        self.num_legs - (self.legs_bought_mask.count_ones() as u8)
+    }
+
+    /// Returns the number of legs that have been bought.
+    pub fn legs_bought_count(&self) -> u8 {
+        self.legs_bought_mask.count_ones() as u8
+    }
+
+    /// Returns the number of legs that have been settled.
+    pub fn legs_settled_count(&self) -> u8 {
+        self.legs_settled_mask.count_ones() as u8
+    }
+
+    /// Returns the number of legs that won.
+    pub fn legs_won_count(&self) -> u8 {
+        self.legs_won_mask.count_ones() as u8
+    }
+
+    /// Returns the number of legs that lost.
+    pub fn legs_lost_count(&self) -> u8 {
+        let settled = self.legs_settled_count();
+        let won = self.legs_won_count();
+        settled.saturating_sub(won)
+    }
+
+    /// Check if a specific leg has been bought.
+    pub fn is_leg_bought(&self, leg_index: u8) -> bool {
+        if leg_index >= self.num_legs {
+            return false;
+        }
+        self.legs_bought_mask & (1u16 << leg_index) != 0
+    }
+
+    /// Check if a specific leg has been settled.
+    pub fn is_leg_settled(&self, leg_index: u8) -> bool {
+        if leg_index >= self.num_legs {
+            return false;
+        }
+        self.legs_settled_mask & (1u16 << leg_index) != 0
+    }
+
+    /// Check if a specific leg won.
+    pub fn is_leg_won(&self, leg_index: u8) -> bool {
+        if leg_index >= self.num_legs {
+            return false;
+        }
+        self.legs_won_mask & (1u16 << leg_index) != 0
+    }
+
+    /// Returns true if the slip is in a final state (won, lost, or cancelled).
+    pub fn is_finalized(&self) -> bool {
+        matches!(
+            self.status,
+            SlipStatus::Won | SlipStatus::Lost | SlipStatus::Cancelled
+        )
+    }
+
+    /// Returns the time remaining until the cancel deadline (negative if passed).
+    pub fn time_until_cancel_deadline(&self, now: i64) -> i64 {
+        self.cancel_deadline.saturating_sub(now)
     }
 }
 
@@ -129,6 +203,7 @@ pub struct PlaceSlipAwait<'info> {
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
     pub base_mint: Account<'info, Mint>,
 
+    #[account(mut)]
     pub owner: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -224,6 +299,7 @@ pub fn place_slip_await_handler<'info>(
 // Backend calls this N times after place_slip_await.
 
 #[derive(Accounts)]
+#[instruction(slip_id: u64, leg_index: u8)]
 pub struct BuyLegForSlip<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -392,6 +468,7 @@ pub fn buy_leg_for_slip_handler<'info>(
 // Permissionless cancellation if deadline passed or market suspended.
 
 #[derive(Accounts)]
+#[instruction(slip_id: u64)]
 pub struct CancelSlip<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -475,7 +552,7 @@ pub fn cancel_slip_handler<'info>(
         slip_id,
         owner: slip.owner,
         refund,
-        legs_bought,
+        legs_bought: legs_bought as u32,
     });
 
     Ok(())
@@ -485,6 +562,7 @@ pub fn cancel_slip_handler<'info>(
 // Permissionless. Marks one leg as settled based on market outcome.
 
 #[derive(Accounts)]
+#[instruction(slip_id: u64, leg_index: u8)]
 pub struct SettleSlipLeg<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -586,6 +664,7 @@ pub fn settle_slip_leg_handler<'info>(
 // Finalizes slip and transfers payout. Permissionless.
 
 #[derive(Accounts)]
+#[instruction(slip_id: u64)]
 pub struct ResolveSlip<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -720,7 +799,7 @@ mod tests {
     #[test]
     fn slip_len_matches_expected() {
         // Verify the LEN constant is correct
-        assert_eq!(Slip::LEN, 278);
+        assert_eq!(Slip::LEN, 314);
     }
 
     #[test]
@@ -743,6 +822,7 @@ mod tests {
             created_at: 0,
             cancel_deadline: 0,
             bump: 1,
+            claimed: false,
         };
 
         // Initially not all bought
@@ -773,6 +853,7 @@ mod tests {
             created_at: 0,
             cancel_deadline: 0,
             bump: 1,
+            claimed: false,
         };
 
         assert!(slip.all_legs_won());

@@ -103,4 +103,49 @@ impl Market {
     pub fn active_q_values(&self) -> Vec<u64> {
         self.q_values[..self.num_outcomes as usize].to_vec()
     }
+
+    /// Returns true if the market is currently open for trading.
+    pub fn is_tradable(&self, now: i64) -> bool {
+        self.status == MarketStatus::Open && now < self.start_time
+    }
+
+    /// Returns true if the market has expired (event has started).
+    pub fn is_expired(&self, now: i64) -> bool {
+        now >= self.start_time
+    }
+
+    /// Returns true if the market is in a state that can accept bets.
+    pub fn can_place_bet(&self, now: i64) -> bool {
+        self.status == MarketStatus::Open && now < self.start_time
+    }
+
+    /// Returns true if the market can be settled.
+    pub fn can_settle(&self) -> bool {
+        matches!(
+            self.status,
+            MarketStatus::Open | MarketStatus::Suspended | MarketStatus::AwaitingResult
+        )
+    }
+
+    /// Returns true if the market has been finalized (settled or voided).
+    pub fn is_finalized(&self) -> bool {
+        matches!(self.status, MarketStatus::Settled | MarketStatus::Voided)
+    }
+
+    /// Returns the time until the market starts (negative if already started).
+    pub fn time_until_start(&self, now: i64) -> i64 {
+        self.start_time.saturating_sub(now)
+    }
+
+    /// Returns true if the given outcome ID is valid for this market.
+    pub fn is_valid_outcome(&self, outcome_id: u8) -> bool {
+        (outcome_id as usize) < self.num_outcomes as usize
+    }
+
+    /// Returns the total liquidity in the market (sum of all q_values).
+    pub fn total_liquidity(&self) -> u64 {
+        self.q_values[..self.num_outcomes as usize]
+            .iter()
+            .sum()
+    }
 }

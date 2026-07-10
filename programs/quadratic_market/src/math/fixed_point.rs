@@ -63,6 +63,81 @@ pub fn div_fp_signed(a: i64, b: i64) -> Result<i64> {
     Ok(result as i64)
 }
 
+/// Square root for Q32.32 using Newton-Raphson iteration.
+/// Returns the floor of the square root.
+/// Note: This is computationally expensive - use sparingly.
+pub fn sqrt_fp(a: u64) -> Result<u64> {
+    if a == 0 {
+        return Ok(0);
+    }
+
+    // Initial estimate using standard u64 sqrt
+    let a_raw = a >> 32;
+    let mut x = if a_raw > 0 {
+        (a_raw as f64).sqrt() as u64
+    } else {
+        1
+    };
+
+    // Convert to Q32.32
+    x = x << 32;
+
+    // Newton-Raphson iteration for 12 iterations (enough for convergence)
+    for _ in 0..12 {
+        let x2 = ((x as u128) * (x as u128)) >> 32;
+        if x2 >= a as u128 {
+            // Check if we've converged
+            if ((x as u128) << 32) / (x as u128) == x as u128 {
+                break;
+            }
+        }
+        x = (((x as u128) + ((a as u128) << 32) / x as u128) >> 1) as u64;
+    }
+
+    Ok(x)
+}
+
+/// Power function for Q32.32: a^exp
+/// Only supports non-negative integer exponents.
+/// Uses binary exponentiation for efficiency.
+pub fn pow_fp(base: u64, exp: u32) -> Result<u64> {
+    require!(exp <= 32, QuadraticMarketError::MathOverflow); // Limit to prevent overflow
+
+    if exp == 0 {
+        return Ok(SCALE); // a^0 = 1
+    }
+
+    if exp == 1 {
+        return Ok(base);
+    }
+
+    let mut result: u64 = SCALE; // Start at 1.0 in Q32.32
+    let mut current = base;
+    let mut e = exp;
+
+    while e > 0 {
+        if e & 1 == 1 {
+            result = mul_fp(result, current)?;
+        }
+        current = mul_fp(current, current)?;
+        e >>= 1;
+    }
+
+    Ok(result)
+}
+
+/// Minimum of two Q32.32 values.
+#[inline]
+pub fn min_fp(a: u64, b: u64) -> u64 {
+    std::cmp::min(a, b)
+}
+
+/// Maximum of two Q32.32 values.
+#[inline]
+pub fn max_fp(a: u64, b: u64) -> u64 {
+    std::cmp::max(a, b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

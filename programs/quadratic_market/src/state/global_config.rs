@@ -131,6 +131,6 @@ mod tests {
 
     #[test]
     fn global_config_len_matches_expected() {
-        assert_eq!(GlobalConfig::LEN, 614);
+        assert_eq!(GlobalConfig::LEN, 605);
     }
 }

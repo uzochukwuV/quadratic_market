@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::log::sol_log_compute_units;
 use crate::state::{GlobalConfig, Market, MarketStatus, SettlementCouncil, SettlementProposal, Epoch};
 use crate::errors::QuadraticMarketError;
 use crate::constants::{
@@ -99,7 +98,7 @@ pub fn add_settlement_operator_handler(
     // Find empty slot
     require!(
         council.num_operators < MAX_SETTLEMENT_OPERATORS as u8,
-        QuadraticMarketError::OperatorListFull
+        QuadraticMarketError::SettlementOperatorListFull
     );
 
     // Check if operator already exists
@@ -201,6 +200,7 @@ pub struct ProposeSettlement<'info> {
     )]
     pub proposal: Account<'info, SettlementProposal>,
 
+    #[account(mut)]
     pub operator: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -213,7 +213,7 @@ pub fn propose_settlement_handler(
 ) -> Result<()> {
     let config = &ctx.accounts.global_config;
     let council = &ctx.accounts.settlement_council;
-    let market = &ctx.accounts.market;
+    let market = &mut ctx.accounts.market;
     let proposal = &mut ctx.accounts.proposal;
 
     // Verify operator is valid
@@ -335,14 +335,14 @@ pub fn confirm_settlement_handler(
 
     // Add confirmation
     require!(
-        proposal.add_confirmation(operator_idx),
+        proposal.add_confirmation(operator_idx as u8),
         QuadraticMarketError::AlreadyConfirmed
     );
 
     emit!(SettlementConfirmed {
         market_id,
         confirmer: ctx.accounts.operator.key(),
-        operator_index: operator_idx,
+        operator_index: operator_idx as u8,
         total_confirmations: proposal.num_confirmations,
     });
 
@@ -361,7 +361,7 @@ pub fn confirm_settlement_handler(
 /// Dispute a settlement proposal.
 /// Can be called if another operator disagrees with the proposed outcome.
 #[derive(Accounts)]
-#[instruction(market_id: u64)]
+#[instruction(market_id: u64, alternative_outcome: u8)]
 pub struct DisputeSettlement<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -378,9 +378,6 @@ pub struct DisputeSettlement<'info> {
         bump = proposal.bump,
     )]
     pub proposal: Account<'info, SettlementProposal>,
-
-    /// The alternative outcome being proposed as the correct one
-    pub alternative_outcome: u8,
 
     pub operator: Signer<'info>,
 }
@@ -413,7 +410,7 @@ pub fn dispute_settlement_handler(
     emit!(SettlementDisputed {
         market_id,
         disputed_by: ctx.accounts.operator.key(),
-        operator_index: operator_idx,
+        operator_index: operator_idx as u8,
         proposed_outcome: proposal.proposed_outcome,
         alternative_outcome,
     });

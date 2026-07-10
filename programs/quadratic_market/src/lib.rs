@@ -14,7 +14,6 @@ pub mod admin;
 pub mod liquidity;
 pub mod market_ops;
 pub mod trade;
-pub mod swap_trade;
 pub mod settlement;
 pub mod settlement_ops;
 pub mod claim;
@@ -30,7 +29,6 @@ use admin::*;
 use liquidity::*;
 use market_ops::*;
 use trade::*;
-use swap_trade::*;
 use settlement::*;
 use settlement_ops::*;
 use claim::*;
@@ -104,15 +102,6 @@ pub mod quadratic_market {
         add_liquidity_handler(ctx, amount)
     }
 
-    pub fn init_pending_liquidity(
-        ctx: Context<InitPendingLiquidity>,
-        shares: u64,
-        activation_time: i64,
-        amount: u64,
-    ) -> Result<()> {
-        init_pending_liquidity_handler(ctx, shares, activation_time, amount)
-    }
-
     pub fn request_withdraw(ctx: Context<RequestWithdraw>, shares: u64) -> Result<()> {
         request_withdraw_handler(ctx, shares)
     }
@@ -183,16 +172,6 @@ pub mod quadratic_market {
         min_payout: u64,
     ) -> Result<()> {
         sell_shares_handler(ctx, outcome_id, num_shares, min_payout)
-    }
-
-    pub fn buy_shares_with_swap(
-        ctx: Context<BuySharesWithSwap>,
-        outcome_id: u8,
-        num_shares: u64,
-        max_payment: u64,
-        min_base_from_swap: u64,
-    ) -> Result<()> {
-        buy_shares_with_swap_handler(ctx, outcome_id, num_shares, max_payment, min_base_from_swap)
     }
 
     // ─── Settlement ───────────────────────────────────────────
