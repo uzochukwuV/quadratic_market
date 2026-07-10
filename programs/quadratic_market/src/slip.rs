@@ -51,6 +51,7 @@ pub struct Slip {
     pub legs_settled_mask: u16,   // bit i = leg i settled
     pub legs_won_mask: u16,       // bit i = leg i won
     pub total_stake: u64,         // Total USDC escrowed
+    pub total_cost: u64,           // Sum of actual leg costs (for payout calc)
     pub potential_payout: u64,   // Fixed payout if all legs win
     pub locked_amount: u64,       // Current treasury lock
     pub status: SlipStatus,
@@ -73,6 +74,7 @@ impl Slip {
         + 2   // legs_settled_mask
         + 2   // legs_won_mask
         + 8   // total_stake
+        + 8   // total_cost
         + 8   // potential_payout
         + 8   // locked_amount
         + 1   // status
@@ -249,6 +251,7 @@ pub fn place_slip_await_handler<'info>(
     slip.legs_settled_mask = 0;
     slip.legs_won_mask = 0;
     slip.total_stake = stake;
+    slip.total_cost = 0; // Accumulated from leg costs during buy_leg_for_slip
     slip.potential_payout = 0; // Will be calculated after all legs bought
     slip.locked_amount = 0;
     slip.status = SlipStatus::Pending;
@@ -397,6 +400,8 @@ pub fn buy_leg_for_slip_handler<'info>(
     );
 
     // Calculate cost and locked amount
+    // Calculate the actual LMSR cost for buying tokens
+    // leg_stake is the per-leg portion of the total stake
     let leg_stake = slip.total_stake / slip.num_legs as u64;
     let leg_cost = lmsr_buy_cost(
         &market.q_values,
@@ -405,6 +410,11 @@ pub fn buy_leg_for_slip_handler<'info>(
         leg_stake,
         market.lmsr_b,
     )?;
+
+    // Mint tokens equal to leg_cost (not leg_stake) to ensure all minted tokens
+    // are backed by collected funds. This prevents undercollateralization where
+    // leg_stake > leg_cost (when LMSR price < 1.0) would create unbacked exposure.
+    let tokens_to_mint = leg_cost;
 
     // Mint outcome tokens to buyer
     let market_id_bytes = market.market_id.to_le_bytes();
@@ -419,28 +429,34 @@ pub fn buy_leg_for_slip_handler<'info>(
             },
             &[market_seeds],
         ),
-        leg_stake,
+        tokens_to_mint,
     )?;
 
-    // Update market q_values
+    // Update market q_values by leg_cost (not leg_stake)
     market.q_values[expected_outcome as usize] = market.q_values[expected_outcome as usize]
-        .checked_add(leg_stake)
+        .checked_add(tokens_to_mint)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
-    // Update locked_payouts
+    // Update locked_payouts by leg_cost
+    // This tracks the treasury's maximum liability for this leg
     config.locked_payouts = config.locked_payouts
-        .checked_add(leg_stake)
+        .checked_add(tokens_to_mint)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Mark leg as bought
     slip.legs_bought_mask |= bit;
+
+    // Accumulate the actual cost for this leg
+    slip.total_cost = slip.total_cost
+        .checked_add(tokens_to_mint)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Transition to Active if all legs bought
     if slip.all_legs_bought() {
         slip.status = SlipStatus::Active;
         
         // Calculate potential payout based on fixed odds
-        let mut total_payout: u128 = slip.total_stake as u128;
+        let mut total_payout: u128 = slip.total_cost as u128;
         for i in 0..slip.num_legs as usize {
             let odds_fp = slip.leg_fixed_odds_bps[i];
             total_payout = total_payout
@@ -518,15 +534,22 @@ pub fn cancel_slip_handler<'info>(
         QuadraticMarketError::SlipNotExpired // Reuse error
     );
 
-    // Calculate refund amount (total_stake minus legs that were bought)
+    // Calculate refund based on actual costs incurred
+    // The treasury received total_stake at place_slip_await
+    // But only total_cost was used to purchase tokens (sum of leg_costs)
+    // The difference (total_stake - total_cost) is always refundable
+    // Plus any unused legs' proportional stake
     let legs_bought = slip.legs_bought_mask.count_ones() as u64;
-    let legs_bought_value = legs_bought * (slip.total_stake / slip.num_legs as u64);
-    let refund = slip.total_stake - legs_bought_value;
-
-    // Release locked_payouts for unbought legs
-    let legs_not_bought = slip.num_legs as u64 - legs_bought;
-    let unlocked_amount = legs_not_bought * (slip.total_stake / slip.num_legs as u64);
-    config.locked_payouts = config.locked_payouts.saturating_sub(unlocked_amount);
+    let _legs_not_bought = slip.num_legs as u64 - legs_bought;
+    
+    // Used stake = legs_bought * (total_stake / num_legs)
+    let used_stake = legs_bought * (slip.total_stake / slip.num_legs as u64);
+    // Refund = total_stake - used_stake (unused portion of stake)
+    let refund = slip.total_stake - used_stake;
+    
+    // Release locked_payouts by total_cost for the bought legs
+    // This reverses the locked_payouts increase from buy_leg_for_slip
+    config.locked_payouts = config.locked_payouts.saturating_sub(slip.total_cost);
 
     // Mark as cancelled
     slip.status = SlipStatus::Cancelled;
@@ -799,8 +822,8 @@ mod tests {
     #[test]
     fn slip_len_matches_expected() {
         // Verify the LEN constant is correct
-        // 8 + 32 + 8 + 8 + 1 + 128 + 16 + 128 + 2 + 2 + 2 + 8 + 8 + 8 + 1 + 8 + 8 + 1 + 1 = 378
-        assert_eq!(Slip::LEN, 378);
+        // 8 + 32 + 8 + 8 + 1 + 128 + 16 + 128 + 2 + 2 + 2 + 8 + 8 + 8 + 8 + 1 + 8 + 8 + 1 + 1 = 386
+        assert_eq!(Slip::LEN, 386);
     }
 
     #[test]

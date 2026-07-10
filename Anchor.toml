@@ -9,6 +9,10 @@ skip-lint = false
 [programs.localnet]
 quadratic_market = "Ag5ccPBKNJbw1JZiTaMEZ1fZpfcDFkMrrwXqCkQA5ji9"
 
+# Devnet program ID - will be replaced after deployment with `anchor deploy --provider.cluster devnet`
+[programs.devnet]
+quadratic_market = "DEVBnet1111111111111111111111111111111111"
+
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"

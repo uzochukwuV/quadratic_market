@@ -357,10 +357,6 @@ pub struct OptInEpochLiquidity<'info> {
     )]
     pub lp_position: Account<'info, EpochLpPosition>,
 
-    /// CHECK: Epoch vault base ATA
-    #[account(seeds = [seeds::EPOCH_VAULT, epoch_id.to_le_bytes().as_ref()], bump)]
-    pub epoch_vault_authority: SystemAccount<'info>,
-
     #[account(mut)]
     pub lp_base_ata: Account<'info, TokenAccount>,
 
