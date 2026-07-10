@@ -66,7 +66,7 @@ impl Slip {
         + 8   // slip_id
         + 8   // epoch_id
         + 1   // num_legs
-        + 64  // leg_market_ids (16 * 4)
+        + 128 // leg_market_ids (16 * 8)
         + 16  // leg_outcome_ids (16 * 1)
         + 128 // leg_fixed_odds_bps (16 * 8)
         + 2   // legs_bought_mask
