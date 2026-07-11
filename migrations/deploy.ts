@@ -2,37 +2,38 @@
 // This script initializes the protocol after deployment
 
 import * as anchor from "@coral-xyz/anchor";
+import { Program } from "@coral-xyz/anchor";
 import { PublicKey, Keypair, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import { TOKEN_PROGRAM, ASSOCIATED_TOKEN_PROGRAM } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { QuadraticMarket } from "../target/types/quadratic_market";
 
 // Program ID from Anchor.toml
-const PROGRAM_ID = new PublicKey("DEVBnet1111111111111111111111111111111111");
+const PROGRAM_ID = new PublicKey("4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA");
 
-module.exports = async function (provider: anchor.AnchorProvider) {
+async function main() {
+  // Use AnchorProvider.env() which reads from Anchor.toml
+  const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = new anchor.Program<QuadraticMarket>(
-    require("../target/idl/quadratic_market.json"),
-    PROGRAM_ID,
-    provider
-  );
+
+  const program = anchor.workspace.QuadraticMarket as Program<QuadraticMarket>;
 
   const admin = provider.wallet.publicKey;
   console.log("Deploying Quadratic Market Protocol...");
+  console.log("Provider cluster:", provider.connection.rpcEndpoint);
   console.log("Admin:", admin.toString());
 
   // Derive PDAs
   const [globalConfigPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("global_config")],
-    PROGRAM_ID
+    program.programId
   );
   const [lpMintPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("lp_mint")],
-    PROGRAM_ID
+    program.programId
   );
   const [treasuryPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("treasury")],
-    PROGRAM_ID
+    program.programId
   );
 
   console.log("Global Config PDA:", globalConfigPda.toString());
@@ -50,10 +51,8 @@ module.exports = async function (provider: anchor.AnchorProvider) {
     console.log("Protocol not initialized, proceeding with deployment...");
   }
 
-  // For devnet, we use USDC mock as base mint
-  // In production, replace with actual USDC mint
-  // Devnet USDC mint on Solana: https://spl-token-faucet.com/
-  const baseMint = new PublicKey("Gh9ZwEmdLJ8DwrK2fJ1qwYJ5mG4nHHHTq3C1YjWkWBiL2mW");
+  // For devnet, we use a custom test mint
+  const baseMint = new PublicKey("A8YVMvoxYfJzqqXiq7PDtCkjFp2iWDvn1MnHyzbmUHDx");
   
   // Generate oracle keypair for testing
   const oracleKeypair = Keypair.generate();
@@ -69,16 +68,17 @@ module.exports = async function (provider: anchor.AnchorProvider) {
         Array.from(oracleKeypair.publicKey.toBytes()),
         new anchor.BN(1_000_000_000) // max_market_exposure: 1000 USDC (6 decimals)
       )
-      .accounts({
+      .accountsStrict({
         globalConfig: globalConfigPda,
         lpMint: lpMintPda,
         treasury: treasuryPda,
         baseMint: baseMint,
         admin: admin,
-        tokenProgram: TOKEN_PROGRAM,
+        tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
+      .signers([])
       .rpc();
 
     console.log("Protocol initialized!");
@@ -88,7 +88,7 @@ module.exports = async function (provider: anchor.AnchorProvider) {
     console.log("\n2. Initializing Settlement Council...");
     const [settlementCouncilPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("settlement_council")],
-      PROGRAM_ID
+      program.programId
     );
     console.log("Settlement Council PDA:", settlementCouncilPda.toString());
 
@@ -97,12 +97,13 @@ module.exports = async function (provider: anchor.AnchorProvider) {
         new anchor.BN(100_000_000), // min_stake: 100 USDC
         2 // required_confirmations: 2-of-3
       )
-      .accounts({
+      .accountsStrict({
         globalConfig: globalConfigPda,
         settlementCouncil: settlementCouncilPda,
         authority: admin,
         systemProgram: SystemProgram.programId,
       })
+      .signers([])
       .rpc();
 
     console.log("Settlement Council initialized!");
@@ -112,18 +113,19 @@ module.exports = async function (provider: anchor.AnchorProvider) {
     console.log("\n3. Initializing first epoch...");
     const [epochPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
-      PROGRAM_ID
+      program.programId
     );
     console.log("Epoch 0 PDA:", epochPda.toString());
 
     const epochTx = await program.methods
       .initEpoch()
-      .accounts({
+      .accountsStrict({
         globalConfig: globalConfigPda,
         epoch: epochPda,
         authority: admin,
         systemProgram: SystemProgram.programId,
       })
+      .signers([])
       .rpc();
 
     console.log("Epoch 0 initialized!");
@@ -141,4 +143,13 @@ module.exports = async function (provider: anchor.AnchorProvider) {
     console.error("Deployment failed:", error);
     throw error;
   }
+}
+
+// Run main if executed directly
+main().catch(console.error);
+
+// Export for anchor deploy
+module.exports = async function (provider: anchor.AnchorProvider) {
+  anchor.setProvider(provider);
+  await main();
 };

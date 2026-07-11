@@ -1,23 +1,19 @@
 [toolchain]
-package_manager = "npm"
-anchor_version = "0.32.1"
-
-[features]
-resolution = true
-skip-lint = false
+address = "https://github.com/solana-foundation/solana"
 
 [programs.localnet]
-quadratic_market = "Ag5ccPBKNJbw1JZiTaMEZ1fZpfcDFkMrrwXqCkQA5ji9"
+quadratic_market = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA"
 
-# Devnet program ID - will be replaced after deployment with `anchor deploy --provider.cluster devnet`
 [programs.devnet]
-quadratic_market = "DEVBnet1111111111111111111111111111111111"
+quadratic_market = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA"
+
+[programs.mainnet]
+quadratic_market = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA"
 
 [provider]
-cluster = "localnet"
-wallet = "~/.config/solana/id.json"
+cluster = "devnet"
+wallet = "devnet-wallet.json"
 
 [scripts]
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
-
-[hooks]
+deploy = "npx ts-node --transpile-only migrations/deploy.ts"
