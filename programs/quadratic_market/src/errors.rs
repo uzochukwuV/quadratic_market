@@ -153,6 +153,10 @@ pub enum QuadraticMarketError {
     FillExceedsOrder = 723,
     #[msg("Bet slip has already been cashed out")]
     SlipAlreadyCashedOut = 724,
+    #[msg("Bet slip has expired")]
+    SlipExpired = 726,
+    #[msg("Bet slip has not expired yet")]
+    SlipNotExpired = 727,
 
     // 800-899: Epoch errors
     #[msg("Epoch has not completed — not all markets are settled")]
@@ -200,7 +204,7 @@ pub enum QuadraticMarketError {
     #[msg("Confirmation window still active")]
     ConfirmationWindowActive = 913,
     #[msg("Operator list is full")]
-    OperatorListFull = 914,
+    SettlementOperatorListFull = 914,
     #[msg("Operator not in council")]
     OperatorNotInCouncil = 915,
 }

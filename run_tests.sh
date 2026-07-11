@@ -7,51 +7,80 @@
 #   3. Clean up
 # ─────────────────────────────────────────────────────────────
 
-PROGRAM_ID="9H1DCo5QaUtiMne4UH44aefHyv8Xpc8EgZwrshRZqsLC"
+# Program ID from Anchor.toml
+PROGRAM_ID="Ag5ccPBKNJbw1JZiTaMEZ1fZpfcDFkMrrwXqCkQA5ji9"
 PROGRAM_SO="target/deploy/quadratic_market.so"
-WALLET="/home/runner/.config/solana/id.json"
-RPC_URL="http://127.0.0.1:8899"
-LEDGER_DIR="/tmp/test-ledger"
-VALIDATOR_LOG="/tmp/validator.log"
 
-export CARGO_HOME="/home/runner/workspace/.local/share/.cargo"
-export RUSTUP_HOME="/home/runner/.rustup"
-export PATH="$HOME/.local/share/solana/install/active_release/bin:$CARGO_HOME/bin:$PATH"
+# Default wallet path (can be overridden by ANCHOR_WALLET env var)
+DEFAULT_WALLET="$HOME/.config/solana/id.json"
+WALLET="${ANCHOR_WALLET:-$DEFAULT_WALLET}"
 
-# Anchor env vars (picked up by @coral-xyz/anchor in tests)
-export ANCHOR_PROVIDER_URL="$RPC_URL"
-export ANCHOR_WALLET="$WALLET"
+RPC_URL="${ANCHOR_PROVIDER_URL:-http://127.0.0.1:8899}"
+LEDGER_DIR="/tmp/test-ledger-$$"
+VALIDATOR_LOG="/tmp/validator-$$.log"
 
 echo "=== Quadratic Market Test Runner ==="
 echo "Program ID : $PROGRAM_ID"
 echo "Wallet     : $WALLET"
 echo "RPC URL    : $RPC_URL"
+echo "Ledger     : $LEDGER_DIR"
 echo ""
 
-# ── 1. Ensure program is built ──────────────────────────────
-if [ ! -f "$PROGRAM_SO" ]; then
-  echo ">>> Program .so not found — building..."
-  cargo build-sbf 2>&1
+# ── Check prerequisites ──────────────────────────────────────
+
+# Check if solana CLI is available
+if ! command -v solana-test-validator &> /dev/null; then
+    echo "ERROR: solana-test-validator not found in PATH"
+    echo "Please install Solana CLI or add it to PATH"
+    exit 1
 fi
 
-# ── 2. Kill any lingering test validator ───────────────────
+# Check if .so file exists
+if [ ! -f "$PROGRAM_SO" ]; then
+  echo ">>> Building program..."
+  # Try cargo build-sbf first, then fallback to anchor build
+  if command -v cargo &> /dev/null; then
+    cargo build-sbf 2>&1
+  elif command -v anchor &> /dev/null; then
+    anchor build 2>&1
+  else
+    echo "ERROR: Neither cargo nor anchor found. Cannot build program."
+    exit 1
+  fi
+fi
+
+if [ ! -f "$PROGRAM_SO" ]; then
+  echo "ERROR: Program .so file still not found after build"
+  exit 1
+fi
+
+# Check wallet exists
+if [ ! -f "$WALLET" ]; then
+  echo "WARNING: Wallet not found at $WALLET"
+  echo "Creating temporary wallet for testing..."
+  TEMP_WALLET="/tmp/test-wallet-$$.json"
+  solana-keygen new --no-passphrase -o "$TEMP_WALLET" 2>/dev/null
+  WALLET="$TEMP_WALLET"
+fi
+
+# ── 1. Kill any lingering test validator ───────────────────
 echo ">>> Cleaning up old validator processes..."
 pkill -f "solana-test-validator" 2>/dev/null || true
 sleep 2
 rm -rf "$LEDGER_DIR"
 
-# ── 3. Start solana-test-validator ─────────────────────────
+# ── 2. Start solana-test-validator ─────────────────────────
 echo ">>> Starting solana-test-validator..."
 setsid solana-test-validator \
   --bpf-program "$PROGRAM_ID" "$PROGRAM_SO" \
   --ledger "$LEDGER_DIR" \
   --reset \
+  --quiet \
   > "$VALIDATOR_LOG" 2>&1 &
 VALIDATOR_PID=$!
 echo "    Validator PID: $VALIDATOR_PID"
-echo "    Log: $VALIDATOR_LOG"
 
-# ── 4. Wait for validator to be ready ──────────────────────
+# ── 3. Wait for validator to be ready ──────────────────────
 echo ">>> Waiting for validator to become healthy (up to 60s)..."
 ATTEMPTS=0
 MAX_ATTEMPTS=60
@@ -71,43 +100,43 @@ until curl -s -X POST "$RPC_URL" \
   fi
   if [ $((ATTEMPTS % 10)) -eq 0 ]; then
     echo "    Still waiting... ${ATTEMPTS}s elapsed"
-    # Show validator log if something went wrong
-    if [ -f "$VALIDATOR_LOG" ]; then
-      tail -5 "$VALIDATOR_LOG" 2>/dev/null | sed 's/^/    >> /'
-    fi
   fi
   sleep 1
 done
 echo "    Validator healthy after ${ATTEMPTS}s"
-echo ""
 
-# ── 5. Fund the wallet ─────────────────────────────────────
+# ── 4. Fund the wallet ─────────────────────────────────────
 echo ">>> Airdropping 100 SOL to test wallet..."
 solana airdrop 100 \
   --keypair "$WALLET" \
   --url "$RPC_URL" \
-  2>/dev/null && echo "    Airdrop done" || echo "    Airdrop skipped (wallet may already have funds)"
+  2>&1 | head -3 || echo "    Airdrop may have failed (wallet may already have funds)"
 
-# ── 6. Run TypeScript tests ────────────────────────────────
+# ── 5. Run TypeScript tests ────────────────────────────────
 echo ""
 echo "─────────────────────────────────────────────────────"
 echo ">>> Running TypeScript tests..."
 echo "─────────────────────────────────────────────────────"
-echo ""
+
+# Set env vars for anchor
+export ANCHOR_PROVIDER_URL="$RPC_URL"
+export ANCHOR_WALLET="$WALLET"
 
 TEST_EXIT=0
 npx ts-mocha \
   -p ./tsconfig.json \
   -t 1000000 \
   "tests/**/*.ts" \
-  || TEST_EXIT=$?
+  2>&1 || TEST_EXIT=$?
 
-# ── 7. Clean up ────────────────────────────────────────────
+# ── 6. Clean up ───────────────────────────────────────────
 echo ""
 echo ">>> Stopping validator (PID $VALIDATOR_PID)..."
 kill $VALIDATOR_PID 2>/dev/null || pkill -f "solana-test-validator" 2>/dev/null || true
 sleep 1
 rm -rf "$LEDGER_DIR"
+rm -f "$VALIDATOR_LOG"
+rm -f "$TEMP_WALLET" 2>/dev/null
 
 echo ""
 if [ $TEST_EXIT -eq 0 ]; then

@@ -244,6 +244,7 @@ pub fn close_epoch_handler(ctx: Context<CloseEpoch>) -> Result<()> {
 // LPs see before choosing to opt-in. No funds moved yet.
 
 #[derive(Accounts)]
+#[instruction(epoch_id: u64)]
 pub struct PublishEpoch<'info> {
     #[account(
         mut,
@@ -270,6 +271,7 @@ pub struct PublishEpoch<'info> {
     )]
     pub epoch_vault: Account<'info, EpochVault>,
 
+    #[account(mut)]
     pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -330,6 +332,7 @@ pub fn publish_epoch_handler(
 // LPs deposit into a specific epoch's vault to back its markets.
 
 #[derive(Accounts)]
+#[instruction(epoch_id: u64)]
 pub struct OptInEpochLiquidity<'info> {
     #[account(
         mut,
@@ -354,16 +357,13 @@ pub struct OptInEpochLiquidity<'info> {
     )]
     pub lp_position: Account<'info, EpochLpPosition>,
 
-    /// CHECK: Epoch vault base ATA
-    #[account(seeds = [seeds::EPOCH_VAULT, epoch_id.to_le_bytes().as_ref()], bump)]
-    pub epoch_vault_authority: SystemAccount<'info>,
-
     #[account(mut)]
     pub lp_base_ata: Account<'info, TokenAccount>,
 
     #[account(mut)]
     pub epoch_vault_base_ata: Account<'info, TokenAccount>,
 
+    #[account(mut)]
     pub lp: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -445,6 +445,7 @@ pub fn opt_in_epoch_liquidity_handler(
 // LPs withdraw their pro-rata share after epoch settlement.
 
 #[derive(Accounts)]
+#[instruction(epoch_id: u64)]
 pub struct WithdrawEpochLiquidity<'info> {
     #[account(
         mut,
@@ -472,6 +473,10 @@ pub struct WithdrawEpochLiquidity<'info> {
 
     #[account(mut)]
     pub epoch_vault_base_ata: Account<'info, TokenAccount>,
+
+    /// CHECK: Epoch vault authority PDA for token transfers
+    #[account(seeds = [seeds::EPOCH_VAULT, epoch_id.to_le_bytes().as_ref()], bump)]
+    pub epoch_vault_authority: SystemAccount<'info>,
 
     pub lp: Signer<'info>,
     pub token_program: Program<'info, Token>,
@@ -522,9 +527,10 @@ pub fn withdraw_epoch_liquidity_handler(
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Transfer tokens to LP
+    let epoch_id_bytes = epoch_id.to_le_bytes();
     let vault_seeds: &[&[&[u8]]] = &[&[
         seeds::EPOCH_VAULT,
-        epoch_id.to_le_bytes().as_ref(),
+        epoch_id_bytes.as_ref(),
         &[vault.bump],
     ]];
     token::transfer(
@@ -554,6 +560,7 @@ pub fn withdraw_epoch_liquidity_handler(
 // Called when epoch is fully settled to enable LP withdrawals.
 
 #[derive(Accounts)]
+#[instruction(epoch_id: u64)]
 pub struct EnableEpochWithdrawals<'info> {
     #[account(
         mut,

@@ -3,7 +3,7 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use crate::state::{
     GlobalConfig, Market, MarketStatus, MarketMode, Epoch, EpochVault,
-    SlipStatus, SlipLeg, Slip,
+    SlipLeg,
 };
 use crate::errors::QuadraticMarketError;
 use crate::constants::{
@@ -51,11 +51,13 @@ pub struct Slip {
     pub legs_settled_mask: u16,   // bit i = leg i settled
     pub legs_won_mask: u16,       // bit i = leg i won
     pub total_stake: u64,         // Total USDC escrowed
+    pub total_cost: u64,           // Sum of actual leg costs (for payout calc)
     pub potential_payout: u64,   // Fixed payout if all legs win
     pub locked_amount: u64,       // Current treasury lock
     pub status: SlipStatus,
     pub created_at: i64,
     pub cancel_deadline: i64,
+    pub claimed: bool,             // Whether paused bet has been reclaimed
     pub bump: u8,
 }
 
@@ -65,18 +67,20 @@ impl Slip {
         + 8   // slip_id
         + 8   // epoch_id
         + 1   // num_legs
-        + 64  // leg_market_ids (16 * 4)
+        + 128 // leg_market_ids (16 * 8)
         + 16  // leg_outcome_ids (16 * 1)
         + 128 // leg_fixed_odds_bps (16 * 8)
         + 2   // legs_bought_mask
         + 2   // legs_settled_mask
         + 2   // legs_won_mask
         + 8   // total_stake
+        + 8   // total_cost
         + 8   // potential_payout
         + 8   // locked_amount
         + 1   // status
         + 8   // created_at
         + 8   // cancel_deadline
+        + 1   // claimed
         + 1;  // bump
 
     /// Check if all legs have been bought
@@ -95,6 +99,78 @@ impl Slip {
     pub fn all_legs_won(&self) -> bool {
         let expected = ((1u16 << self.num_legs) - 1) as u16;
         self.legs_won_mask == expected
+    }
+
+    /// Returns true if the slip can be cancelled (deadline passed or not all legs bought).
+    pub fn can_cancel(&self, now: i64) -> bool {
+        matches!(self.status, SlipStatus::Pending | SlipStatus::Active)
+            && now >= self.cancel_deadline
+            && !self.all_legs_bought()
+    }
+
+    /// Returns the number of legs remaining to be bought.
+    pub fn legs_remaining(&self) -> u8 {
+        self.legs_bought_mask.count_ones() as u8;
+        self.num_legs - (self.legs_bought_mask.count_ones() as u8)
+    }
+
+    /// Returns the number of legs that have been bought.
+    pub fn legs_bought_count(&self) -> u8 {
+        self.legs_bought_mask.count_ones() as u8
+    }
+
+    /// Returns the number of legs that have been settled.
+    pub fn legs_settled_count(&self) -> u8 {
+        self.legs_settled_mask.count_ones() as u8
+    }
+
+    /// Returns the number of legs that won.
+    pub fn legs_won_count(&self) -> u8 {
+        self.legs_won_mask.count_ones() as u8
+    }
+
+    /// Returns the number of legs that lost.
+    pub fn legs_lost_count(&self) -> u8 {
+        let settled = self.legs_settled_count();
+        let won = self.legs_won_count();
+        settled.saturating_sub(won)
+    }
+
+    /// Check if a specific leg has been bought.
+    pub fn is_leg_bought(&self, leg_index: u8) -> bool {
+        if leg_index >= self.num_legs {
+            return false;
+        }
+        self.legs_bought_mask & (1u16 << leg_index) != 0
+    }
+
+    /// Check if a specific leg has been settled.
+    pub fn is_leg_settled(&self, leg_index: u8) -> bool {
+        if leg_index >= self.num_legs {
+            return false;
+        }
+        self.legs_settled_mask & (1u16 << leg_index) != 0
+    }
+
+    /// Check if a specific leg won.
+    pub fn is_leg_won(&self, leg_index: u8) -> bool {
+        if leg_index >= self.num_legs {
+            return false;
+        }
+        self.legs_won_mask & (1u16 << leg_index) != 0
+    }
+
+    /// Returns true if the slip is in a final state (won, lost, or cancelled).
+    pub fn is_finalized(&self) -> bool {
+        matches!(
+            self.status,
+            SlipStatus::Won | SlipStatus::Lost | SlipStatus::Cancelled
+        )
+    }
+
+    /// Returns the time remaining until the cancel deadline (negative if passed).
+    pub fn time_until_cancel_deadline(&self, now: i64) -> i64 {
+        self.cancel_deadline.saturating_sub(now)
     }
 }
 
@@ -129,6 +205,7 @@ pub struct PlaceSlipAwait<'info> {
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
     pub base_mint: Account<'info, Mint>,
 
+    #[account(mut)]
     pub owner: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -174,6 +251,7 @@ pub fn place_slip_await_handler<'info>(
     slip.legs_settled_mask = 0;
     slip.legs_won_mask = 0;
     slip.total_stake = stake;
+    slip.total_cost = 0; // Accumulated from leg costs during buy_leg_for_slip
     slip.potential_payout = 0; // Will be calculated after all legs bought
     slip.locked_amount = 0;
     slip.status = SlipStatus::Pending;
@@ -224,6 +302,7 @@ pub fn place_slip_await_handler<'info>(
 // Backend calls this N times after place_slip_await.
 
 #[derive(Accounts)]
+#[instruction(slip_id: u64, leg_index: u8)]
 pub struct BuyLegForSlip<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -321,6 +400,8 @@ pub fn buy_leg_for_slip_handler<'info>(
     );
 
     // Calculate cost and locked amount
+    // Calculate the actual LMSR cost for buying tokens
+    // leg_stake is the per-leg portion of the total stake
     let leg_stake = slip.total_stake / slip.num_legs as u64;
     let leg_cost = lmsr_buy_cost(
         &market.q_values,
@@ -329,6 +410,11 @@ pub fn buy_leg_for_slip_handler<'info>(
         leg_stake,
         market.lmsr_b,
     )?;
+
+    // Mint tokens equal to leg_cost (not leg_stake) to ensure all minted tokens
+    // are backed by collected funds. This prevents undercollateralization where
+    // leg_stake > leg_cost (when LMSR price < 1.0) would create unbacked exposure.
+    let tokens_to_mint = leg_cost;
 
     // Mint outcome tokens to buyer
     let market_id_bytes = market.market_id.to_le_bytes();
@@ -343,28 +429,34 @@ pub fn buy_leg_for_slip_handler<'info>(
             },
             &[market_seeds],
         ),
-        leg_stake,
+        tokens_to_mint,
     )?;
 
-    // Update market q_values
+    // Update market q_values by leg_cost (not leg_stake)
     market.q_values[expected_outcome as usize] = market.q_values[expected_outcome as usize]
-        .checked_add(leg_stake)
+        .checked_add(tokens_to_mint)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
-    // Update locked_payouts
+    // Update locked_payouts by leg_cost
+    // This tracks the treasury's maximum liability for this leg
     config.locked_payouts = config.locked_payouts
-        .checked_add(leg_stake)
+        .checked_add(tokens_to_mint)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Mark leg as bought
     slip.legs_bought_mask |= bit;
+
+    // Accumulate the actual cost for this leg
+    slip.total_cost = slip.total_cost
+        .checked_add(tokens_to_mint)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Transition to Active if all legs bought
     if slip.all_legs_bought() {
         slip.status = SlipStatus::Active;
         
         // Calculate potential payout based on fixed odds
-        let mut total_payout: u128 = slip.total_stake as u128;
+        let mut total_payout: u128 = slip.total_cost as u128;
         for i in 0..slip.num_legs as usize {
             let odds_fp = slip.leg_fixed_odds_bps[i];
             total_payout = total_payout
@@ -392,6 +484,7 @@ pub fn buy_leg_for_slip_handler<'info>(
 // Permissionless cancellation if deadline passed or market suspended.
 
 #[derive(Accounts)]
+#[instruction(slip_id: u64)]
 pub struct CancelSlip<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -441,15 +534,22 @@ pub fn cancel_slip_handler<'info>(
         QuadraticMarketError::SlipNotExpired // Reuse error
     );
 
-    // Calculate refund amount (total_stake minus legs that were bought)
+    // Calculate refund based on actual costs incurred
+    // The treasury received total_stake at place_slip_await
+    // But only total_cost was used to purchase tokens (sum of leg_costs)
+    // The difference (total_stake - total_cost) is always refundable
+    // Plus any unused legs' proportional stake
     let legs_bought = slip.legs_bought_mask.count_ones() as u64;
-    let legs_bought_value = legs_bought * (slip.total_stake / slip.num_legs as u64);
-    let refund = slip.total_stake - legs_bought_value;
-
-    // Release locked_payouts for unbought legs
-    let legs_not_bought = slip.num_legs as u64 - legs_bought;
-    let unlocked_amount = legs_not_bought * (slip.total_stake / slip.num_legs as u64);
-    config.locked_payouts = config.locked_payouts.saturating_sub(unlocked_amount);
+    let _legs_not_bought = slip.num_legs as u64 - legs_bought;
+    
+    // Used stake = legs_bought * (total_stake / num_legs)
+    let used_stake = legs_bought * (slip.total_stake / slip.num_legs as u64);
+    // Refund = total_stake - used_stake (unused portion of stake)
+    let refund = slip.total_stake - used_stake;
+    
+    // Release locked_payouts by total_cost for the bought legs
+    // This reverses the locked_payouts increase from buy_leg_for_slip
+    config.locked_payouts = config.locked_payouts.saturating_sub(slip.total_cost);
 
     // Mark as cancelled
     slip.status = SlipStatus::Cancelled;
@@ -475,7 +575,7 @@ pub fn cancel_slip_handler<'info>(
         slip_id,
         owner: slip.owner,
         refund,
-        legs_bought,
+        legs_bought: legs_bought as u32,
     });
 
     Ok(())
@@ -485,6 +585,7 @@ pub fn cancel_slip_handler<'info>(
 // Permissionless. Marks one leg as settled based on market outcome.
 
 #[derive(Accounts)]
+#[instruction(slip_id: u64, leg_index: u8)]
 pub struct SettleSlipLeg<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -586,6 +687,7 @@ pub fn settle_slip_leg_handler<'info>(
 // Finalizes slip and transfers payout. Permissionless.
 
 #[derive(Accounts)]
+#[instruction(slip_id: u64)]
 pub struct ResolveSlip<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -720,7 +822,8 @@ mod tests {
     #[test]
     fn slip_len_matches_expected() {
         // Verify the LEN constant is correct
-        assert_eq!(Slip::LEN, 278);
+        // 8 + 32 + 8 + 8 + 1 + 128 + 16 + 128 + 2 + 2 + 2 + 8 + 8 + 8 + 8 + 1 + 8 + 8 + 1 + 1 = 386
+        assert_eq!(Slip::LEN, 386);
     }
 
     #[test]
@@ -737,12 +840,14 @@ mod tests {
             legs_settled_mask: 0,
             legs_won_mask: 0,
             total_stake: 1000,
+            total_cost: 0,
             potential_payout: 0,
             locked_amount: 0,
             status: SlipStatus::Pending,
             created_at: 0,
             cancel_deadline: 0,
             bump: 1,
+            claimed: false,
         };
 
         // Initially not all bought
@@ -767,12 +872,14 @@ mod tests {
             legs_settled_mask: 0b0111,
             legs_won_mask: 0b0111,
             total_stake: 1000,
+            total_cost: 0,
             potential_payout: 0,
             locked_amount: 0,
             status: SlipStatus::Active,
             created_at: 0,
             cancel_deadline: 0,
             bump: 1,
+            claimed: false,
         };
 
         assert!(slip.all_legs_won());
@@ -780,5 +887,182 @@ mod tests {
         // One leg lost
         slip.legs_won_mask = 0b0011;
         assert!(!slip.all_legs_won());
+    }
+
+    #[test]
+    fn test_can_cancel() {
+        let mut slip = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 3,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0b0001, // Only leg 0 bought
+            legs_settled_mask: 0,
+            legs_won_mask: 0,
+            total_stake: 1000,
+            total_cost: 0,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Pending,
+            created_at: 0,
+            cancel_deadline: 1000,
+            bump: 1,
+            claimed: false,
+        };
+
+        // Deadline not passed yet
+        assert!(!slip.can_cancel(500));
+
+        // Deadline passed, not all bought
+        assert!(slip.can_cancel(1001));
+
+        // All legs bought - can't cancel
+        slip.legs_bought_mask = 0b0111;
+        assert!(!slip.can_cancel(1001));
+    }
+
+    #[test]
+    fn test_legs_remaining() {
+        let slip = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 5,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0b0011, // legs 0 and 1 bought
+            legs_settled_mask: 0,
+            legs_won_mask: 0,
+            total_stake: 1000,
+            total_cost: 0,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Pending,
+            created_at: 0,
+            cancel_deadline: 0,
+            bump: 1,
+            claimed: false,
+        };
+
+        assert_eq!(slip.legs_remaining(), 3);
+    }
+
+    #[test]
+    fn test_legs_count_helpers() {
+        let mut slip = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 4,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0b0101, // legs 0 and 2 bought
+            legs_settled_mask: 0b0101, // legs 0 and 2 settled
+            legs_won_mask: 0b0100, // only leg 2 won
+            total_stake: 1000,
+            total_cost: 0,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Active,
+            created_at: 0,
+            cancel_deadline: 0,
+            bump: 1,
+            claimed: false,
+        };
+
+        assert_eq!(slip.legs_bought_count(), 2);
+        assert_eq!(slip.legs_settled_count(), 2);
+        assert_eq!(slip.legs_won_count(), 1);
+        assert_eq!(slip.legs_lost_count(), 1);
+    }
+
+    #[test]
+    fn test_is_finalized() {
+        let slip_pending = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 2,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0,
+            legs_settled_mask: 0,
+            legs_won_mask: 0,
+            total_stake: 0,
+            total_cost: 0,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Pending,
+            created_at: 0,
+            cancel_deadline: 0,
+            bump: 1,
+            claimed: false,
+        };
+        assert!(!slip_pending.is_finalized());
+
+        let slip_won = Slip {
+            status: SlipStatus::Won,
+            ..slip_pending
+        };
+        assert!(slip_won.is_finalized());
+
+        let slip_lost = Slip {
+            status: SlipStatus::Lost,
+            ..slip_pending
+        };
+        assert!(slip_lost.is_finalized());
+
+        let slip_cancelled = Slip {
+            status: SlipStatus::Cancelled,
+            ..slip_pending
+        };
+        assert!(slip_cancelled.is_finalized());
+    }
+
+    #[test]
+    fn test_is_leg_bought_settled_won() {
+        let slip = Slip {
+            owner: Pubkey::default(),
+            slip_id: 1,
+            epoch_id: 0,
+            num_legs: 4,
+            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            legs_bought_mask: 0b0101, // legs 0 and 2
+            legs_settled_mask: 0b0101,
+            legs_won_mask: 0b0100, // only leg 2
+            total_stake: 1000,
+            total_cost: 0,
+            potential_payout: 0,
+            locked_amount: 0,
+            status: SlipStatus::Active,
+            created_at: 0,
+            cancel_deadline: 0,
+            bump: 1,
+            claimed: false,
+        };
+
+        assert!(slip.is_leg_bought(0));
+        assert!(!slip.is_leg_bought(1));
+        assert!(slip.is_leg_bought(2));
+        assert!(!slip.is_leg_bought(3));
+
+        assert!(slip.is_leg_settled(0));
+        assert!(!slip.is_leg_settled(1));
+
+        assert!(!slip.is_leg_won(0));
+        assert!(slip.is_leg_won(2));
+
+        // Out of range
+        assert!(!slip.is_leg_bought(10));
+        assert!(!slip.is_leg_settled(10));
+        assert!(!slip.is_leg_won(10));
     }
 }

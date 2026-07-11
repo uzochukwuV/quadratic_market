@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use crate::constants::SCALE;
 
 /// Tracks liquidity provided by LPs who opted into a specific epoch.
 /// Each epoch has its own vault, isolating capital and preventing cross-epoch contamination.
@@ -47,7 +48,64 @@ impl EpochVault {
         if self.total_shares == 0 {
             0
         } else {
-            (self.total_deposits as u128 * SCALE / self.total_shares as u128) as u64
+            (self.total_deposits as u128 * SCALE as u128 / self.total_shares as u128) as u64
+        }
+    }
+
+    /// Returns the current balance (deposits - withdrawals).
+    pub fn current_balance(&self) -> u64 {
+        self.total_deposits.saturating_sub(self.total_withdrawals)
+    }
+
+    /// Returns true if withdrawals are enabled.
+    pub fn can_withdraw(&self) -> bool {
+        self.withdrawals_enabled
+    }
+
+    /// Returns true if the vault is closed.
+    pub fn is_closed(&self) -> bool {
+        self.closed_at > 0
+    }
+
+    /// Returns true if the vault is empty (no deposits).
+    pub fn is_empty(&self) -> bool {
+        self.total_deposits == 0
+    }
+
+    /// Calculate the value of a given number of shares at current share price.
+    pub fn shares_value(&self, shares: u64) -> u64 {
+        if self.total_shares == 0 || shares == 0 {
+            0
+        } else {
+            (shares as u128 * self.share_price() as u128 / SCALE as u128) as u64
+        }
+    }
+
+    /// Calculate the number of shares that can be redeemed for a given amount.
+    pub fn shares_for_amount(&self, amount: u64) -> u64 {
+        if self.total_deposits == 0 || amount == 0 {
+            0
+        } else {
+            (amount as u128 * self.total_shares as u128 / self.total_deposits as u128) as u64
+        }
+    }
+
+    /// Returns the net return for LPs as a ratio (SCALE = 1.0).
+    pub fn net_return_ratio(&self) -> u64 {
+        if self.total_deposits == 0 {
+            SCALE // Neutral if no deposits
+        } else {
+            (self.current_balance() as u128 * SCALE as u128 / self.total_deposits as u128) as u64
+        }
+    }
+
+    /// Returns the number of active LPs (those who haven't withdrawn).
+    pub fn active_lps(&self) -> u32 {
+        // This is an approximation; a more accurate count would require tracking individual withdrawals
+        if self.total_withdrawals >= self.total_deposits {
+            0
+        } else {
+            self.num_lps
         }
     }
 }

@@ -97,40 +97,6 @@ pub struct AddLiquidity<'info> {
     pub system_program: Program<'info, System>,
 }
 
-// ─── Init Pending Liquidity (kept for interface compatibility, now a no-op) ──
-// This instruction previously accepted caller-supplied shares/activation_time,
-// which allowed the epoch lock to be bypassed. The real work now happens inside
-// add_liquidity. This stub remains so existing client code does not break, but
-// it performs no state changes.
-
-#[derive(Accounts)]
-pub struct InitPendingLiquidity<'info> {
-    #[account(
-        seeds = [seeds::GLOBAL_CONFIG],
-        bump = global_config.bump,
-    )]
-    pub global_config: Account<'info, GlobalConfig>,
-
-    #[account(
-        seeds = [seeds::PENDING, provider.key().as_ref()],
-        bump,
-    )]
-    pub pending_liquidity: Account<'info, PendingLiquidity>,
-
-    pub provider: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-pub fn init_pending_liquidity_handler(
-    _ctx: Context<InitPendingLiquidity>,
-    _shares: u64,
-    _activation_time: i64,
-    _amount: u64,
-) -> Result<()> {
-    // State is now written by add_liquidity_handler. This instruction is a no-op.
-    Ok(())
-}
-
 pub fn add_liquidity_handler(ctx: Context<AddLiquidity>, amount: u64) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);

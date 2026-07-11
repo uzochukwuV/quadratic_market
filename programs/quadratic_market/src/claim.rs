@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, BetSlip};
+use crate::state::{GlobalConfig, Market, MarketStatus};
+use crate::slip::Slip as BetSlip;
 use crate::errors::QuadraticMarketError;
 use crate::constants::seeds;
 
@@ -122,9 +123,9 @@ pub struct ClaimPausedBet<'info> {
 
     #[account(
         mut,
-        seeds = [seeds::BET_SLIP, slip_id.to_le_bytes().as_ref()],
+        seeds = [seeds::SLIP, slip_id.to_le_bytes().as_ref()],
         bump = bet_slip.bump,
-        constraint = bet_slip.creator == claimer.key() @ QuadraticMarketError::Unauthorized,
+        constraint = bet_slip.owner == claimer.key() @ QuadraticMarketError::Unauthorized,
         close = claimer,
     )]
     pub bet_slip: Account<'info, BetSlip>,
@@ -184,6 +185,10 @@ pub fn claim_paused_bet_handler(ctx: Context<ClaimPausedBet>, _slip_id: u64) -> 
         ),
         refund,
     )?;
+
+    // Mark as claimed before closing
+    let slip = &mut ctx.accounts.bet_slip;
+    slip.claimed = true;
 
     // Slip account is closed via `close = claimer` — rent returned to user.
     Ok(())
