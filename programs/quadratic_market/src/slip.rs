@@ -215,7 +215,7 @@ pub fn place_slip_await_handler<'info>(
     ctx: Context<'_, '_, '_, 'info, PlaceSlipAwait<'info>>,
     legs: Vec<SlipLeg>,
     stake: u64,
-    fixed_odds: Vec<u64>, // Q32.32 odds for each leg
+    fixed_odds: Vec<u64>, // Fixed odds in basis points (10000 = 1.0x)
     cancel_deadline: i64,
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
@@ -258,11 +258,11 @@ pub fn place_slip_await_handler<'info>(
     slip.cancel_deadline = cancel_deadline;
     slip.bump = ctx.bumps.slip;
 
-    // Record legs and fixed odds
+    // Record legs and fixed odds (in basis points)
     for (i, leg) in legs.iter().enumerate() {
         slip.leg_market_ids[i] = leg.market_id;
         slip.leg_outcome_ids[i] = leg.outcome_id;
-        slip.leg_fixed_odds_bps[i] = fixed_odds[i]; // Q32.32 fixed odds
+        slip.leg_fixed_odds_bps[i] = fixed_odds[i]; // BPS (10000 = 1.0x)
     }
 
     // Initialize remaining slots to zero
@@ -401,7 +401,14 @@ pub fn buy_leg_for_slip_handler<'info>(
     // Get the fixed odds for this outcome from the market (in basis points)
     let fixed_odds = market.odds[expected_outcome as usize];
     
-    // Calculate the leg's share of the total stake
+    // Validate odds against stored odds (allow small tolerance for rounding)
+    let stored_odds = slip.leg_fixed_odds_bps[leg_index as usize];
+    require!(
+        fixed_odds == stored_odds,
+        QuadraticMarketError::InvalidAmount // Odds changed since slip creation
+    );
+    
+    // Calculate the leg's share of the total stake (handle remainder in last leg)
     let leg_stake = slip.total_stake / slip.num_legs as u64;
     
     // Apply house fee: fee = leg_stake * house_fee_bps / 10000
@@ -410,21 +417,18 @@ pub fn buy_leg_for_slip_handler<'info>(
         .ok_or(QuadraticMarketError::MathOverflow)?
         / 10000;
     
-    // Net stake after fee goes to the pot
+    // Net stake after fee
     let net_stake = leg_stake
         .checked_sub(fee)
         .ok_or(QuadraticMarketError::MathOverflow)?;
-    
-    // The tokens we mint equal the net_stake (1:1 backing)
-    let tokens_to_mint = net_stake;
 
-    // Calculate potential payout for this leg: stake * odds_bps / 10000
-    let leg_payout = leg_stake
+    // Calculate potential payout for this leg: net_stake * odds_bps / 10000
+    let leg_payout = net_stake
         .checked_mul(fixed_odds)
         .ok_or(QuadraticMarketError::MathOverflow)?
         / 10000;
 
-    // Mint outcome tokens to buyer
+    // Mint outcome tokens to buyer (equals leg_payout for 1:1 backing)
     let market_id_bytes = market.market_id.to_le_bytes();
     let market_seeds = &[seeds::MARKET, market_id_bytes.as_ref(), &[market.bump]];
     token::mint_to(
@@ -437,7 +441,7 @@ pub fn buy_leg_for_slip_handler<'info>(
             },
             &[market_seeds],
         ),
-        tokens_to_mint,
+        leg_payout,
     )?;
 
     // Update market exposure (liability for this leg's payout)
@@ -455,15 +459,20 @@ pub fn buy_leg_for_slip_handler<'info>(
 
     // Accumulate the cost and potential payout
     slip.total_cost = slip.total_cost
-        .checked_add(net_stake)
+        .checked_add(leg_payout)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Transition to Active if all legs bought
     if slip.all_legs_bought() {
         slip.status = SlipStatus::Active;
         
-        // Calculate potential payout based on fixed odds (multiplied across all legs)
-        let mut total_payout: u64 = slip.total_stake; // Start with total stake
+        // Calculate potential payout based on odds (multiplied across all legs)
+        // Use net stake per leg
+        let leg_net_stake = slip.total_stake / slip.num_legs as u64;
+        let leg_fee = leg_net_stake * config.house_fee_bps / 10000;
+        let leg_net = leg_net_stake - leg_fee;
+        
+        let mut total_payout: u64 = leg_net; // Start with net stake of first leg
         for i in 0..slip.num_legs as usize {
             let odds_bps = slip.leg_fixed_odds_bps[i];
             total_payout = total_payout
@@ -481,7 +490,7 @@ pub fn buy_leg_for_slip_handler<'info>(
         market_id: market.market_id,
         outcome: expected_outcome,
         stake: leg_stake,
-        cost: net_stake,
+        payout: leg_payout,
     });
 
     Ok(())
@@ -793,7 +802,7 @@ pub struct SlipLegBought {
     pub market_id: u64,
     pub outcome: u8,
     pub stake: u64,
-    pub cost: u64,
+    pub payout: u64,
 }
 
 #[event]

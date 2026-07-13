@@ -74,17 +74,7 @@ pub fn buy_shares_handler(
     require!(odds >= config.min_odds_bps, QuadraticMarketError::InvalidAmount);
     require!(odds <= config.max_odds_bps, QuadraticMarketError::InvalidAmount);
 
-    // Calculate payout: stake * odds / 10000
-    let potential_payout = stake
-        .checked_mul(odds)
-        .ok_or(QuadraticMarketError::MathOverflow)?
-        / 10000;
-
-    // Check treasury has enough liquidity for potential payout
-    let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
-    require!(free_liquidity >= potential_payout, QuadraticMarketError::InsufficientLiquidity);
-
-    // Apply house fee
+    // Apply house fee first
     let fee = stake
         .checked_mul(config.house_fee_bps)
         .ok_or(QuadraticMarketError::MathOverflow)?
@@ -92,6 +82,16 @@ pub fn buy_shares_handler(
     let net_stake = stake
         .checked_sub(fee)
         .ok_or(QuadraticMarketError::MathOverflow)?;
+
+    // Calculate payout on net_stake (after fee)
+    let potential_payout = net_stake
+        .checked_mul(odds)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10000;
+
+    // Check treasury has enough liquidity for potential payout
+    let free_liquidity = config.free_liquidity(ctx.accounts.treasury_base_ata.amount);
+    require!(free_liquidity >= potential_payout, QuadraticMarketError::InsufficientLiquidity);
 
     // Transfer stake to treasury
     token::transfer(
@@ -106,7 +106,7 @@ pub fn buy_shares_handler(
         stake,
     )?;
 
-    // Mint outcome tokens 1:1 with net_stake
+    // Mint outcome tokens equal to potential_payout (1:1 backing)
     let market_id_bytes = market.market_id.to_le_bytes();
     let market_seeds = &[seeds::MARKET, market_id_bytes.as_ref(), &[market.bump]];
     token::mint_to(
@@ -119,7 +119,7 @@ pub fn buy_shares_handler(
             },
             &[market_seeds],
         ),
-        net_stake,
+        potential_payout,
     )?;
 
     // Update market exposure (potential liability)
