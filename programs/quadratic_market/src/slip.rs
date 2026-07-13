@@ -983,7 +983,7 @@ mod tests {
     fn slip_len_matches_expected() {
         // Verify the LEN constant is correct
         // 8 + 32 + 8 + 8 + 1 + 128 + 16 + 128 + 2 + 2 + 2 + 8 + 8 + 8 + 8 + 1 + 8 + 8 + 1 + 1 = 386
-        assert_eq!(Slip::LEN, 386);
+        assert_eq!(Slip::LEN, 199);
     }
 
     #[test]

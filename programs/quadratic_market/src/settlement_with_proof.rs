@@ -107,6 +107,7 @@ pub struct SettleWithProof<'info> {
     pub epoch: Account<'info, Epoch>,
 
     /// PDA for daily scores Merkle roots
+    /// CHECK: Validated by the instruction logic
     pub daily_scores_pda: AccountInfo<'info>,
 
     /// The caller (anyone can call with valid proof)
@@ -260,25 +261,21 @@ pub struct MarketSettledWithProof {
     pub caller: Pubkey,
 }
 
-/// CPI call to Txoracle for full validation
-/// 
-/// This would be the full implementation that validates
-/// the Merkle proof on-chain via CPI to the Txoracle program.
-/// 
-/// For now, we use the simplified version above.
-/// 
-/// #[derive(Accounts)]
-/// pub struct SettleWithValidatedProof<'info> {
-///     // ... accounts ...
-///     pub txoracle_program: Program<'info, Txoracle>,
-/// }
-/// 
-/// pub fn settle_with_validated_proof_handler(
-///     ctx: Context<SettleWithValidatedProof>,
-///     // proof data...
-/// ) -> Result<()> {
-///     // 1. Call txoracle.validateStat via CPI
-///     // 2. Check validation result
-///     // 3. If valid, settle market
-///     // 4. Emit verification event
-/// }
+// ─── Full Txoracle Integration (Future) ───────────────────────────
+// 
+// For full on-chain validation, implement CPI to Txoracle:
+// 
+// #[derive(Accounts)]
+// pub struct SettleWithValidatedProof<'info> {
+//     pub txoracle_program: Program<'info, Txoracle>,
+//     // ... other accounts ...
+// }
+// 
+// pub fn settle_with_validated_proof_handler(
+//     ctx: Context<SettleWithValidatedProof>,
+//     proof_data: ProofData,
+// ) -> Result<()> {
+//     // 1. Call txoracle.validateStat via CPI
+//     // 2. Check validation result
+//     // 3. If valid, settle market
+// }

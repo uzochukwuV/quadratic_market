@@ -64,10 +64,14 @@ impl CorrelationMatrix {
     
     /// Calculate payout multiplier from correlation score.
     /// multiplier = 1 - (correlation_bps * 25 / 10000)
+    /// Which gives:
+    /// - 100% correlation (10000 bps) → multiplier = 7500 (75%)
+    /// - 60% correlation (6000 bps) → multiplier = 8500 (85%)
+    /// - 0% correlation (0 bps) → multiplier = 10000 (100%)
     pub fn payout_multiplier(&self, correlation_bps: u16) -> u64 {
-        // multiplier in basis points: 10000 - (correlation_bps * 25 / 1)
-        // We store as u64 to avoid float
-        let discount = (correlation_bps as u64) * CORRELATION_BPS_MULTIPLIER;
+        // Formula: 10000 - (correlation_bps * 25 / 100)
+        // Using integer math to avoid float
+        let discount = (correlation_bps as u64) * CORRELATION_BPS_MULTIPLIER / 100;
         10000u64.saturating_sub(discount)
     }
 }

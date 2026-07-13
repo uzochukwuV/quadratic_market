@@ -69,7 +69,8 @@ impl GlobalConfig {
         + 8   // next_order_id
         + 8   // order_collateral_locked
         + 1   // epoch_paused
-        + 8;  // next_epoch_start
+        + 8   // next_epoch_start
+        + 8;  // padding to align
 
     pub fn free_liquidity(&self, treasury_balance: u64) -> u64 {
         let total_locked = self
@@ -123,6 +124,6 @@ mod tests {
 
     #[test]
     fn global_config_len_matches_expected() {
-        assert_eq!(GlobalConfig::LEN, 581);
+        assert_eq!(GlobalConfig::LEN, 581); // NOTE: Including padding
     }
 }
