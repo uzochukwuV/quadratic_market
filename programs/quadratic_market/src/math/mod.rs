@@ -1,9 +1,6 @@
 pub mod fixed_point;
 pub mod exp_ln;
-pub mod lmsr;
-pub mod correlation;
 
+// Keep fixed_point and exp_ln for general math utilities
 pub use fixed_point::*;
 pub use exp_ln::*;
-pub use lmsr::*;
-pub use correlation::*;

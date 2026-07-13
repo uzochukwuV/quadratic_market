@@ -2,14 +2,13 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use crate::state::{
-    GlobalConfig, Market, MarketStatus, MarketMode, Epoch, EpochVault,
+    GlobalConfig, Market, MarketStatus, Epoch, EpochVault,
     SlipLeg,
 };
 use crate::errors::QuadraticMarketError;
 use crate::constants::{
-    seeds, SCALE, MAX_SLIP_LEGS,
+    seeds, MAX_SLIP_LEGS,
 };
-use crate::math::lmsr::{lmsr_buy_cost, lmsr_price};
 
 /// Maximum number of legs in a slip (fits in u16 bitmask)
 pub const MAX_SLIP_LEGS_NEW: usize = 16;
@@ -46,7 +45,7 @@ pub struct Slip {
     pub num_legs: u8,
     pub leg_market_ids: [u64; MAX_SLIP_LEGS_NEW],
     pub leg_outcome_ids: [u8; MAX_SLIP_LEGS_NEW],
-    pub leg_fixed_odds_bps: [u64; MAX_SLIP_LEGS_NEW],  // Locked at placement (Q32.32)
+    pub leg_fixed_odds_bps: [u64; MAX_SLIP_LEGS_NEW],  // Fixed odds in basis points (10000 = 1.0x)
     pub legs_bought_mask: u16,    // bit i = leg i bought
     pub legs_settled_mask: u16,   // bit i = leg i settled
     pub legs_won_mask: u16,       // bit i = leg i won
@@ -399,22 +398,31 @@ pub fn buy_leg_for_slip_handler<'info>(
         QuadraticMarketError::SlipExpired // Reuse error
     );
 
-    // Calculate cost and locked amount
-    // Calculate the actual LMSR cost for buying tokens
-    // leg_stake is the per-leg portion of the total stake
+    // Get the fixed odds for this outcome from the market (in basis points)
+    let fixed_odds = market.odds[expected_outcome as usize];
+    
+    // Calculate the leg's share of the total stake
     let leg_stake = slip.total_stake / slip.num_legs as u64;
-    let leg_cost = lmsr_buy_cost(
-        &market.q_values,
-        market.num_outcomes,
-        expected_outcome,
-        leg_stake,
-        market.lmsr_b,
-    )?;
+    
+    // Apply house fee: fee = leg_stake * house_fee_bps / 10000
+    let fee = leg_stake
+        .checked_mul(config.house_fee_bps)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10000;
+    
+    // Net stake after fee goes to the pot
+    let net_stake = leg_stake
+        .checked_sub(fee)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    
+    // The tokens we mint equal the net_stake (1:1 backing)
+    let tokens_to_mint = net_stake;
 
-    // Mint tokens equal to leg_cost (not leg_stake) to ensure all minted tokens
-    // are backed by collected funds. This prevents undercollateralization where
-    // leg_stake > leg_cost (when LMSR price < 1.0) would create unbacked exposure.
-    let tokens_to_mint = leg_cost;
+    // Calculate potential payout for this leg: stake * odds_bps / 10000
+    let leg_payout = leg_stake
+        .checked_mul(fixed_odds)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10000;
 
     // Mint outcome tokens to buyer
     let market_id_bytes = market.market_id.to_le_bytes();
@@ -432,40 +440,39 @@ pub fn buy_leg_for_slip_handler<'info>(
         tokens_to_mint,
     )?;
 
-    // Update market q_values by leg_cost (not leg_stake)
-    market.q_values[expected_outcome as usize] = market.q_values[expected_outcome as usize]
-        .checked_add(tokens_to_mint)
+    // Update market exposure (liability for this leg's payout)
+    market.exposure = market.exposure
+        .checked_add(leg_payout)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
-    // Update locked_payouts by leg_cost
-    // This tracks the treasury's maximum liability for this leg
+    // Update locked_payouts for the potential payout
     config.locked_payouts = config.locked_payouts
-        .checked_add(tokens_to_mint)
+        .checked_add(leg_payout)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Mark leg as bought
     slip.legs_bought_mask |= bit;
 
-    // Accumulate the actual cost for this leg
+    // Accumulate the cost and potential payout
     slip.total_cost = slip.total_cost
-        .checked_add(tokens_to_mint)
+        .checked_add(net_stake)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Transition to Active if all legs bought
     if slip.all_legs_bought() {
         slip.status = SlipStatus::Active;
         
-        // Calculate potential payout based on fixed odds
-        let mut total_payout: u128 = slip.total_cost as u128;
+        // Calculate potential payout based on fixed odds (multiplied across all legs)
+        let mut total_payout: u64 = slip.total_stake; // Start with total stake
         for i in 0..slip.num_legs as usize {
-            let odds_fp = slip.leg_fixed_odds_bps[i];
+            let odds_bps = slip.leg_fixed_odds_bps[i];
             total_payout = total_payout
-                .checked_mul(odds_fp as u128)
+                .checked_mul(odds_bps)
                 .ok_or(QuadraticMarketError::MathOverflow)?
-                / SCALE as u128;
+                / 10000;
         }
-        slip.potential_payout = total_payout as u64;
-        slip.locked_amount = slip.potential_payout;
+        slip.potential_payout = total_payout;
+        slip.locked_amount = total_payout;
     }
 
     emit!(SlipLegBought {
@@ -474,7 +481,7 @@ pub fn buy_leg_for_slip_handler<'info>(
         market_id: market.market_id,
         outcome: expected_outcome,
         stake: leg_stake,
-        cost: leg_cost,
+        cost: net_stake,
     });
 
     Ok(())

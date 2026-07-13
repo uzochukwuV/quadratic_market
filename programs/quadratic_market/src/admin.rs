@@ -69,16 +69,13 @@ pub fn update_config_handler(
     max_market_exposure: Option<u64>,
     challenge_window_seconds: Option<i64>,
     settlement_deadline_seconds: Option<i64>,
-    lmsr_default_b: Option<u64>,
-    slip_house_margin_bps: Option<u64>,
-    max_slip_bonus_multiplier_bps: Option<u64>,
     epoch_duration_seconds: Option<i64>,
     withdrawal_cooldown_seconds: Option<i64>,
     max_single_bet: Option<u64>,
-    min_outcome_price_bps: Option<u64>,
-    buy_fee_bps: Option<u64>,
+    min_odds_bps: Option<u64>,
+    max_odds_bps: Option<u64>,
+    house_fee_bps: Option<u64>,
     oracle_pubkey: Option<[u8; 32]>,
-    cash_out_margin_bps: Option<u64>,
 ) -> Result<()> {
     require!(
         ctx.accounts.admin.key() == ctx.accounts.global_config.admin,
@@ -88,7 +85,7 @@ pub fn update_config_handler(
     // Bounds guards — prevent misconfiguration that would break protocol invariants:
     //   challenge_window = 0  → oracle can propose + finalize atomically (no review)
     //   epoch_duration = 0    → division by zero in compute_activation_time
-    //   buy_fee_bps ≥ 10_000  → total charge ≥ 2× cost, effectively stealing from users
+    //   house_fee_bps ≥ 10_000  → total charge ≥ 2× cost, effectively stealing from users
     //   settlement_deadline = 0 → any market can be immediately voided
     if let Some(v) = challenge_window_seconds {
         require!(v >= 60, QuadraticMarketError::InvalidAmount); // minimum 1 minute
@@ -99,30 +96,27 @@ pub fn update_config_handler(
     if let Some(v) = epoch_duration_seconds {
         require!(v >= 60, QuadraticMarketError::InvalidAmount); // minimum 1 minute, prevents div-by-zero
     }
-    if let Some(v) = buy_fee_bps {
+    if let Some(v) = house_fee_bps {
         require!(v < 10_000, QuadraticMarketError::InvalidAmount); // must be < 100%
     }
-    if let Some(v) = slip_house_margin_bps {
-        require!(v < 10_000, QuadraticMarketError::InvalidAmount);
+    if let Some(v) = min_odds_bps {
+        require!(v >= 100, QuadraticMarketError::InvalidAmount); // minimum 1% (1.01x)
     }
-    if let Some(v) = cash_out_margin_bps {
-        require!(v < 10_000, QuadraticMarketError::InvalidAmount);
+    if let Some(v) = max_odds_bps {
+        require!(v <= 1_000_000, QuadraticMarketError::InvalidAmount); // maximum 100x
     }
 
     let config = &mut ctx.accounts.global_config;
     if let Some(v) = max_market_exposure          { config.max_market_exposure = v; }
     if let Some(v) = challenge_window_seconds      { config.challenge_window_seconds = v; }
-    if let Some(v) = settlement_deadline_seconds   { config.settlement_deadline_seconds = v; }
-    if let Some(v) = lmsr_default_b               { config.lmsr_default_b = v; }
-    if let Some(v) = slip_house_margin_bps         { config.slip_house_margin_bps = v; }
-    if let Some(v) = max_slip_bonus_multiplier_bps { config.max_slip_bonus_multiplier_bps = v; }
-    if let Some(v) = epoch_duration_seconds        { config.epoch_duration_seconds = v; }
-    if let Some(v) = withdrawal_cooldown_seconds   { config.withdrawal_cooldown_seconds = v; }
-    if let Some(v) = max_single_bet                { config.max_single_bet = v; }
-    if let Some(v) = min_outcome_price_bps         { config.min_outcome_price_bps = v; }
-    if let Some(v) = buy_fee_bps                   { config.buy_fee_bps = v; }
-    if let Some(v) = oracle_pubkey                 { config.oracle_pubkey = v; }
-    if let Some(v) = cash_out_margin_bps           { config.cash_out_margin_bps = v; }
+    if let Some(v) = settlement_deadline_seconds { config.settlement_deadline_seconds = v; }
+    if let Some(v) = epoch_duration_seconds       { config.epoch_duration_seconds = v; }
+    if let Some(v) = withdrawal_cooldown_seconds  { config.withdrawal_cooldown_seconds = v; }
+    if let Some(v) = max_single_bet              { config.max_single_bet = v; }
+    if let Some(v) = min_odds_bps                { config.min_odds_bps = v; }
+    if let Some(v) = max_odds_bps                { config.max_odds_bps = v; }
+    if let Some(v) = house_fee_bps              { config.house_fee_bps = v; }
+    if let Some(v) = oracle_pubkey               { config.oracle_pubkey = v; }
     Ok(())
 }
 

@@ -1,34 +1,16 @@
 use anchor_lang::prelude::*;
 use crate::constants::MAX_OUTCOMES;
+use crate::errors::QuadraticMarketError;
 
-/// Controls whether LMSR share trading is exposed directly to users.
-///
-/// `FixedOdds` — LMSR is an internal pricing engine only. Users interact via
-/// `place_slip` / `cash_out_slip`. Direct `buy_shares` / `sell_shares` calls
-/// are rejected. This is the default for sports markets.
-///
-/// `Trading` — LMSR is fully exposed. `buy_shares` / `sell_shares` are
-/// permitted. Intended for prediction markets, not sports.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
-pub enum MarketMode {
-    FixedOdds,
-    Trading,
-}
-
-impl Default for MarketMode {
-    fn default() -> Self {
-        MarketMode::FixedOdds
-    }
-}
-
+/// Market status - simplified for fixed odds sports betting
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum MarketStatus {
-    Open,
-    Suspended,
-    AwaitingResult,
-    Proposed,
-    Settled,
-    Voided,
+    Open,             // Accepting bets
+    Suspended,        // No new bets, existing bets remain
+    AwaitingResult,   // Match started, awaiting oracle
+    Proposed,        // Oracle proposed result, challenge window open
+    Settled,         // Result finalized
+    Voided,          // Market voided (no result)
 }
 
 impl Default for MarketStatus {
@@ -50,6 +32,17 @@ impl MarketStatus {
     }
 }
 
+/// Market type for categorization
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug, Default)]
+pub enum MarketType {
+    #[default]
+    OneXTwo,    // 1X2 market: Home(0), Draw(1), Away(2)
+    OverUnder,  // Over/Under: Over(0), Under(1)
+    GoalNoGoal, // GG/NG: Yes/GG(0), No/NG(1)
+}
+
+/// Simplified Market for fixed odds sports betting
+/// Odds are stored as basis points (e.g., 200 = 2.00x payout)
 #[account]
 pub struct Market {
     pub market_id: u64,                          // 8
@@ -57,20 +50,22 @@ pub struct Market {
     pub start_time: i64,                         // 8
     pub status: MarketStatus,                    // 1
     pub num_outcomes: u8,                        // 1
-    pub q_values: [u64; MAX_OUTCOMES],           // 64
-    pub exposure: u64,                           // 8
+    /// Fixed odds per outcome in basis points (10000 = 1.0x, 20000 = 2.0x)
+    /// For 1X2: [home_odds, draw_odds, away_odds]
+    /// For O/U: [over_odds, under_odds]
+    /// For GG/NG: [gg_odds, ng_odds]
+    pub odds: [u64; MAX_OUTCOMES],              // 64
+    pub exposure: u64,                           // 8  — total liability for this market
     pub settlement_time: i64,                    // 8
     pub winning_outcome: u8,                     // 1
     pub outcome_mints: [Pubkey; MAX_OUTCOMES],   // 256
-    pub lmsr_b: u64,                             // 8  (Q32.32)
     pub title: String,                           // 4 + 128
     pub description: String,                     // 4 + 256
+    pub market_type: MarketType,                 // 1 (enum tag)
     pub category: u8,                            // 1
     pub bump: u8,                                // 1
-    // Correlated market fields
+    // Optional market group association (for tracking purposes only)
     pub group_id: Option<u64>,                   // 9 (1 tag + 8 value)
-    pub group_market_index: u8,                  // 1
-    pub market_mode: MarketMode,                 // 1 (enum tag)
     // Epoch tracking
     pub epoch_id: u64,                           // 8 — epoch this market belongs to
     pub settled_in_epoch: bool,                  // 1 — true when market settlement is counted in epoch
@@ -83,26 +78,20 @@ impl Market {
         + 8   // start_time
         + 1   // status
         + 1   // num_outcomes
-        + 64  // q_values
+        + 64  // odds
         + 8   // exposure
         + 8   // settlement_time
         + 1   // winning_outcome
         + 256 // outcome_mints
-        + 8   // lmsr_b
         + (4 + 128) // title
         + (4 + 256) // description
+        + 1   // market_type
         + 1   // category
         + 1   // bump
         + 9   // group_id (Option<u64>: 1 tag + 8 value)
-        + 1   // group_market_index
-        + 1   // market_mode
         + 8   // epoch_id
         + 1   // settled_in_epoch
-        + 3;  // padding to align to 8
-
-    pub fn active_q_values(&self) -> Vec<u64> {
-        self.q_values[..self.num_outcomes as usize].to_vec()
-    }
+        + 6;  // padding to align to 8
 
     /// Returns true if the market is currently open for trading.
     pub fn is_tradable(&self, now: i64) -> bool {
@@ -142,10 +131,22 @@ impl Market {
         (outcome_id as usize) < self.num_outcomes as usize
     }
 
-    /// Returns the total liquidity in the market (sum of all q_values).
-    pub fn total_liquidity(&self) -> u64 {
-        self.q_values[..self.num_outcomes as usize]
-            .iter()
-            .sum()
+    /// Get the fixed odds for a specific outcome (in basis points)
+    pub fn get_odds(&self, outcome_id: u8) -> Result<u64> {
+        if (outcome_id as usize) >= self.num_outcomes as usize {
+            return Err(QuadraticMarketError::InvalidOutcomeId.into());
+        }
+        Ok(self.odds[outcome_id as usize])
+    }
+
+    /// Calculate payout for a given stake on an outcome
+    /// Returns payout = stake * odds_bps / 10000
+    pub fn calculate_payout(&self, outcome_id: u8, stake: u64) -> Result<u64> {
+        let odds = self.get_odds(outcome_id)?;
+        let payout = stake
+            .checked_mul(odds)
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            / 10000;
+        Ok(payout)
     }
 }

@@ -1,12 +1,11 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token};
 use crate::constants::{
-    seeds, DEFAULT_LMSR_B_FP, MIN_FIRST_LIQUIDITY,
-    DEFAULT_SLIP_HOUSE_MARGIN_BPS, DEFAULT_MAX_SLIP_BONUS_BPS,
+    seeds, MIN_FIRST_LIQUIDITY,
     DEFAULT_EPOCH_DURATION_SECONDS, DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS,
     DEFAULT_CHALLENGE_WINDOW, DEFAULT_SETTLEMENT_DEADLINE,
-    DEFAULT_MAX_SINGLE_BET, DEFAULT_MIN_OUTCOME_PRICE_BPS, DEFAULT_BUY_FEE_BPS,
-    MAX_OPERATORS, DEFAULT_CASH_OUT_MARGIN_BPS,
+    DEFAULT_MAX_SINGLE_BET, DEFAULT_MIN_ODDS_BPS, DEFAULT_MAX_ODDS_BPS, DEFAULT_HOUSE_FEE_BPS,
+    MAX_OPERATORS,
 };
 use crate::state::GlobalConfig;
 
@@ -68,22 +67,18 @@ pub fn handler(
     config.next_market_id = 1;
     config.challenge_window_seconds = DEFAULT_CHALLENGE_WINDOW;
     config.settlement_deadline_seconds = DEFAULT_SETTLEMENT_DEADLINE;
-    config.odds_basis = 10_000;
-    config.lmsr_default_b = DEFAULT_LMSR_B_FP;
     config.min_first_liquidity = MIN_FIRST_LIQUIDITY;
-    config.slip_house_margin_bps = DEFAULT_SLIP_HOUSE_MARGIN_BPS;
-    config.max_slip_bonus_multiplier_bps = DEFAULT_MAX_SLIP_BONUS_BPS;
     config.next_slip_id = 1;
     config.current_epoch = 0;
     config.epoch_duration_seconds = DEFAULT_EPOCH_DURATION_SECONDS;
     config.withdrawal_cooldown_seconds = DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS;
     config.max_single_bet = DEFAULT_MAX_SINGLE_BET;
-    config.min_outcome_price_bps = DEFAULT_MIN_OUTCOME_PRICE_BPS;
-    config.buy_fee_bps = DEFAULT_BUY_FEE_BPS;
+    config.min_odds_bps = DEFAULT_MIN_ODDS_BPS;
+    config.max_odds_bps = DEFAULT_MAX_ODDS_BPS;
+    config.house_fee_bps = DEFAULT_HOUSE_FEE_BPS;
     config.operators = [Pubkey::default(); MAX_OPERATORS];
     config.num_operators = 0;
     config.bump = ctx.bumps.global_config;
-    config.cash_out_margin_bps = DEFAULT_CASH_OUT_MARGIN_BPS;
     config.next_order_id = 1;
     config.order_collateral_locked = 0;
     // Epoch state: start unpaused, epoch 0, next epoch starts one duration from now

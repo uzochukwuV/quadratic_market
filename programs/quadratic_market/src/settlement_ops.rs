@@ -493,14 +493,6 @@ pub fn finalize_settlement_handler(
     market.winning_outcome = proposal.proposed_outcome;
     market.status = MarketStatus::Settled;
 
-    // Release locked_payouts for losing outcomes
-    let winning = proposal.proposed_outcome as usize;
-    let losing_total: u64 = (0..market.num_outcomes as usize)
-        .filter(|&i| i != winning)
-        .map(|i| market.q_values[i])
-        .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(losing_total);
-
     // Update epoch settlement tracking
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;

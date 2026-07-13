@@ -36,9 +36,8 @@ use market_group::*;
 use slip::*;
 use orders::*;
 use epoch_ops::*;
-use crate::state::market_group::CorrelationPair;
 use crate::state::bet_slip::SlipLeg;
-use crate::state::market::MarketMode;
+use crate::state::market::MarketType;
 use crate::state::order::OrderSide;
 
 #[program]
@@ -74,18 +73,15 @@ pub mod quadratic_market {
         max_market_exposure: Option<u64>,
         challenge_window_seconds: Option<i64>,
         settlement_deadline_seconds: Option<i64>,
-        lmsr_default_b: Option<u64>,
-        slip_house_margin_bps: Option<u64>,
-        max_slip_bonus_multiplier_bps: Option<u64>,
         epoch_duration_seconds: Option<i64>,
         withdrawal_cooldown_seconds: Option<i64>,
         max_single_bet: Option<u64>,
-        min_outcome_price_bps: Option<u64>,
-        buy_fee_bps: Option<u64>,
+        min_odds_bps: Option<u64>,
+        max_odds_bps: Option<u64>,
+        house_fee_bps: Option<u64>,
         oracle_pubkey: Option<[u8; 32]>,
-        cash_out_margin_bps: Option<u64>,
     ) -> Result<()> {
-        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, settlement_deadline_seconds, lmsr_default_b, slip_house_margin_bps, max_slip_bonus_multiplier_bps, epoch_duration_seconds, withdrawal_cooldown_seconds, max_single_bet, min_outcome_price_bps, buy_fee_bps, oracle_pubkey, cash_out_margin_bps)
+        update_config_handler(ctx, max_market_exposure, challenge_window_seconds, settlement_deadline_seconds, epoch_duration_seconds, withdrawal_cooldown_seconds, max_single_bet, min_odds_bps, max_odds_bps, house_fee_bps, oracle_pubkey)
     }
 
     pub fn add_operator(ctx: Context<AddOperator>, operator: Pubkey) -> Result<()> {
@@ -123,11 +119,10 @@ pub mod quadratic_market {
         title: String,
         description: String,
         category: u8,
-        lmsr_b_override: Option<u64>,
-        initial_q_values: Option<Vec<u64>>,
-        market_mode: MarketMode,
+        market_type: MarketType,
+        initial_odds: Vec<u64>,
     ) -> Result<()> {
-        create_market_handler(ctx, start_time, num_outcomes, title, description, category, lmsr_b_override, initial_q_values, market_mode)
+        create_market_handler(ctx, start_time, num_outcomes, title, description, category, market_type, initial_odds)
     }
 
     pub fn init_outcome_mint(
@@ -159,19 +154,17 @@ pub mod quadratic_market {
     pub fn buy_shares(
         ctx: Context<BuyShares>,
         outcome_id: u8,
-        num_shares: u64,
-        max_payment: u64,
+        stake: u64,
     ) -> Result<()> {
-        buy_shares_handler(ctx, outcome_id, num_shares, max_payment)
+        buy_shares_handler(ctx, outcome_id, stake)
     }
 
     pub fn sell_shares(
         ctx: Context<SellShares>,
         outcome_id: u8,
         num_shares: u64,
-        min_payout: u64,
     ) -> Result<()> {
-        sell_shares_handler(ctx, outcome_id, num_shares, min_payout)
+        sell_shares_handler(ctx, outcome_id, num_shares)
     }
 
     // ─── Settlement ───────────────────────────────────────────
@@ -275,6 +268,8 @@ pub mod quadratic_market {
     }
 
     // ─── Market Group Operations ────────────────────────────────
+    // Note: Market groups are now just for tracking purposes.
+    // Each market (1X2, O/U, GG/NG) settles independently.
 
     pub fn create_market_group(
         ctx: Context<CreateMarketGroup>,
@@ -294,41 +289,15 @@ pub mod quadratic_market {
         add_market_to_group_handler(ctx, group_id, market_index)
     }
 
-    pub fn add_correlation_pair(
-        ctx: Context<AddCorrelationPair>,
-        group_id: u64,
-        pair: CorrelationPair,
-    ) -> Result<()> {
-        add_correlation_pair_handler(ctx, group_id, pair)
-    }
+    // ─── Update Market Odds ─────────────────────────────────────
+    // Can update odds until match starts
 
-    pub fn update_correlation_weight(
-        ctx: Context<UpdateCorrelationWeight>,
-        group_id: u64,
-        pair_index: u8,
-        new_weight_bps: u64,
+    pub fn update_market_odds(
+        ctx: Context<UpdateMarketOdds>,
+        market_id: u64,
+        new_odds: Vec<u64>,
     ) -> Result<()> {
-        update_correlation_weight_handler(ctx, group_id, pair_index, new_weight_bps)
-    }
-
-    // ─── Correlated Trading ─────────────────────────────────────
-
-    pub fn buy_shares_correlated<'info>(
-        ctx: Context<'_, '_, '_, 'info, BuySharesCorrelated<'info>>,
-        outcome_id: u8,
-        num_shares: u64,
-        max_payment: u64,
-    ) -> Result<()> {
-        buy_shares_correlated_handler(ctx, outcome_id, num_shares, max_payment)
-    }
-
-    pub fn sell_shares_correlated<'info>(
-        ctx: Context<'_, '_, '_, 'info, SellSharesCorrelated<'info>>,
-        outcome_id: u8,
-        num_shares: u64,
-        min_payout: u64,
-    ) -> Result<()> {
-        sell_shares_correlated_handler(ctx, outcome_id, num_shares, min_payout)
+        update_market_odds_handler(ctx, market_id, new_odds)
     }
 
     // ─── Bet Slip (New Decomposed System) ───────────────────────
