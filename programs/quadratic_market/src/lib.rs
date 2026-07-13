@@ -149,23 +149,9 @@ pub mod quadratic_market {
         void_if_expired_handler(ctx)
     }
 
-    // ─── Trading ──────────────────────────────────────────────
-
-    pub fn buy_shares(
-        ctx: Context<BuyShares>,
-        outcome_id: u8,
-        stake: u64,
-    ) -> Result<()> {
-        buy_shares_handler(ctx, outcome_id, stake)
-    }
-
-    pub fn sell_shares(
-        ctx: Context<SellShares>,
-        outcome_id: u8,
-        num_shares: u64,
-    ) -> Result<()> {
-        sell_shares_handler(ctx, outcome_id, num_shares)
-    }
+    // ─── Betting via Slip Only ─────────────────────────────────
+    // All betting goes through the slip system. Use place_slip_await for single or multi-leg bets.
+    // Backend executes each leg via buy_leg_for_slip as separate transactions.
 
     // ─── Settlement ───────────────────────────────────────────
 

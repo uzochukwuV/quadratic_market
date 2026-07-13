@@ -2,16 +2,11 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use crate::state::{
-    GlobalConfig, Market, MarketStatus, Epoch, EpochVault,
+    GlobalConfig, Market, MarketStatus,
     SlipLeg,
 };
 use crate::errors::QuadraticMarketError;
-use crate::constants::{
-    seeds, MAX_SLIP_LEGS,
-};
-
-/// Maximum number of legs in a slip (fits in u16 bitmask)
-pub const MAX_SLIP_LEGS_NEW: usize = 16;
+use crate::constants::{seeds, MAX_SLIP_LEGS};
 
 // ─── Slip Status ─────────────────────────────────────────────────
 
@@ -43,9 +38,9 @@ pub struct Slip {
     pub slip_id: u64,
     pub epoch_id: u64,
     pub num_legs: u8,
-    pub leg_market_ids: [u64; MAX_SLIP_LEGS_NEW],
-    pub leg_outcome_ids: [u8; MAX_SLIP_LEGS_NEW],
-    pub leg_fixed_odds_bps: [u64; MAX_SLIP_LEGS_NEW],  // Fixed odds in basis points (10000 = 1.0x)
+    pub leg_market_ids: [u64; MAX_SLIP_LEGS],
+    pub leg_outcome_ids: [u8; MAX_SLIP_LEGS],
+    pub leg_fixed_odds_bps: [u64; MAX_SLIP_LEGS],  // Fixed odds in basis points (10000 = 1.0x)
     pub legs_bought_mask: u16,    // bit i = leg i bought
     pub legs_settled_mask: u16,   // bit i = leg i settled
     pub legs_won_mask: u16,       // bit i = leg i won
@@ -66,9 +61,9 @@ impl Slip {
         + 8   // slip_id
         + 8   // epoch_id
         + 1   // num_legs
-        + 128 // leg_market_ids (16 * 8)
-        + 16  // leg_outcome_ids (16 * 1)
-        + 128 // leg_fixed_odds_bps (16 * 8)
+        + 40  // leg_market_ids (5 * 8)
+        + 5   // leg_outcome_ids (5 * 1)
+        + 40  // leg_fixed_odds_bps (5 * 8)
         + 2   // legs_bought_mask
         + 2   // legs_settled_mask
         + 2   // legs_won_mask
@@ -224,7 +219,7 @@ pub fn place_slip_await_handler<'info>(
     require!(!config.paused, QuadraticMarketError::Paused);
     require!(legs.len() > 0, QuadraticMarketError::SlipNoLegs);
     require!(
-        legs.len() <= MAX_SLIP_LEGS_NEW,
+        legs.len() <= MAX_SLIP_LEGS,
         QuadraticMarketError::SlipTooManyLegs
     );
     require!(stake > 0, QuadraticMarketError::InvalidAmount);
@@ -266,7 +261,7 @@ pub fn place_slip_await_handler<'info>(
     }
 
     // Initialize remaining slots to zero
-    for i in legs.len()..MAX_SLIP_LEGS_NEW {
+    for i in legs.len()..MAX_SLIP_LEGS {
         slip.leg_market_ids[i] = 0;
         slip.leg_outcome_ids[i] = 0;
         slip.leg_fixed_odds_bps[i] = 0;
@@ -849,9 +844,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 3,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0,
             legs_settled_mask: 0,
             legs_won_mask: 0,
@@ -881,9 +876,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 3,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0111,
             legs_settled_mask: 0b0111,
             legs_won_mask: 0b0111,
@@ -912,9 +907,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 3,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0001, // Only leg 0 bought
             legs_settled_mask: 0,
             legs_won_mask: 0,
@@ -947,9 +942,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 5,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0011, // legs 0 and 1 bought
             legs_settled_mask: 0,
             legs_won_mask: 0,
@@ -974,9 +969,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 4,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0101, // legs 0 and 2 bought
             legs_settled_mask: 0b0101, // legs 0 and 2 settled
             legs_won_mask: 0b0100, // only leg 2 won
@@ -1004,9 +999,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 2,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0,
             legs_settled_mask: 0,
             legs_won_mask: 0,
@@ -1048,9 +1043,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 4,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0101, // legs 0 and 2
             legs_settled_mask: 0b0101,
             legs_won_mask: 0b0100, // only leg 2

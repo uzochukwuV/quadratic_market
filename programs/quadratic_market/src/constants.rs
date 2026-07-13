@@ -52,8 +52,8 @@ pub const DEFAULT_CONFIRMATION_WINDOW_SECONDS: i64 = 300; // 5 minutes
 // Market groups (tracking only, no correlation)
 pub const MAX_GROUP_MARKETS: usize = 3; // 1X2, O/U, GG/NG
 
-// Bet slip
-pub const MAX_SLIP_LEGS: usize = 8;
+// Bet slip - maximum 5 legs to avoid BPF stack overflow
+pub const MAX_SLIP_LEGS: usize = 5;
 
 // LP epoch / timing
 pub const DEFAULT_EPOCH_DURATION_SECONDS: i64 = 86_400;       // 24 hours
