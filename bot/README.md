@@ -91,6 +91,20 @@ LP/User Balances Updated
 
 **Trustless**: No admin required for settlement - the proof demonstrates the result came from TxLINE.
 
+## Correlation Matrix (LP Protection)
+
+Market groups include a correlation matrix to protect LP from correlated parlay legs:
+
+| Market Pair | Correlation | Discount |
+|-------------|------------|----------|
+| 1X2 ↔ O/U | 60% | 15% |
+| 1X2 ↔ GG/NG | 70% | 17.5% |
+| O/U ↔ GG/NG | 80% | 20% |
+
+**Formula**: `payout = sum(leg_payouts) * (1 - correlation * 0.25)`
+
+**Same-market rejection**: Cannot bet Home AND Away from same 1X2 market (mutually exclusive).
+
 ## State file
 
 `bot_state.json` is written next to `bot.py`. It tracks:
