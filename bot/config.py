@@ -14,6 +14,10 @@ def _require(key: str) -> str:
     return val
 
 
+def _optional(key: str, default: str) -> str:
+    return os.getenv(key, default)
+
+
 def _keypair_path(key: str) -> Path:
     raw = _require(key)
     p = Path(raw).expanduser()
@@ -22,17 +26,39 @@ def _keypair_path(key: str) -> Path:
     return p
 
 
+# ─── Network ───────────────────────────────────────────────────────────────
+
+NETWORK: str = os.getenv("NETWORK", "devnet")  # "devnet" or "mainnet"
+
 RPC_URL: str = os.getenv("RPC_URL", "https://api.devnet.solana.com")
 PROGRAM_ID: str = _require("PROGRAM_ID")
 BASE_MINT: str = _require("BASE_MINT")
 
+# ─── Keys ──────────────────────────────────────────────────────────────────
+
 OPERATOR_KEYPAIR_PATH: Path = _keypair_path("OPERATOR_KEYPAIR_PATH")
 ORACLE_KEYPAIR_PATH: Path = _keypair_path("ORACLE_KEYPAIR_PATH")
 
-ODDS_API_KEY: str = _require("ODDS_API_KEY")
-SPORTS: list[str] = [s.strip() for s in os.getenv("SPORTS", "soccer_epl").split(",") if s.strip()]
+# ─── Txodds API ──────────────────────────────────────────────────────────────
 
-MARKET_LOOKAHEAD_SECONDS: int = int(os.getenv("MARKET_LOOKAHEAD_SECONDS", "86400"))
+TXODDS_API_KEY: str = _require("TXODDS_API_KEY")
+TXODDS_NETWORK: str = os.getenv("TXODDS_NETWORK", "devnet")  # "devnet" or "mainnet"
+
+# Sports to track (comma-separated)
+SPORTS: list[str] = [s.strip() for s in os.getenv("SPORTS", "soccer").split(",") if s.strip()]
+
+# ─── Timing ─────────────────────────────────────────────────────────────────
+
+MARKET_LOOKAHEAD_DAYS: int = int(os.getenv("MARKET_LOOKAHEAD_DAYS", "7"))
 RESULT_DELAY_SECONDS: int = int(os.getenv("RESULT_DELAY_SECONDS", "7200"))
-POLL_INTERVAL_SECONDS: int = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
+POLL_INTERVAL_SECONDS: int = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
+
+# ─── Odds ───────────────────────────────────────────────────────────────────
+
+# Min/max odds in basis points (e.g., 10100 = 1.01x, 100000 = 10x)
+DEFAULT_MIN_ODDS_BPS: int = int(os.getenv("DEFAULT_MIN_ODDS_BPS", "10100"))
+DEFAULT_MAX_ODDS_BPS: int = int(os.getenv("DEFAULT_MAX_ODDS_BPS", "100000"))
+
+# ─── Logging ─────────────────────────────────────────────────────────────────
+
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
