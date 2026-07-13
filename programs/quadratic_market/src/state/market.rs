@@ -69,6 +69,9 @@ pub struct Market {
     // Epoch tracking
     pub epoch_id: u64,                           // 8 — epoch this market belongs to
     pub settled_in_epoch: bool,                  // 1 — true when market settlement is counted in epoch
+    // TxLINE fixture reference for verifiable settlement
+    pub txline_fixture_id: Option<u64>,          // 9 (1 tag + 8 value) - txodds/txline fixture ID
+    pub txline_proof_verified: bool,            // 1 — true when settled via on-chain TxLINE proof
 }
 
 impl Market {
@@ -91,7 +94,9 @@ impl Market {
         + 9   // group_id (Option<u64>: 1 tag + 8 value)
         + 8   // epoch_id
         + 1   // settled_in_epoch
-        + 6;  // padding to align to 8
+        + 9   // txline_fixture_id (Option<u64>: 1 tag + 8 value)
+        + 1   // txline_proof_verified
+        + 7;  // padding to align to 8
 
     /// Returns true if the market is currently open for trading.
     pub fn is_tradable(&self, now: i64) -> bool {

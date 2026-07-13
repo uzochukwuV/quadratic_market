@@ -52,6 +52,7 @@ pub fn create_market_handler(
     category: u8,
     market_type: MarketType,
     initial_odds: Vec<u64>, // Fixed odds in basis points for each outcome
+    txline_fixture_id: Option<u64>, // Optional TxLINE fixture ID for verifiable settlement
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);
@@ -124,6 +125,9 @@ pub fn create_market_handler(
     // Bind market to the current epoch
     market.epoch_id = current_epoch_id;
     market.settled_in_epoch = false;
+    // TxLINE fixture reference for proof-based settlement
+    market.txline_fixture_id = txline_fixture_id;
+    market.txline_proof_verified = false;
 
     config.next_market_id = config.next_market_id
         .checked_add(1)

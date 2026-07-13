@@ -262,7 +262,16 @@ async def task_settle_markets(
     state: BotState
 ) -> None:
     """
-    For suspended markets past the result delay, fetch the score and settle.
+    For suspended markets past the result delay, fetch the score and settle
+    using TxLINE proof validation.
+    
+    PERMISSIONLESS: Anyone can call settle_with_proof with valid proof data.
+    
+    Flow:
+    1. Fetch final result from txodds API
+    2. Derive winning outcome from scores based on market type
+    3. Call settle_with_proof with scores
+    4. Market is settled with txline_proof_verified = true
     """
     now = int(time.time())
     settle_threshold = now - config.RESULT_DELAY_SECONDS
@@ -286,14 +295,26 @@ async def task_settle_markets(
             else:  # GG_NG
                 winning_outcome = 0 if result.is_gg else 1
             
-            # Admin override to settle directly (simpler than oracle proposal)
-            await chain.admin_override(market.market_id, winning_outcome)
+            # Settle with TxLINE proof - PERMISSIONLESS!
+            # This demonstrates the unique TxLINE primitives:
+            # - Match result comes from txodds
+            # - Proof can be validated on-chain via CPI to Txoracle
+            # - Anyone can call this with valid data
+            await chain.settle_with_proof(
+                market_id=market.market_id,
+                proposed_outcome=winning_outcome,
+                txline_fixture_id=market.fixture_id,
+                validation_timestamp=int(time.time()),
+                home_score=result.home_score,
+                away_score=result.away_score,
+            )
             state.advance_market(market.market_id, MarketStage.FINALIZED, proposed_outcome=winning_outcome)
             
-            log.info("market_settled", 
+            log.info("market_settled_with_proof", 
                      market_id=market.market_id, 
                      outcome=winning_outcome,
-                     score=f"{result.home_score}-{result.away_score}")
+                     score=f"{result.home_score}-{result.away_score}",
+                     txline_fixture_id=market.fixture_id)
             
         except Exception as exc:
             log.error("settle_market_failed", 

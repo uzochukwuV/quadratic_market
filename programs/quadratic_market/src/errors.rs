@@ -207,4 +207,10 @@ pub enum QuadraticMarketError {
     SettlementOperatorListFull = 914,
     #[msg("Operator not in council")]
     OperatorNotInCouncil = 915,
+    #[msg("Invalid TxLINE fixture ID")]
+    InvalidTxlineFixtureId = 916,
+    #[msg("TxLINE proof validation failed")]
+    TxlineProofValidationFailed = 917,
+    #[msg("Scores must be positive")]
+    InvalidScore = 918,
 }

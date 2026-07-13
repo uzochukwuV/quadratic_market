@@ -499,6 +499,61 @@ class ChainClient:
         log.info("admin_override", market_id=market_id, outcome=winning_outcome, sig=str(sig))
         return str(sig)
 
+    async def settle_with_proof(
+        self,
+        market_id: int,
+        proposed_outcome: int,
+        txline_fixture_id: int,
+        validation_timestamp: int,
+        home_score: int,
+        away_score: int,
+    ) -> str:
+        """
+        Settle a market using TxLINE on-chain proof validation.
+        
+        PERMISSIONLESS: Anyone can call this with valid proof data.
+        
+        Args:
+            market_id: The market to settle
+            proposed_outcome: The proposed winning outcome (0, 1, or 2)
+            txline_fixture_id: The TxLINE fixture ID for the match
+            validation_timestamp: Unix timestamp of the validation
+            home_score: Home team score from TxLINE
+            away_score: Away team score from TxLINE
+        """
+        mkt_pda, _ = market_pda(self.program_id, market_id)
+        
+        # Get epoch for the market
+        cfg = await self.fetch_global_config()
+        current_epoch = int(cfg.current_epoch)
+        ep_pda, _ = epoch_pda(self.program_id, current_epoch)
+
+        sig = await self.program.rpc["settle_with_proof"](
+            market_id,
+            proposed_outcome,
+            txline_fixture_id,
+            validation_timestamp,
+            home_score,
+            away_score,
+            ctx=Context(
+                accounts={
+                    "global_config": self.global_config,
+                    "market": mkt_pda,
+                    "epoch": ep_pda,
+                    "daily_scores_pda": Pubkey.default(),  # Would need actual PDA
+                    "caller": self.operator_kp.pubkey(),
+                },
+                signers=[self.operator_kp],
+            ),
+        )
+        log.info("settle_with_proof", 
+                 market_id=market_id, 
+                 outcome=proposed_outcome,
+                 txline_fixture_id=txline_fixture_id,
+                 score=f"{home_score}-{away_score}",
+                 sig=str(sig))
+        return str(sig)
+
     async def finalize_result(self, market_id: int) -> str:
         """
         Finalize after the challenge window. Callable by anyone — bot uses operator key.

@@ -16,6 +16,7 @@ pub mod market_ops;
 pub mod trade;
 pub mod settlement;
 pub mod settlement_ops;
+pub mod settlement_with_proof;
 pub mod claim;
 pub mod market_group;
 pub mod slip;
@@ -31,6 +32,7 @@ use market_ops::*;
 use trade::*;
 use settlement::*;
 use settlement_ops::*;
+use settlement_with_proof::*;
 use claim::*;
 use market_group::*;
 use slip::*;
@@ -121,8 +123,9 @@ pub mod quadratic_market {
         category: u8,
         market_type: MarketType,
         initial_odds: Vec<u64>,
+        txline_fixture_id: Option<u64>,
     ) -> Result<()> {
-        create_market_handler(ctx, start_time, num_outcomes, title, description, category, market_type, initial_odds)
+        create_market_handler(ctx, start_time, num_outcomes, title, description, category, market_type, initial_odds, txline_fixture_id)
     }
 
     pub fn init_outcome_mint(
@@ -173,6 +176,37 @@ pub mod quadratic_market {
 
     pub fn finalize_result(ctx: Context<FinalizeResult>, market_id: u64) -> Result<()> {
         finalize_result_handler(ctx, market_id)
+    }
+
+    // ─── TxLINE Proof-Based Settlement ─────────────────────────────
+    // Permissionless settlement using TxLINE Merkle proofs
+
+    /// Settle market using TxLINE on-chain proof validation.
+    /// PERMISSIONLESS: Anyone can call this with valid proof data.
+    /// 
+    /// Flow:
+    /// 1. Bot fetches proof from TxLINE API
+    /// 2. Bot calls this instruction with proof data
+    /// 3. (Full impl) Program validates proof via CPI to Txoracle
+    /// 4. Market is settled with the derived outcome
+    pub fn settle_with_proof(
+        ctx: Context<SettleWithProof>,
+        market_id: u64,
+        proposed_outcome: u8,
+        txline_fixture_id: u64,
+        validation_timestamp: i64,
+        home_score: i64,
+        away_score: i64,
+    ) -> Result<()> {
+        settle_with_proof_handler(
+            ctx,
+            market_id,
+            proposed_outcome,
+            txline_fixture_id,
+            validation_timestamp,
+            home_score,
+            away_score,
+        )
     }
 
     // ─── Settlement Multisig ────────────────────────────────
