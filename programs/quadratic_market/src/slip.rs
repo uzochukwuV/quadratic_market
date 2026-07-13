@@ -358,6 +358,25 @@ pub fn place_slip_await_handler<'info>(
         QuadraticMarketError::InvalidAmount
     );
 
+    // ─── Same-Market Rejection Check ───────────────────────────────
+    // Cannot bet two different outcomes from the same market
+    // e.g., Home AND Away from same 1X2 market is MUTUALLY EXCLUSIVE
+    {
+        use std::collections::HashMap;
+        let mut seen: HashMap<u64, u8> = HashMap::new();
+        for leg in &legs {
+            if let Some(&prev_outcome) = seen.get(&leg.market_id) {
+                // Same market_id with different outcome_id = REJECT
+                require!(
+                    prev_outcome == leg.outcome_id,
+                    QuadraticMarketError::CorrelatedLegsMutuallyExclusive
+                );
+            } else {
+                seen.insert(leg.market_id, leg.outcome_id);
+            }
+        }
+    }
+
     // Get slip_id from counter
     let slip_id = config.next_slip_id;
     config.next_slip_id = config.next_slip_id
