@@ -3,7 +3,7 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use crate::state::{GlobalConfig, Market, MarketStatus, LimitOrder, OrderSide, OrderStatus};
 use crate::errors::QuadraticMarketError;
-use crate::constants::{seeds, BPS_SCALE};
+use crate::constants::{seeds, BPS_SCALE, SCALE};
 
 // ─── Place Order ────────────────────────────────────────────────
 //
