@@ -2,8 +2,9 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use crate::state::{
-    GlobalConfig, Market, MarketStatus,
-    SlipLeg,
+    GlobalConfig, Market, MarketStatus, MarketType,
+    SlipLeg, MarketGroup,
+    market_group::{CorrelationMatrix, CORRELATION_BPS_MULTIPLIER},
 };
 use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, MAX_SLIP_LEGS};
@@ -166,6 +167,135 @@ impl Slip {
     pub fn time_until_cancel_deadline(&self, now: i64) -> i64 {
         self.cancel_deadline.saturating_sub(now)
     }
+}
+
+// ─── Correlation Validation Helpers ────────────────────────────────────────────
+
+/// Validate slip legs for correlation and mutual exclusivity.
+/// Returns error if:
+/// - Same market, different outcomes (mutually exclusive)
+/// - Legs from different groups are independent (no correlation applied)
+pub fn validate_slip_correlation(
+    legs: &[SlipLeg],
+    markets: &[&Account<Market>],
+    group: Option<&Account<MarketGroup>>,
+) -> Result<u64> {
+    let n = legs.len();
+    require!(n > 0, QuadraticMarketError::SlipNoLegs);
+    require!(n <= MAX_SLIP_LEGS, QuadraticMarketError::SlipTooManyLegs);
+    
+    // Build market index mapping: market_id -> group market index (0=1X2, 1=O/U, 2=GGNG)
+    let mut market_to_group_index: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+    if let Some(g) = group {
+        for (idx, &mkt_id) in g.market_ids.iter().enumerate() {
+            if mkt_id != 0 {
+                market_to_group_index.insert(mkt_id, idx);
+            }
+        }
+    }
+    
+    // Check for same-market, different outcomes
+    let mut seen_markets: std::collections::HashMap<u64, u8> = std::collections::HashMap::new();
+    for leg in legs {
+        if let Some(&prev_outcome) = seen_markets.get(&leg.market_id) {
+            // Same market, different outcome = MUTUALLY EXCLUSIVE = REJECT
+            require!(
+                prev_outcome == leg.outcome_id,
+                QuadraticMarketError::CorrelatedLegsMutuallyExclusive
+            );
+        } else {
+            seen_markets.insert(leg.market_id, leg.outcome_id);
+        }
+    }
+    
+    // Calculate correlation-adjusted payout multiplier
+    // For each pair of legs from the same group, apply correlation
+    let mut total_multiplier = 10000u64; // Start at 1.0x (10000 bps)
+    
+    if let Some(g) = group {
+        let correlations = &g.correlation_matrix;
+        
+        // For each pair of legs
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let mkt_i = &markets[i];
+                let mkt_j = &markets[j];
+                
+                // Get group indices
+                let Some(idx_i) = market_to_group_index.get(&legs[i].market_id) else {
+                    continue;
+                };
+                let Some(idx_j) = market_to_group_index.get(&legs[j].market_id) else {
+                    continue;
+                };
+                
+                // Same group index = same market type, calculate correlation
+                if idx_i == idx_j {
+                    // Different markets of same type in group - this shouldn't happen with proper market creation
+                    continue;
+                }
+                
+                // Get correlation score
+                let corr_bps = correlations.get_correlation(*idx_i, *idx_j);
+                
+                // Apply formula: multiplier = 1 - (correlation_bps * 25 / 10000)
+                // We multiply the total multiplier by this
+                let pair_multiplier = 10000u64
+                    .saturating_sub(corr_bps as u64 * CORRELATION_BPS_MULTIPLIER);
+                
+                // Accumulate correlation effect
+                // Simple approach: multiply all pair multipliers together (in bps)
+                total_multiplier = total_multiplier
+                    .saturating_mul(pair_multiplier)
+                    .saturating_div(10000); // Back to bps
+            }
+        }
+    }
+    
+    Ok(total_multiplier) // Returns multiplier in bps (10000 = no correlation discount)
+}
+
+/// Calculate potential payout for a slip with correlation adjustment.
+/// 
+/// payout = sum(leg_payouts) * correlation_multiplier
+/// 
+/// Where leg_payout = stake_per_leg * odds_bps / 10000
+pub fn calculate_correlated_payout(
+    legs: &[SlipLeg],
+    fixed_odds_bps: &[u64],
+    total_stake: u64,
+    correlation_multiplier_bps: u64,
+) -> Result<u64> {
+    let n = legs.len() as u64;
+    require!(n > 0, QuadraticMarketError::SlipNoLegs);
+    
+    let stake_per_leg = total_stake
+        .checked_div(n)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    
+    // Calculate sum of individual leg payouts
+    let mut sum_payouts = 0u64;
+    for i in 0..legs.len() {
+        let payout = stake_per_leg
+            .checked_mul(fixed_odds_bps[i])
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            .checked_div(10000)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+        sum_payouts = sum_payouts
+            .checked_add(payout)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+    }
+    
+    // Apply correlation multiplier
+    // Note: For independent legs, multiplier = 10000 (1.0)
+    // For fully correlated, multiplier = 7500 (0.75)
+    let correlated_payout = sum_payouts
+        .checked_mul(correlation_multiplier_bps)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        .checked_div(10000)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    
+    Ok(correlated_payout)
 }
 
 // ─── Place Slip Await ───────────────────────────────────────────

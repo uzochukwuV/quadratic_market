@@ -213,4 +213,6 @@ pub enum QuadraticMarketError {
     TxlineProofValidationFailed = 917,
     #[msg("Scores must be positive")]
     InvalidScore = 918,
+    #[msg("Legs from same market with different outcomes are mutually exclusive")]
+    CorrelatedLegsMutuallyExclusive = 919,
 }
