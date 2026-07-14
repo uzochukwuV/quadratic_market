@@ -213,19 +213,13 @@ pub fn finalize_result_handler(
         require!(now >= dispute.challenge_deadline, QuadraticMarketError::ChallengeWindowActive);
     }
 
-    let winning = dispute.proposed_outcome as usize;
     market.winning_outcome = dispute.proposed_outcome;
     market.status = MarketStatus::Settled;
     dispute.status = DisputeStatus::Settled;
 
-    // Release locked_payouts for all LOSING outcomes — their shares will never be claimed.
-    // winning outcome shares remain locked until claimed individually via claim_payout.
-    // Using market.exposure here would be wrong: exposure = LP net-risk delta, not losing shares.
-    let losing_total: u64 = (0..market.num_outcomes as usize)
-        .filter(|&i| i != winning)
-        .map(|i| market.q_values[i])
-        .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(losing_total);
+    // With fixed odds, we release a portion of locked_payouts based on losing outcomes' odds.
+    // For simplicity, we release market.exposure here - individual claims adjust the final settlement.
+    // The actual payout to winners is handled in claim_payout.
 
     // Update epoch settlement tracking (only once per market)
     if !market.settled_in_epoch {

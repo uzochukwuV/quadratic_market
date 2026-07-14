@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode, LimitOrder, OrderSide, OrderStatus};
+use crate::state::{GlobalConfig, Market, MarketStatus, LimitOrder, OrderSide, OrderStatus};
 use crate::errors::QuadraticMarketError;
-use crate::constants::{seeds, SCALE};
+use crate::constants::{seeds, BPS_SCALE, SCALE};
 
 // ─── Place Order ────────────────────────────────────────────────
 //
@@ -76,7 +76,7 @@ pub fn place_order_handler(
     outcome_id: u8,
     side: OrderSide,
     num_shares: u64,
-    price_per_share: u64, // Q32.32 — implied probability, must be in (0, SCALE)
+    price_per_share: u64, // in basis points (10000 = 1.0x)
     expires_at: i64,      // 0 = no expiry
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
@@ -84,10 +84,6 @@ pub fn place_order_handler(
 
     let market = &ctx.accounts.market;
     require!(market.status == MarketStatus::Open, QuadraticMarketError::MarketNotOpen);
-    require!(
-        market.market_mode == MarketMode::FixedOdds,
-        QuadraticMarketError::DirectTradingDisabled
-    );
     require!(
         (outcome_id as usize) < market.num_outcomes as usize,
         QuadraticMarketError::InvalidOutcomeId
@@ -99,7 +95,7 @@ pub fn place_order_handler(
 
     require!(num_shares > 0, QuadraticMarketError::InvalidAmount);
     require!(
-        price_per_share > 0 && price_per_share < SCALE,
+        price_per_share >= BPS_SCALE,
         QuadraticMarketError::InvalidAmount
     );
     if expires_at > 0 {
@@ -149,12 +145,11 @@ pub fn place_order_handler(
             )?;
         }
         OrderSide::Buy => {
-            // Lock USDC collateral = num_shares × price_per_share in treasury.
-            let collateral = ((num_shares as u128)
-                .checked_mul(price_per_share as u128)
-                .ok_or(QuadraticMarketError::MathOverflow)?)
-                / SCALE as u128;
-            let collateral = collateral as u64;
+            // Lock USDC collateral = num_shares × price_per_share / BPS_SCALE
+            let collateral = num_shares
+                .checked_mul(price_per_share)
+                .ok_or(QuadraticMarketError::MathOverflow)?
+                / BPS_SCALE;
             require!(collateral > 0, QuadraticMarketError::InvalidAmount);
 
             let creator_base = ctx.accounts.creator_base_ata

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use crate::state::{GlobalConfig, Market, MarketStatus, MarketMode, Epoch};
+use crate::state::{GlobalConfig, Market, MarketStatus, MarketType, Epoch};
 use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, MAX_OUTCOMES, MAX_TITLE_LEN, MAX_DESCRIPTION_LEN, BASE_MINT_DECIMALS};
 
@@ -50,9 +50,9 @@ pub fn create_market_handler(
     title: String,
     description: String,
     category: u8,
-    lmsr_b_override: Option<u64>,
-    initial_q_values: Option<Vec<u64>>,
-    market_mode: MarketMode,
+    market_type: MarketType,
+    initial_odds: Vec<u64>, // Fixed odds in basis points for each outcome
+    txline_fixture_id: Option<u64>, // Optional TxLINE fixture ID for verifiable settlement
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     require!(!config.paused, QuadraticMarketError::Paused);
@@ -80,10 +80,20 @@ pub fn create_market_handler(
         QuadraticMarketError::InvalidAmount
     );
 
-    if let Some(ref q_vals) = initial_q_values {
+    require!(
+        initial_odds.len() == num_outcomes as usize,
+        QuadraticMarketError::InvalidOutcomeId
+    );
+
+    // Validate odds are within bounds
+    for odds in &initial_odds {
         require!(
-            q_vals.len() == num_outcomes as usize,
-            QuadraticMarketError::InvalidOutcomeId
+            *odds >= config.min_odds_bps,
+            QuadraticMarketError::InvalidAmount
+        );
+        require!(
+            *odds <= config.max_odds_bps,
+            QuadraticMarketError::InvalidAmount
         );
     }
 
@@ -96,28 +106,28 @@ pub fn create_market_handler(
     market.status = MarketStatus::Open;
     market.num_outcomes = num_outcomes;
 
-    let mut q_values = [0u64; MAX_OUTCOMES];
-    if let Some(q_vals) = initial_q_values {
-        for i in 0..num_outcomes as usize {
-            q_values[i] = q_vals[i];
-        }
+    // Initialize odds array with provided values
+    let mut odds = [0u64; MAX_OUTCOMES];
+    for i in 0..num_outcomes as usize {
+        odds[i] = initial_odds[i];
     }
-    market.q_values = q_values;
+    market.odds = odds;
     market.exposure = 0;
     market.settlement_time = 0;
     market.winning_outcome = 0;
     market.outcome_mints = [Pubkey::default(); MAX_OUTCOMES];
-    market.lmsr_b = lmsr_b_override.unwrap_or(config.lmsr_default_b);
     market.title = title;
     market.description = description;
+    market.market_type = market_type;
     market.category = category;
     market.bump = ctx.bumps.market;
     market.group_id = None;
-    market.group_market_index = 0;
-    market.market_mode = market_mode;
     // Bind market to the current epoch
     market.epoch_id = current_epoch_id;
     market.settled_in_epoch = false;
+    // TxLINE fixture reference for proof-based settlement
+    market.txline_fixture_id = txline_fixture_id;
+    market.txline_proof_verified = false;
 
     config.next_market_id = config.next_market_id
         .checked_add(1)
@@ -276,14 +286,10 @@ pub fn void_market_handler(ctx: Context<VoidMarket>) -> Result<()> {
     let market = &mut ctx.accounts.market;
     let config = &mut ctx.accounts.global_config;
     let epoch = &mut ctx.accounts.epoch;
-    // Release the full outstanding share liability (sum of all q_values), not
-    // market.exposure. locked_payouts was incremented by num_shares per buy;
-    // market.exposure is the LP net-risk delta (num_shares - cost), which is
-    // always less. Using exposure left the difference permanently frozen.
-    let total_locked: u64 = (0..market.num_outcomes as usize)
-        .map(|i| market.q_values[i])
-        .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    
+    // Release the exposure locked for this market
+    config.locked_payouts = config.locked_payouts.saturating_sub(market.exposure);
+    
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
         epoch.num_settled_markets = epoch.num_settled_markets
@@ -340,11 +346,9 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     require!(now > deadline, QuadraticMarketError::SettlementDeadlineNotPassed);
 
-    // Same fix as void_market: release sum(q_values), not market.exposure.
-    let total_locked: u64 = (0..market.num_outcomes as usize)
-        .map(|i| market.q_values[i])
-        .fold(0u64, |acc, v| acc.saturating_add(v));
-    config.locked_payouts = config.locked_payouts.saturating_sub(total_locked);
+    // Release the exposure locked for this market
+    config.locked_payouts = config.locked_payouts.saturating_sub(market.exposure);
+    
     if !market.settled_in_epoch {
         market.settled_in_epoch = true;
         epoch.num_settled_markets = epoch.num_settled_markets
@@ -357,6 +361,72 @@ pub fn void_if_expired_handler(ctx: Context<VoidIfExpired>) -> Result<()> {
         }
     }
     market.status = MarketStatus::Voided;
+
+    Ok(())
+}
+
+// ─── Update Market Odds (operator/admin only) ─────────────────
+// Can update odds until match starts. Odds in basis points.
+
+#[derive(Accounts)]
+#[instruction(market_id: u64)]
+pub struct UpdateMarketOdds<'info> {
+    #[account(
+        mut,
+        seeds = [seeds::GLOBAL_CONFIG],
+        bump = global_config.bump,
+    )]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        mut,
+        seeds = [seeds::MARKET, market_id.to_le_bytes().as_ref()],
+        bump = market.bump,
+    )]
+    pub market: Account<'info, Market>,
+
+    pub authority: Signer<'info>,
+}
+
+pub fn update_market_odds_handler(
+    ctx: Context<UpdateMarketOdds>,
+    _market_id: u64,
+    new_odds: Vec<u64>,
+) -> Result<()> {
+    let config = &ctx.accounts.global_config;
+    let market = &mut ctx.accounts.market;
+
+    require!(
+        config.is_authorized(&ctx.accounts.authority.key()),
+        QuadraticMarketError::Unauthorized
+    );
+    
+    require!(
+        market.status == MarketStatus::Open,
+        QuadraticMarketError::InvalidMarketStatus
+    );
+
+    require!(
+        new_odds.len() == market.num_outcomes as usize,
+        QuadraticMarketError::InvalidOutcomeId
+    );
+
+    // Can only update odds until match starts
+    let now = Clock::get()?.unix_timestamp;
+    require!(now < market.start_time, QuadraticMarketError::MarketExpired);
+
+    // Validate and update odds
+    for i in 0..market.num_outcomes as usize {
+        require!(
+            new_odds[i] >= config.min_odds_bps,
+            QuadraticMarketError::InvalidAmount
+        );
+        require!(
+            new_odds[i] <= config.max_odds_bps,
+            QuadraticMarketError::InvalidAmount
+        );
+        market.odds[i] = new_odds[i];
+    }
 
     Ok(())
 }

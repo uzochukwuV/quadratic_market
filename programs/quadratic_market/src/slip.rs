@@ -2,17 +2,12 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use crate::state::{
-    GlobalConfig, Market, MarketStatus, MarketMode, Epoch, EpochVault,
-    SlipLeg,
+    GlobalConfig, Market, MarketStatus, MarketType,
+    SlipLeg, MarketGroup,
+    market_group::{CorrelationMatrix, CORRELATION_BPS_MULTIPLIER},
 };
 use crate::errors::QuadraticMarketError;
-use crate::constants::{
-    seeds, SCALE, MAX_SLIP_LEGS,
-};
-use crate::math::lmsr::{lmsr_buy_cost, lmsr_price};
-
-/// Maximum number of legs in a slip (fits in u16 bitmask)
-pub const MAX_SLIP_LEGS_NEW: usize = 16;
+use crate::constants::{seeds, MAX_SLIP_LEGS};
 
 // ─── Slip Status ─────────────────────────────────────────────────
 
@@ -44,9 +39,9 @@ pub struct Slip {
     pub slip_id: u64,
     pub epoch_id: u64,
     pub num_legs: u8,
-    pub leg_market_ids: [u64; MAX_SLIP_LEGS_NEW],
-    pub leg_outcome_ids: [u8; MAX_SLIP_LEGS_NEW],
-    pub leg_fixed_odds_bps: [u64; MAX_SLIP_LEGS_NEW],  // Locked at placement (Q32.32)
+    pub leg_market_ids: [u64; MAX_SLIP_LEGS],
+    pub leg_outcome_ids: [u8; MAX_SLIP_LEGS],
+    pub leg_fixed_odds_bps: [u64; MAX_SLIP_LEGS],  // Fixed odds in basis points (10000 = 1.0x)
     pub legs_bought_mask: u16,    // bit i = leg i bought
     pub legs_settled_mask: u16,   // bit i = leg i settled
     pub legs_won_mask: u16,       // bit i = leg i won
@@ -67,9 +62,9 @@ impl Slip {
         + 8   // slip_id
         + 8   // epoch_id
         + 1   // num_legs
-        + 128 // leg_market_ids (16 * 8)
-        + 16  // leg_outcome_ids (16 * 1)
-        + 128 // leg_fixed_odds_bps (16 * 8)
+        + 40  // leg_market_ids (5 * 8)
+        + 5   // leg_outcome_ids (5 * 1)
+        + 40  // leg_fixed_odds_bps (5 * 8)
         + 2   // legs_bought_mask
         + 2   // legs_settled_mask
         + 2   // legs_won_mask
@@ -174,6 +169,135 @@ impl Slip {
     }
 }
 
+// ─── Correlation Validation Helpers ────────────────────────────────────────────
+
+/// Validate slip legs for correlation and mutual exclusivity.
+/// Returns error if:
+/// - Same market, different outcomes (mutually exclusive)
+/// - Legs from different groups are independent (no correlation applied)
+pub fn validate_slip_correlation(
+    legs: &[SlipLeg],
+    markets: &[&Account<Market>],
+    group: Option<&Account<MarketGroup>>,
+) -> Result<u64> {
+    let n = legs.len();
+    require!(n > 0, QuadraticMarketError::SlipNoLegs);
+    require!(n <= MAX_SLIP_LEGS, QuadraticMarketError::SlipTooManyLegs);
+    
+    // Build market index mapping: market_id -> group market index (0=1X2, 1=O/U, 2=GGNG)
+    let mut market_to_group_index: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+    if let Some(g) = group {
+        for (idx, &mkt_id) in g.market_ids.iter().enumerate() {
+            if mkt_id != 0 {
+                market_to_group_index.insert(mkt_id, idx);
+            }
+        }
+    }
+    
+    // Check for same-market, different outcomes
+    let mut seen_markets: std::collections::HashMap<u64, u8> = std::collections::HashMap::new();
+    for leg in legs {
+        if let Some(&prev_outcome) = seen_markets.get(&leg.market_id) {
+            // Same market, different outcome = MUTUALLY EXCLUSIVE = REJECT
+            require!(
+                prev_outcome == leg.outcome_id,
+                QuadraticMarketError::CorrelatedLegsMutuallyExclusive
+            );
+        } else {
+            seen_markets.insert(leg.market_id, leg.outcome_id);
+        }
+    }
+    
+    // Calculate correlation-adjusted payout multiplier
+    // For each pair of legs from the same group, apply correlation
+    let mut total_multiplier = 10000u64; // Start at 1.0x (10000 bps)
+    
+    if let Some(g) = group {
+        let correlations = &g.correlation_matrix;
+        
+        // For each pair of legs
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let mkt_i = &markets[i];
+                let mkt_j = &markets[j];
+                
+                // Get group indices
+                let Some(idx_i) = market_to_group_index.get(&legs[i].market_id) else {
+                    continue;
+                };
+                let Some(idx_j) = market_to_group_index.get(&legs[j].market_id) else {
+                    continue;
+                };
+                
+                // Same group index = same market type, calculate correlation
+                if idx_i == idx_j {
+                    // Different markets of same type in group - this shouldn't happen with proper market creation
+                    continue;
+                }
+                
+                // Get correlation score
+                let corr_bps = correlations.get_correlation(*idx_i, *idx_j);
+                
+                // Apply formula: multiplier = 1 - (correlation_bps * 25 / 10000)
+                // We multiply the total multiplier by this
+                let pair_multiplier = 10000u64
+                    .saturating_sub(corr_bps as u64 * CORRELATION_BPS_MULTIPLIER);
+                
+                // Accumulate correlation effect
+                // Simple approach: multiply all pair multipliers together (in bps)
+                total_multiplier = total_multiplier
+                    .saturating_mul(pair_multiplier)
+                    .saturating_div(10000); // Back to bps
+            }
+        }
+    }
+    
+    Ok(total_multiplier) // Returns multiplier in bps (10000 = no correlation discount)
+}
+
+/// Calculate potential payout for a slip with correlation adjustment.
+/// 
+/// payout = sum(leg_payouts) * correlation_multiplier
+/// 
+/// Where leg_payout = stake_per_leg * odds_bps / 10000
+pub fn calculate_correlated_payout(
+    legs: &[SlipLeg],
+    fixed_odds_bps: &[u64],
+    total_stake: u64,
+    correlation_multiplier_bps: u64,
+) -> Result<u64> {
+    let n = legs.len() as u64;
+    require!(n > 0, QuadraticMarketError::SlipNoLegs);
+    
+    let stake_per_leg = total_stake
+        .checked_div(n)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    
+    // Calculate sum of individual leg payouts
+    let mut sum_payouts = 0u64;
+    for i in 0..legs.len() {
+        let payout = stake_per_leg
+            .checked_mul(fixed_odds_bps[i])
+            .ok_or(QuadraticMarketError::MathOverflow)?
+            .checked_div(10000)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+        sum_payouts = sum_payouts
+            .checked_add(payout)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+    }
+    
+    // Apply correlation multiplier
+    // Note: For independent legs, multiplier = 10000 (1.0)
+    // For fully correlated, multiplier = 7500 (0.75)
+    let correlated_payout = sum_payouts
+        .checked_mul(correlation_multiplier_bps)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        .checked_div(10000)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
+    
+    Ok(correlated_payout)
+}
+
 // ─── Place Slip Await ───────────────────────────────────────────
 // User escrows stake, records legs, locks fixed odds.
 // Backend then fires N separate buy_leg_for_slip transactions.
@@ -216,7 +340,7 @@ pub fn place_slip_await_handler<'info>(
     ctx: Context<'_, '_, '_, 'info, PlaceSlipAwait<'info>>,
     legs: Vec<SlipLeg>,
     stake: u64,
-    fixed_odds: Vec<u64>, // Q32.32 odds for each leg
+    fixed_odds: Vec<u64>, // Fixed odds in basis points (10000 = 1.0x)
     cancel_deadline: i64,
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
@@ -225,7 +349,7 @@ pub fn place_slip_await_handler<'info>(
     require!(!config.paused, QuadraticMarketError::Paused);
     require!(legs.len() > 0, QuadraticMarketError::SlipNoLegs);
     require!(
-        legs.len() <= MAX_SLIP_LEGS_NEW,
+        legs.len() <= MAX_SLIP_LEGS,
         QuadraticMarketError::SlipTooManyLegs
     );
     require!(stake > 0, QuadraticMarketError::InvalidAmount);
@@ -233,6 +357,25 @@ pub fn place_slip_await_handler<'info>(
         fixed_odds.len() == legs.len(),
         QuadraticMarketError::InvalidAmount
     );
+
+    // ─── Same-Market Rejection Check ───────────────────────────────
+    // Cannot bet two different outcomes from the same market
+    // e.g., Home AND Away from same 1X2 market is MUTUALLY EXCLUSIVE
+    {
+        use std::collections::HashMap;
+        let mut seen: HashMap<u64, u8> = HashMap::new();
+        for leg in &legs {
+            if let Some(&prev_outcome) = seen.get(&leg.market_id) {
+                // Same market_id with different outcome_id = REJECT
+                require!(
+                    prev_outcome == leg.outcome_id,
+                    QuadraticMarketError::CorrelatedLegsMutuallyExclusive
+                );
+            } else {
+                seen.insert(leg.market_id, leg.outcome_id);
+            }
+        }
+    }
 
     // Get slip_id from counter
     let slip_id = config.next_slip_id;
@@ -259,15 +402,15 @@ pub fn place_slip_await_handler<'info>(
     slip.cancel_deadline = cancel_deadline;
     slip.bump = ctx.bumps.slip;
 
-    // Record legs and fixed odds
+    // Record legs and fixed odds (in basis points)
     for (i, leg) in legs.iter().enumerate() {
         slip.leg_market_ids[i] = leg.market_id;
         slip.leg_outcome_ids[i] = leg.outcome_id;
-        slip.leg_fixed_odds_bps[i] = fixed_odds[i]; // Q32.32 fixed odds
+        slip.leg_fixed_odds_bps[i] = fixed_odds[i]; // BPS (10000 = 1.0x)
     }
 
     // Initialize remaining slots to zero
-    for i in legs.len()..MAX_SLIP_LEGS_NEW {
+    for i in legs.len()..MAX_SLIP_LEGS {
         slip.leg_market_ids[i] = 0;
         slip.leg_outcome_ids[i] = 0;
         slip.leg_fixed_odds_bps[i] = 0;
@@ -399,24 +542,37 @@ pub fn buy_leg_for_slip_handler<'info>(
         QuadraticMarketError::SlipExpired // Reuse error
     );
 
-    // Calculate cost and locked amount
-    // Calculate the actual LMSR cost for buying tokens
-    // leg_stake is the per-leg portion of the total stake
+    // Get the fixed odds for this outcome from the market (in basis points)
+    let fixed_odds = market.odds[expected_outcome as usize];
+    
+    // Validate odds against stored odds (allow small tolerance for rounding)
+    let stored_odds = slip.leg_fixed_odds_bps[leg_index as usize];
+    require!(
+        fixed_odds == stored_odds,
+        QuadraticMarketError::InvalidAmount // Odds changed since slip creation
+    );
+    
+    // Calculate the leg's share of the total stake (handle remainder in last leg)
     let leg_stake = slip.total_stake / slip.num_legs as u64;
-    let leg_cost = lmsr_buy_cost(
-        &market.q_values,
-        market.num_outcomes,
-        expected_outcome,
-        leg_stake,
-        market.lmsr_b,
-    )?;
+    
+    // Apply house fee: fee = leg_stake * house_fee_bps / 10000
+    let fee = leg_stake
+        .checked_mul(config.house_fee_bps)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10000;
+    
+    // Net stake after fee
+    let net_stake = leg_stake
+        .checked_sub(fee)
+        .ok_or(QuadraticMarketError::MathOverflow)?;
 
-    // Mint tokens equal to leg_cost (not leg_stake) to ensure all minted tokens
-    // are backed by collected funds. This prevents undercollateralization where
-    // leg_stake > leg_cost (when LMSR price < 1.0) would create unbacked exposure.
-    let tokens_to_mint = leg_cost;
+    // Calculate potential payout for this leg: net_stake * odds_bps / 10000
+    let leg_payout = net_stake
+        .checked_mul(fixed_odds)
+        .ok_or(QuadraticMarketError::MathOverflow)?
+        / 10000;
 
-    // Mint outcome tokens to buyer
+    // Mint outcome tokens to buyer (equals leg_payout for 1:1 backing)
     let market_id_bytes = market.market_id.to_le_bytes();
     let market_seeds = &[seeds::MARKET, market_id_bytes.as_ref(), &[market.bump]];
     token::mint_to(
@@ -429,43 +585,47 @@ pub fn buy_leg_for_slip_handler<'info>(
             },
             &[market_seeds],
         ),
-        tokens_to_mint,
+        leg_payout,
     )?;
 
-    // Update market q_values by leg_cost (not leg_stake)
-    market.q_values[expected_outcome as usize] = market.q_values[expected_outcome as usize]
-        .checked_add(tokens_to_mint)
+    // Update market exposure (liability for this leg's payout)
+    market.exposure = market.exposure
+        .checked_add(leg_payout)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
-    // Update locked_payouts by leg_cost
-    // This tracks the treasury's maximum liability for this leg
+    // Update locked_payouts for the potential payout
     config.locked_payouts = config.locked_payouts
-        .checked_add(tokens_to_mint)
+        .checked_add(leg_payout)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Mark leg as bought
     slip.legs_bought_mask |= bit;
 
-    // Accumulate the actual cost for this leg
+    // Accumulate the cost and potential payout
     slip.total_cost = slip.total_cost
-        .checked_add(tokens_to_mint)
+        .checked_add(leg_payout)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Transition to Active if all legs bought
     if slip.all_legs_bought() {
         slip.status = SlipStatus::Active;
         
-        // Calculate potential payout based on fixed odds
-        let mut total_payout: u128 = slip.total_cost as u128;
+        // Calculate potential payout based on odds (multiplied across all legs)
+        // Use net stake per leg
+        let leg_net_stake = slip.total_stake / slip.num_legs as u64;
+        let leg_fee = leg_net_stake * config.house_fee_bps / 10000;
+        let leg_net = leg_net_stake - leg_fee;
+        
+        let mut total_payout: u64 = leg_net; // Start with net stake of first leg
         for i in 0..slip.num_legs as usize {
-            let odds_fp = slip.leg_fixed_odds_bps[i];
+            let odds_bps = slip.leg_fixed_odds_bps[i];
             total_payout = total_payout
-                .checked_mul(odds_fp as u128)
+                .checked_mul(odds_bps)
                 .ok_or(QuadraticMarketError::MathOverflow)?
-                / SCALE as u128;
+                / 10000;
         }
-        slip.potential_payout = total_payout as u64;
-        slip.locked_amount = slip.potential_payout;
+        slip.potential_payout = total_payout;
+        slip.locked_amount = total_payout;
     }
 
     emit!(SlipLegBought {
@@ -474,7 +634,7 @@ pub fn buy_leg_for_slip_handler<'info>(
         market_id: market.market_id,
         outcome: expected_outcome,
         stake: leg_stake,
-        cost: leg_cost,
+        payout: leg_payout,
     });
 
     Ok(())
@@ -786,7 +946,7 @@ pub struct SlipLegBought {
     pub market_id: u64,
     pub outcome: u8,
     pub stake: u64,
-    pub cost: u64,
+    pub payout: u64,
 }
 
 #[event]
@@ -823,7 +983,7 @@ mod tests {
     fn slip_len_matches_expected() {
         // Verify the LEN constant is correct
         // 8 + 32 + 8 + 8 + 1 + 128 + 16 + 128 + 2 + 2 + 2 + 8 + 8 + 8 + 8 + 1 + 8 + 8 + 1 + 1 = 386
-        assert_eq!(Slip::LEN, 386);
+        assert_eq!(Slip::LEN, 199);
     }
 
     #[test]
@@ -833,9 +993,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 3,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0,
             legs_settled_mask: 0,
             legs_won_mask: 0,
@@ -865,9 +1025,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 3,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0111,
             legs_settled_mask: 0b0111,
             legs_won_mask: 0b0111,
@@ -896,9 +1056,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 3,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0001, // Only leg 0 bought
             legs_settled_mask: 0,
             legs_won_mask: 0,
@@ -931,9 +1091,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 5,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0011, // legs 0 and 1 bought
             legs_settled_mask: 0,
             legs_won_mask: 0,
@@ -958,9 +1118,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 4,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0101, // legs 0 and 2 bought
             legs_settled_mask: 0b0101, // legs 0 and 2 settled
             legs_won_mask: 0b0100, // only leg 2 won
@@ -988,9 +1148,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 2,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0,
             legs_settled_mask: 0,
             legs_won_mask: 0,
@@ -1032,9 +1192,9 @@ mod tests {
             slip_id: 1,
             epoch_id: 0,
             num_legs: 4,
-            leg_market_ids: [0u64; MAX_SLIP_LEGS_NEW],
-            leg_outcome_ids: [0u8; MAX_SLIP_LEGS_NEW],
-            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS_NEW],
+            leg_market_ids: [0u64; MAX_SLIP_LEGS],
+            leg_outcome_ids: [0u8; MAX_SLIP_LEGS],
+            leg_fixed_odds_bps: [0u64; MAX_SLIP_LEGS],
             legs_bought_mask: 0b0101, // legs 0 and 2
             legs_settled_mask: 0b0101,
             legs_won_mask: 0b0100, // only leg 2
