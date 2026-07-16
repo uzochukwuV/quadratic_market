@@ -58,7 +58,7 @@ pub fn create_market_group_handler(
     group.market_ids = [0u64; MAX_GROUP_MARKETS];
     group.event_start_time = event_start_time;
     group.title = title;
-    group.bump = ctx.bumps.market_group;
+    group.bump = *ctx.bumps.get("market_group").unwrap();
 
     Ok(())
 }

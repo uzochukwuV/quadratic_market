@@ -222,7 +222,7 @@ pub fn place_order_handler(
     order.status = OrderStatus::Open;
     order.created_at = now;
     order.expires_at = expires_at;
-    order.bump = ctx.bumps.order;
+    order.bump = *ctx.bumps.get("order").unwrap();
 
     Ok(())
 }

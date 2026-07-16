@@ -122,7 +122,7 @@ pub fn create_market_handler(
     market.description = description;
     market.market_type = market_type;
     market.category = category;
-    market.bump = ctx.bumps.market;
+    market.bump = *ctx.bumps.get("market").unwrap();
     market.group_id = None;
     // Bind market to the current epoch
     market.epoch_id = current_epoch_id;

@@ -390,7 +390,7 @@ pub fn place_slip_await_handler<'info>(
     slip.status = SlipStatus::Pending;
     slip.created_at = now;
     slip.cancel_deadline = cancel_deadline;
-    slip.bump = ctx.bumps.slip;
+    slip.bump = *ctx.bumps.get("slip").unwrap();
 
     // Record legs and current references only.
     for (i, leg) in legs.iter().enumerate() {

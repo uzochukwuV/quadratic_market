@@ -161,7 +161,7 @@ pub fn add_liquidity_handler(ctx: Context<AddLiquidity>, amount: u64) -> Result<
         pending.shares = shares_to_mint;
         pending.activation_time = activation_time;
         pending.amount_deposited = amount;
-        pending.bump = ctx.bumps.pending_liquidity;
+        pending.bump = *ctx.bumps.get("pending_liquidity").unwrap();
     } else {
         pending.shares = pending
             .shares
@@ -356,7 +356,7 @@ pub fn request_withdraw_handler(ctx: Context<RequestWithdraw>, shares: u64) -> R
     req.cooldown_end = cooldown_end;
     req.nav_snapshot = free_liquidity;
     req.share_price_snapshot = share_price_snapshot;
-    req.bump = ctx.bumps.withdrawal_request;
+    req.bump = *ctx.bumps.get("withdrawal_request").unwrap();
 
     Ok(())
 }

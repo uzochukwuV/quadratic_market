@@ -22,7 +22,7 @@ init-if-needed = ["anchor-lang/init-if-needed"]
 
 [dependencies]
 anchor-lang = "0.28.0"
-anchor-spl = { version = "0.28.0", default-features = false, features = ["associated_token", "token"] }
+anchor-spl = { version = "0.28.0", default-features = false, features = ["associated_token", "token", "token_2022"] }
 
 
 [lints.rust]

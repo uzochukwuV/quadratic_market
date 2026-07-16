@@ -68,7 +68,7 @@ pub fn init_epoch_handler(ctx: Context<InitEpoch>) -> Result<()> {
         epoch.all_markets_settled = true;
         epoch.withdrawals_enabled = true;
         epoch.lp_shares_at_close = config.total_lp_supply;
-        epoch.bump = ctx.bumps.epoch;
+        epoch.bump = *ctx.bumps.get("epoch").unwrap();
 
         if epoch_duration > 0 {
             config.next_epoch_start = epoch_start + epoch_duration;
@@ -249,7 +249,7 @@ pub fn publish_epoch_handler(
     epoch.all_markets_settled = false;
     epoch.withdrawals_enabled = false;
     epoch.lp_shares_at_close = 0;
-    epoch.bump = ctx.bumps.epoch;
+    epoch.bump = *ctx.bumps.get("epoch").unwrap();
 
     vault.epoch_id = epoch_id;
     vault.total_deposits = 0;
@@ -259,7 +259,7 @@ pub fn publish_epoch_handler(
     vault.created_at = now;
     vault.closed_at = 0;
     vault.withdrawals_enabled = false;
-    vault.bump = ctx.bumps.epoch_vault;
+    vault.bump = *ctx.bumps.get("epoch_vault").unwrap();
 
     emit!(EpochPublished {
         epoch_id,
@@ -368,7 +368,7 @@ pub fn opt_in_epoch_liquidity_handler(
     position.epoch_id = epoch_id;
     position.shares = shares_to_mint;
     position.withdrawn = false;
-    position.bump = ctx.bumps.lp_position;
+    position.bump = *ctx.bumps.get("lp_position").unwrap();
 
     emit!(EpochLiquidityOptedIn {
         epoch_id,
