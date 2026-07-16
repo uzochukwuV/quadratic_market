@@ -18,6 +18,7 @@ import {
   SYSVAR_RENT_PUBKEY,
 } from "@solana/web3.js";
 import { assert } from "chai";
+import { quadraticMarketProgram } from "./program";
 
 const TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
 const ATA_PROGRAM = ASSOCIATED_TOKEN_PROGRAM_ID;
@@ -48,7 +49,7 @@ describe("lmsr_integration_test — LMSR Pricing Correctness", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.quadraticMarket as Program<QuadraticMarket>;
+  const program = quadraticMarketProgram(provider);
   const payer = provider.wallet.payer;
 
   // PDAs
@@ -62,8 +63,8 @@ describe("lmsr_integration_test — LMSR Pricing Correctness", () => {
     [Buffer.from("treasury")], program.programId
   );
 
-  let base_mint: PublicKey;
-  let treasury_base_ata: PublicKey;
+  let baseMint: PublicKey;
+  let treasuryBaseAta: PublicKey;
   let admin: Keypair;
 
   // 2-outcome LMSR market
@@ -118,38 +119,6 @@ describe("lmsr_integration_test — LMSR Pricing Correctness", () => {
     const { transfer } = await import("@solana/spl-token");
     await transfer(provider.connection, admin, adminBaseAta, traderBaseAta, admin.publicKey, 100_000_000);
 
-    // Ensure LP has liquidity
-    const [pendingPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pending"), admin.publicKey.toBuffer()], program.programId
-    );
-    try {
-      await getAccount(provider.connection, getAssociatedTokenAddressSync(lpMintPda, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM));
-    } catch (_) {
-      const lpAta = getAssociatedTokenAddressSync(lpMintPda, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
-      await provider.sendAndConfirm(
-        new Transaction().add(createAssociatedTokenAccountInstruction(
-          payer.publicKey, lpAta, admin.publicKey, lpMintPda, TOKEN_PROGRAM, ATA_PROGRAM
-        )),
-        []
-      );
-    }
-    try {
-      await program.account.pendingLiquidity.fetch(pendingPda);
-    } catch (_) {
-      try {
-        await program.methods.addLiquidity(new anchor.BN(50_000_000))
-          .accounts({
-            global_config: globalConfigPda, lp_mint: lpMintPda, treasury: treasuryPda,
-            treasuryBaseAta, provider_base_ata: adminBaseAta,
-            provider_lp_ata: getAssociatedTokenAddressSync(lpMintPda, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM),
-            base_mint: baseMint, pending_liquidity: pendingPda, provider: admin.publicKey,
-            token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
-            system_program: SystemProgram.programId,
-          })
-          .signers([admin]).rpc();
-      } catch (_) { /* may already have liquidity */ }
-    }
-
     // ── Create 2-outcome LMSR market (Trading mode) ───────────
     const startTime = Math.floor(Date.now() / 1000) + 3600;
 
@@ -163,8 +132,7 @@ describe("lmsr_integration_test — LMSR Pricing Correctness", () => {
     await program.methods
       .createMarket(
         new anchor.BN(startTime), 2, "LMSR 2-Outcome Test", "lmsr2",
-        0, null, null,
-        { trading: {} } // explicitly use Trading mode
+        0, { overUnder: {} }, [new anchor.BN(5000), new anchor.BN(5000)], null
       )
       .accounts({ global_config: globalConfigPda, market: market2Pda, epoch: epochPda, authority: admin.publicKey, system_program: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY })
       .signers([admin]).rpc();
@@ -195,8 +163,7 @@ describe("lmsr_integration_test — LMSR Pricing Correctness", () => {
     await program.methods
       .createMarket(
         new anchor.BN(startTime), 3, "LMSR 3-Outcome Test", "lmsr3",
-        0, null, null,
-        { trading: {} }
+        0, { oneXTwo: {} }, [new anchor.BN(3334), new anchor.BN(3333), new anchor.BN(3333)], null
       )
       .accounts({ global_config: globalConfigPda, market: market3Pda, epoch: epochPda, authority: admin.publicKey, system_program: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY })
       .signers([admin]).rpc();
@@ -491,7 +458,7 @@ describe("lmsr_integration_test — LMSR Pricing Correctness", () => {
         program.programId
       );
       await program.methods
-        .createMarket(new anchor.BN(startTime), 2, "Void Test", "void", 0, null, null)
+        .createMarket(new anchor.BN(startTime), 2, "Void Test", "void", 0, { overUnder: {} }, [new anchor.BN(5000), new anchor.BN(5000)], null)
         .accounts({ global_config: globalConfigPda, market: voidPda, epoch: voidEpochPda, authority: admin.publicKey, system_program: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY })
         .signers([admin]).rpc();
 

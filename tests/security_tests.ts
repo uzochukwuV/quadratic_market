@@ -9,6 +9,9 @@ import {
 } from "@solana/spl-token";
 import { Keypair, PublicKey, SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { assert } from "chai";
+import { createHash } from "crypto";
+import { quadraticMarketProgram, sendCreateMarket } from "./program";
+const frontendIdl = require("../frontend/src/lib/idl.json");
 
 const TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
 const ATA_PROGRAM  = ASSOCIATED_TOKEN_PROGRAM_ID;
@@ -46,6 +49,50 @@ async function airdrop(provider: anchor.AnchorProvider, pk: PublicKey, sol = 2) 
   await provider.connection.confirmTransaction(sig);
 }
 
+function camelToSnake(value: string): string {
+  return value.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+function anchorDiscriminator(name: string): Buffer {
+  return createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
+}
+
+function encodeInitializeProtocolData(oraclePubkey: PublicKey, maxMarketExposure: bigint, useSnake = false): Buffer {
+  const name = useSnake ? camelToSnake("initializeProtocol") : "initializeProtocol";
+  const disc = anchorDiscriminator(name);
+  const exposure = Buffer.alloc(8);
+  exposure.writeBigUInt64LE(maxMarketExposure);
+  return Buffer.concat([disc, Buffer.from(oraclePubkey.toBytes()), exposure]);
+}
+
+function encodeInitializeLpMintData(useSnake = false): Buffer {
+  const name = useSnake ? camelToSnake("initializeLpMint") : "initializeLpMint";
+  return anchorDiscriminator(name);
+}
+
+function encodePublishEpochData(epochId: bigint, marketIds: bigint[]): Buffer {
+  const disc = anchorDiscriminator("publish_epoch");
+  const epoch = Buffer.alloc(8);
+  epoch.writeBigUInt64LE(epochId);
+  const len = Buffer.alloc(4);
+  len.writeUInt32LE(marketIds.length);
+  const markets = Buffer.concat(marketIds.map((id) => {
+    const buf = Buffer.alloc(8);
+    buf.writeBigUInt64LE(id);
+    return buf;
+  }));
+  return Buffer.concat([disc, epoch, len, markets]);
+}
+
+function encodeOptInEpochLiquidityData(epochId: bigint, amount: bigint): Buffer {
+  const disc = anchorDiscriminator("opt_in_epoch_liquidity");
+  const epoch = Buffer.alloc(8);
+  epoch.writeBigUInt64LE(epochId);
+  const amt = Buffer.alloc(8);
+  amt.writeBigUInt64LE(amount);
+  return Buffer.concat([disc, epoch, amt]);
+}
+
 async function makeAta(provider: anchor.AnchorProvider, mint: PublicKey, owner: PublicKey): Promise<PublicKey> {
   const ata = getAssociatedTokenAddressSync(mint, owner, false, TOKEN_PROGRAM, ATA_PROGRAM);
   await provider.sendAndConfirm(
@@ -71,12 +118,81 @@ async function fundFromAdmin(provider: anchor.AnchorProvider, kp: Keypair, mint:
   return ata;
 }
 
+async function sendInitializeProtocol(
+  provider: anchor.AnchorProvider,
+  program: Program<QuadraticMarket>,
+  admin: Keypair,
+  globalConfigPda: PublicKey,
+  treasuryPda: PublicKey,
+  baseMint: PublicKey,
+  oraclePubkey: PublicKey,
+) {
+  console.log("  bootstrap: initialize protocol");
+  const keys = [
+    { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+    { pubkey: treasuryPda, isSigner: false, isWritable: false },
+    { pubkey: baseMint, isSigner: false, isWritable: false },
+    { pubkey: admin.publicKey, isSigner: true, isWritable: true },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+  const dataCandidates = [
+    encodeInitializeProtocolData(oraclePubkey, 1_000_000_000_000n, false),
+    encodeInitializeProtocolData(oraclePubkey, 1_000_000_000_000n, true),
+  ];
+  let lastError: unknown;
+  for (const data of dataCandidates) {
+    try {
+      const ix = new anchor.web3.TransactionInstruction({ programId: program.programId, keys, data });
+      await provider.sendAndConfirm(new Transaction().add(ix), [admin]);
+      console.log("  bootstrap: initialize protocol ok");
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+async function sendInitializeLpMint(
+  provider: anchor.AnchorProvider,
+  program: Program<QuadraticMarket>,
+  admin: Keypair,
+  globalConfigPda: PublicKey,
+  lpMintPda: PublicKey,
+) {
+  console.log("  bootstrap: initialize LP mint");
+  const keys = [
+    { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+    { pubkey: lpMintPda, isSigner: false, isWritable: true },
+    { pubkey: admin.publicKey, isSigner: true, isWritable: true },
+    { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+  ];
+  const dataCandidates = [
+    encodeInitializeLpMintData(false),
+    encodeInitializeLpMintData(true),
+  ];
+  let lastError: unknown;
+  for (const data of dataCandidates) {
+    try {
+      const ix = new anchor.web3.TransactionInstruction({ programId: program.programId, keys, data });
+      await provider.sendAndConfirm(new Transaction().add(ix), [admin]);
+      console.log("  bootstrap: initialize LP mint ok");
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 // ─── Suite ───────────────────────────────────────────────────────
 
 describe("Security: fixed vulnerabilities", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.quadraticMarket as Program<QuadraticMarket>;
+  const program = quadraticMarketProgram(provider);
 
   // Protocol-level PDAs
   const [globalConfigPda] = PublicKey.findProgramAddressSync([Buffer.from("global_config")], program.programId);
@@ -94,9 +210,10 @@ describe("Security: fixed vulnerabilities", () => {
   // Mints / ATAs (filled in before())
   let baseMint: PublicKey;
   let treasuryBaseAta: PublicKey;
+  let epochVaultPda: PublicKey;
+  let epochVaultBaseAta: PublicKey;
   let adminBaseAta: PublicKey;
   let lp1BaseAta: PublicKey;
-  let lp1LpAta: PublicKey;
   let traderBaseAta: PublicKey;
   let attackerBaseAta: PublicKey;
 
@@ -128,30 +245,23 @@ describe("Security: fixed vulnerabilities", () => {
         6,
       );
 
-      await program.methods
-        .initialize(Array.from(oracle.publicKey.toBytes()), new anchor.BN(1_000_000_000_000))
-        .accounts({
-          global_config: globalConfigPda,
-          treasury: treasuryPda,
-          base_mint: baseMint,
-          admin: admin.publicKey,
-          system_program: SystemProgram.programId,
-        })
-        .signers([admin])
-        .rpc();
+      await sendInitializeProtocol(
+        provider,
+        program,
+        admin,
+        globalConfigPda,
+        treasuryPda,
+        baseMint,
+        oracle.publicKey,
+      );
 
-      await program.methods
-        .initializeLpMint()
-        .accountsStrict({
-          globalConfig: globalConfigPda,
-          lpMint: lpMintPda,
-          admin: admin.publicKey,
-          tokenProgram: TOKEN_PROGRAM,
-          systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
-        .signers([admin])
-        .rpc();
+      await sendInitializeLpMint(
+        provider,
+        program,
+        admin,
+        globalConfigPda,
+        lpMintPda,
+      );
 
       adminBaseAta = getAssociatedTokenAddressSync(baseMint, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
       await provider.sendAndConfirm(
@@ -166,6 +276,41 @@ describe("Security: fixed vulnerabilities", () => {
 
     baseMint = cfg0.baseMint;
     treasuryBaseAta = getAssociatedTokenAddressSync(baseMint, treasuryPda, true, TOKEN_PROGRAM, ATA_PROGRAM);
+    const [epochPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
+    [epochVaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch_vault"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
+
+    try {
+      await program.account.epochVault.fetch(epochVaultPda);
+    } catch (_) {
+      await provider.sendAndConfirm(new Transaction().add(new anchor.web3.TransactionInstruction({
+        programId: program.programId,
+        keys: [
+          { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+          { pubkey: epochPda, isSigner: false, isWritable: true },
+          { pubkey: epochVaultPda, isSigner: false, isWritable: true },
+          { pubkey: admin.publicKey, isSigner: true, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: encodePublishEpochData(0n, []),
+      })), [admin]);
+      console.log("  bootstrap: publish epoch ok");
+    }
+    epochVaultBaseAta = getAssociatedTokenAddressSync(baseMint, epochVaultPda, true, TOKEN_PROGRAM, ATA_PROGRAM);
+    try {
+      await getAccount(provider.connection, epochVaultBaseAta);
+    } catch (_) {
+      await provider.sendAndConfirm(
+        new Transaction().add(createAssociatedTokenAccountInstruction(
+          provider.wallet.publicKey, epochVaultBaseAta, epochVaultPda, baseMint, TOKEN_PROGRAM, ATA_PROGRAM
+        )), []
+      );
+    }
 
     // Admin ATA is the source of liquidity and trader funding.
     adminBaseAta = getAssociatedTokenAddressSync(baseMint, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
@@ -183,26 +328,26 @@ describe("Security: fixed vulnerabilities", () => {
     traderBaseAta   = await fundFromAdmin(provider, trader,   baseMint, adminBaseAta, 20_000_000);
     attackerBaseAta = await fundFromAdmin(provider, attacker, baseMint, adminBaseAta, 20_000_000);
 
-    lp1LpAta = getAssociatedTokenAddressSync(lpMintPda, lp1.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
-    await provider.sendAndConfirm(
-      new Transaction().add(createAssociatedTokenAccountInstruction(
-        provider.wallet.publicKey, lp1LpAta, lp1.publicKey, lpMintPda, TOKEN_PROGRAM, ATA_PROGRAM
-      )), []
+    const [lp1PositionPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch_lp"), new anchor.BN(0).toArrayLike(Buffer, "le", 8), lp1.publicKey.toBuffer()],
+      program.programId
     );
-
-    // Add liquidity (pending_liquidity now initialised inline)
-    const [pendingPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pending"), lp1.publicKey.toBuffer()], program.programId
-    );
-    await program.methods.addLiquidity(new anchor.BN(20_000_000))
-      .accounts({
-        global_config: globalConfigPda, lp_mint: lpMintPda, treasury: treasuryPda,
-        treasury_base_ata: treasuryBaseAta, provider_base_ata: lp1BaseAta, provider_lp_ata: lp1LpAta,
-        base_mint: baseMint, pending_liquidity: pendingPda, provider: lp1.publicKey,
-        token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
-        system_program: SystemProgram.programId,
-      })
-      .signers([lp1]).rpc();
+    await provider.sendAndConfirm(new Transaction().add(new anchor.web3.TransactionInstruction({
+      programId: program.programId,
+      keys: [
+        { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+        { pubkey: epochVaultPda, isSigner: false, isWritable: true },
+        { pubkey: lp1PositionPda, isSigner: false, isWritable: true },
+        { pubkey: lp1BaseAta, isSigner: false, isWritable: true },
+        { pubkey: epochVaultBaseAta, isSigner: false, isWritable: true },
+        { pubkey: lp1.publicKey, isSigner: true, isWritable: true },
+        { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: ATA_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: encodeOptInEpochLiquidityData(0n, 20_000_000n),
+    })), [lp1]);
+    console.log("  bootstrap: epoch liquidity opt-in ok");
 
     // Create a 2-outcome market
     const cfg = await program.account.globalConfig.fetch(globalConfigPda);
@@ -211,19 +356,23 @@ describe("Security: fixed vulnerabilities", () => {
       [Buffer.from("market"), new anchor.BN(marketId).toArrayLike(Buffer, "le", 8)],
       program.programId
     );
-    // Get epoch PDA
-    const [epochPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
-      program.programId
-    );
     const startTime = Math.floor(Date.now() / 1000) + 3600;
-    await program.methods
-      .createMarket(new anchor.BN(startTime), 2, "Security Test Market", "sec", 0, null, null)
-      .accounts({
-        global_config: globalConfigPda, market: marketPda, epoch: epochPda,
-        authority: admin.publicKey, system_program: SystemProgram.programId,
-      })
-      .signers([admin]).rpc();
+    await sendCreateMarket(
+      provider,
+      program,
+      admin,
+      globalConfigPda,
+      marketPda,
+      epochPda,
+      new anchor.BN(startTime),
+      2,
+      "Security Test Market",
+      "sec",
+      0,
+      { overUnder: {} },
+      [new anchor.BN(5000), new anchor.BN(5000)],
+      null,
+    );
 
     // Init outcome mints
     [outcomeMint0] = PublicKey.findProgramAddressSync(
@@ -333,92 +482,87 @@ describe("Security: fixed vulnerabilities", () => {
   // ── SEC-3: pending_liquidity epoch lock cannot be bypassed ───────
 
   describe("SEC-3: pending_liquidity epoch lock — shares/activation_time set on-chain", () => {
-    it("pending_liquidity is written by add_liquidity with correct activation_time", async () => {
+    it("epoch liquidity opt-in writes the LP position with the expected shares", async () => {
       const lp2 = Keypair.generate();
       await airdrop(provider, lp2.publicKey, 3);
       const lp2BaseAta = await fundFromAdmin(provider, lp2, baseMint, adminBaseAta, 10_000_000);
-      const lp2LpAta   = await makeAta(provider, lpMintPda, lp2.publicKey);
-      const [lp2Pending] = PublicKey.findProgramAddressSync(
-        [Buffer.from("pending"), lp2.publicKey.toBuffer()], program.programId
+      const [lp2PositionPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("epoch_lp"), new anchor.BN(0).toArrayLike(Buffer, "le", 8), lp2.publicKey.toBuffer()],
+        program.programId
       );
 
-      const nowBefore = Math.floor(Date.now() / 1000);
-      await program.methods.addLiquidity(new anchor.BN(5_000_000))
+      await program.methods.optInEpochLiquidity(new anchor.BN(0), new anchor.BN(5_000_000))
         .accounts({
-          global_config: globalConfigPda, lp_mint: lpMintPda, treasury: treasuryPda,
-          treasury_base_ata: treasuryBaseAta, provider_base_ata: lp2BaseAta, provider_lp_ata: lp2LpAta,
-          base_mint: baseMint, pending_liquidity: lp2Pending, provider: lp2.publicKey,
-          token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
+          global_config: globalConfigPda,
+          epoch_vault: epochVaultPda,
+          lp_position: lp2PositionPda,
+          lp_base_ata: lp2BaseAta,
+          epoch_vault_base_ata: epochVaultBaseAta,
+          lp: lp2.publicKey,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
           system_program: SystemProgram.programId,
         })
         .signers([lp2]).rpc();
 
-      const pending = await program.account.pendingLiquidity.fetch(lp2Pending);
-      const cfg = await program.account.globalConfig.fetch(globalConfigPda);
-      const epochDur = cfg.epochDurationSeconds.toNumber();
+      const position = await program.account.epochLpPosition.fetch(lp2PositionPda);
 
-      // activation_time must be at least nowBefore (cannot be 0 or in the past)
       assert.ok(
-        pending.activationTime.toNumber() >= nowBefore,
-        `activation_time ${pending.activationTime.toNumber()} should be >= ${nowBefore}`
+        position.shares.toNumber() > 0,
+        "epoch LP position should mint positive shares"
       );
-      // activation_time must be within 2 epochs from now (correct epoch math)
       assert.ok(
-        pending.activationTime.toNumber() <= nowBefore + 2 * epochDur + 60,
-        `activation_time too far in future`
+        position.epochId.toNumber() === 0,
+        "epoch LP position should belong to epoch 0"
       );
-      // shares must be positive and match LP tokens minted
-      assert.ok(pending.shares.toNumber() > 0, "shares must be positive");
     });
 
-    it("initPendingLiquidity is now a no-op — cannot overwrite shares or activation_time", async () => {
+    it("a second opt-in for the same LP is rejected", async () => {
       const lp3 = Keypair.generate();
       await airdrop(provider, lp3.publicKey, 3);
       const lp3BaseAta = await fundFromAdmin(provider, lp3, baseMint, adminBaseAta, 10_000_000);
-      const lp3LpAta   = await makeAta(provider, lpMintPda, lp3.publicKey);
-      const [lp3Pending] = PublicKey.findProgramAddressSync(
-        [Buffer.from("pending"), lp3.publicKey.toBuffer()], program.programId
+      const [lp3PositionPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("epoch_lp"), new anchor.BN(0).toArrayLike(Buffer, "le", 8), lp3.publicKey.toBuffer()],
+        program.programId
       );
 
-      // Deposit legitimately
-      await program.methods.addLiquidity(new anchor.BN(5_000_000))
-        .accounts({
-          global_config: globalConfigPda, lp_mint: lpMintPda, treasury: treasuryPda,
-          treasury_base_ata: treasuryBaseAta, provider_base_ata: lp3BaseAta, provider_lp_ata: lp3LpAta,
-          base_mint: baseMint, pending_liquidity: lp3Pending, provider: lp3.publicKey,
-          token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
-          system_program: SystemProgram.programId,
-        })
-        .signers([lp3]).rpc();
-
-      const pendingBefore = await program.account.pendingLiquidity.fetch(lp3Pending);
-
-      // Attacker calls initPendingLiquidity with inflated shares and activation_time=0
-      await program.methods
-        .initPendingLiquidity(
-          new anchor.BN(999_999_999), // inflated shares
-          new anchor.BN(0),           // activation_time = 0 (bypass lock)
-          new anchor.BN(999_999_999)
-        )
+      await program.methods.optInEpochLiquidity(new anchor.BN(0), new anchor.BN(5_000_000))
         .accounts({
           global_config: globalConfigPda,
-          pending_liquidity: lp3Pending,
-          provider: lp3.publicKey,
+          epoch_vault: epochVaultPda,
+          lp_position: lp3PositionPda,
+          lp_base_ata: lp3BaseAta,
+          epoch_vault_base_ata: epochVaultBaseAta,
+          lp: lp3.publicKey,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
           system_program: SystemProgram.programId,
         })
         .signers([lp3]).rpc();
 
-      const pendingAfter = await program.account.pendingLiquidity.fetch(lp3Pending);
-
-      // State must be unchanged — initPendingLiquidity is now a no-op
-      assert.equal(
-        pendingAfter.shares.toNumber(), pendingBefore.shares.toNumber(),
-        "shares must not change after no-op initPendingLiquidity"
-      );
-      assert.equal(
-        pendingAfter.activationTime.toNumber(), pendingBefore.activationTime.toNumber(),
-        "activation_time must not change after no-op initPendingLiquidity"
-      );
+      await program.methods
+        .optInEpochLiquidity(new anchor.BN(0), new anchor.BN(1_000_000))
+        .accounts({
+          global_config: globalConfigPda,
+          epoch_vault: epochVaultPda,
+          lp_position: lp3PositionPda,
+          lp_base_ata: lp3BaseAta,
+          epoch_vault_base_ata: epochVaultBaseAta,
+          lp: lp3.publicKey,
+          token_program: TOKEN_PROGRAM,
+          associated_token_program: ATA_PROGRAM,
+          system_program: SystemProgram.programId,
+        })
+        .signers([lp3]).rpc()
+        .then(() => assert.fail("second opt-in should fail"))
+        .catch((err: any) => {
+          assert.ok(
+            err.toString().includes("already in use") ||
+            err.toString().includes("AccountAlreadyInitialized") ||
+            err.error?.errorCode?.code === "AccountAlreadyInitialized",
+            `expected account already initialized error, got: ${err}`
+          );
+        });
     });
   });
 
@@ -435,13 +579,22 @@ describe("Security: fixed vulnerabilities", () => {
       );
 
       const futureStart = Math.floor(Date.now() / 1000) + 3600;
-      await program.methods
-        .createMarket(new anchor.BN(futureStart), 2, "Void Test", "void", 0, null, null)
-        .accounts({
-          global_config: globalConfigPda, market: voidMarketPda,
-          authority: admin.publicKey, system_program: SystemProgram.programId,
-        })
-        .signers([admin]).rpc();
+      await sendCreateMarket(
+        provider,
+        program,
+        admin,
+        globalConfigPda,
+        voidMarketPda,
+        futureEpochPda,
+        new anchor.BN(futureStart),
+        2,
+        "Void Test",
+        "void",
+        0,
+        { overUnder: {} },
+        [new anchor.BN(5000), new anchor.BN(5000)],
+        null,
+      );
 
       const [vm0] = PublicKey.findProgramAddressSync(
         [Buffer.from("outcome_mint"), new anchor.BN(voidMarketId).toArrayLike(Buffer, "le", 8), Buffer.from([0])],
@@ -582,13 +735,22 @@ describe("Security: fixed vulnerabilities", () => {
         program.programId
       );
 
-      await program.methods
-        .createMarket(new anchor.BN(Math.floor(Date.now() / 1000) + 3600), 2, "Close Test", "close", 0, null, null)
-        .accounts({
-          global_config: globalConfigPda, market: closePda,
-          authority: admin.publicKey, system_program: SystemProgram.programId,
-        })
-        .signers([admin]).rpc();
+      await sendCreateMarket(
+        provider,
+        program,
+        admin,
+        globalConfigPda,
+        closePda,
+        closeEpochPda,
+        new anchor.BN(Math.floor(Date.now() / 1000) + 3600),
+        2,
+        "Close Test",
+        "close",
+        0,
+        { overUnder: {} },
+        [new anchor.BN(5000), new anchor.BN(5000)],
+        null,
+      );
 
       // Void it first so it can be closed
       await program.methods.voidMarket()

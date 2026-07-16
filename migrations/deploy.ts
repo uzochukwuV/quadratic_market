@@ -3,9 +3,10 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { PublicKey, Keypair, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { PublicKey, Keypair, SystemProgram, Transaction, TransactionInstruction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { QuadraticMarket } from "../target/types/quadratic_market";
+import { quadraticMarketProgram } from "../tests/program";
 
 // Program ID from Anchor.toml
 const PROGRAM_ID = new PublicKey("4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA");
@@ -15,7 +16,7 @@ async function main() {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.QuadraticMarket as Program<QuadraticMarket>;
+  const program = quadraticMarketProgram(provider);
 
   const admin = provider.wallet.publicKey;
   console.log("Deploying Quadratic Market Protocol...");
@@ -63,43 +64,45 @@ async function main() {
   try {
     // 1. Initialize the protocol
     console.log("\n1. Initializing protocol...");
-    const initializeTx = await program.methods
-      .initialize(
-        Array.from(oracleKeypair.publicKey.toBytes()),
-        new anchor.BN(1_000_000_000) // max_market_exposure: 1000 USDC (6 decimals)
-      )
-      .accountsStrict({
-        globalConfig: globalConfigPda,
-        treasury: treasuryPda,
-        baseMint: baseMint,
-        admin: admin,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([])
-      .rpc();
+    const initializeIx = new TransactionInstruction({
+      programId: program.programId,
+      keys: [
+        { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+        { pubkey: treasuryPda, isSigner: false, isWritable: false },
+        { pubkey: baseMint, isSigner: false, isWritable: false },
+        { pubkey: admin, isSigner: true, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: program.coder.instruction.encode("initializeProtocol", {
+        oraclePubkey: Array.from(oracleKeypair.publicKey.toBytes()),
+        maxMarketExposure: new anchor.BN(1_000_000_000), // max_market_exposure: 1000 USDC (6 decimals)
+      }),
+    });
+    const initializeTx = await provider.sendAndConfirm(new Transaction().add(initializeIx), []);
 
     console.log("Protocol initialized!");
     console.log("Transaction:", initializeTx);
 
     console.log("\n1b. Initializing LP mint...");
-    const lpMintTx = await program.methods
-      .initializeLpMint()
-      .accountsStrict({
-        globalConfig: globalConfigPda,
-        lpMint: lpMintPda,
-        admin: admin,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .signers([])
-      .rpc();
+    const lpMintIx = new TransactionInstruction({
+      programId: program.programId,
+      keys: [
+        { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+        { pubkey: lpMintPda, isSigner: false, isWritable: true },
+        { pubkey: admin, isSigner: true, isWritable: true },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+      ],
+      data: program.coder.instruction.encode("initializeLpMint", {}),
+    });
+    const lpMintTx = await provider.sendAndConfirm(new Transaction().add(lpMintIx), []);
 
     console.log("LP mint initialized!");
     console.log("Transaction:", lpMintTx);
 
-  // 2. Initialize the first epoch
-  console.log("\n2. Initializing first epoch...");
+    // 2. Initialize the first epoch
+    console.log("\n2. Initializing first epoch...");
     const [epochPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
       program.programId

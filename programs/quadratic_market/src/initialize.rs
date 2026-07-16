@@ -21,11 +21,10 @@ pub struct Initialize<'info> {
 
     /// CHECK: Treasury PDA — owns token accounts, no data needed
     #[account(
-        mut,
         seeds = [seeds::TREASURY],
         bump,
     )]
-    pub treasury: SystemAccount<'info>,
+    pub treasury: UncheckedAccount<'info>,
 
     pub base_mint: Account<'info, Mint>,
 

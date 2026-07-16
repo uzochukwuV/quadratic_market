@@ -18,6 +18,7 @@ import {
   SYSVAR_RENT_PUBKEY,
 } from "@solana/web3.js";
 import { assert } from "chai";
+import { quadraticMarketProgram } from "./program";
 
 const TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
 const ATA_PROGRAM = ASSOCIATED_TOKEN_PROGRAM_ID;
@@ -72,7 +73,7 @@ describe("order_book_test — P2P Limit Order Book", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.quadraticMarket as Program<QuadraticMarket>;
+  const program = quadraticMarketProgram(provider);
   const payer = provider.wallet.payer;
 
   // PDAs
@@ -86,8 +87,8 @@ describe("order_book_test — P2P Limit Order Book", () => {
     [Buffer.from("treasury")], program.programId
   );
 
-  let base_mint: PublicKey;
-  let treasury_base_ata: PublicKey;
+  let baseMint: PublicKey;
+  let treasuryBaseAta: PublicKey;
   let admin: Keypair;
   let oracleKeypair: Keypair;
 
@@ -147,42 +148,6 @@ describe("order_book_test — P2P Limit Order Book", () => {
       console.log("  Trader funding skipped (admin may have insufficient funds)");
     }
 
-    // Ensure LP has liquidity (for outcome mint creation)
-    const [pendingPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pending"), admin.publicKey.toBuffer()], program.programId
-    );
-    try {
-      await getAccount(provider.connection, getAssociatedTokenAddressSync(lpMintPda, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM));
-    } catch (_) {
-      const lpAta = getAssociatedTokenAddressSync(lpMintPda, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
-      await provider.sendAndConfirm(
-        new Transaction().add(createAssociatedTokenAccountInstruction(
-          payer.publicKey, lpAta, admin.publicKey, lpMintPda, TOKEN_PROGRAM, ATA_PROGRAM
-        )),
-        []
-      );
-    }
-    try {
-      await program.account.pendingLiquidity.fetch(pendingPda);
-    } catch (_) {
-      // Try to add liquidity, but wrap in try-catch to handle insufficient funds gracefully
-      try {
-        await program.methods.addLiquidity(new anchor.BN(10_000_000))
-          .accounts({
-            global_config: globalConfigPda, lp_mint: lpMintPda, treasury: treasuryPda,
-            treasuryBaseAta, provider_base_ata: adminBaseAta,
-            provider_lp_ata: getAssociatedTokenAddressSync(lpMintPda, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM),
-            base_mint: baseMint, pending_liquidity: pendingPda, provider: admin.publicKey,
-            token_program: TOKEN_PROGRAM, associated_token_program: ATA_PROGRAM,
-            system_program: SystemProgram.programId,
-          })
-          .signers([admin]).rpc();
-      } catch (err: any) {
-        // If liquidity already exists or insufficient funds, that's ok for setup
-        console.log("  LP setup skipped (may already have liquidity or insufficient funds)");
-      }
-    }
-
     // Derive epoch PDA for createMarket calls
     const cfgEpoch = await program.account.globalConfig.fetch(globalConfigPda);
     const [epochPda] = PublicKey.findProgramAddressSync(
@@ -201,10 +166,10 @@ describe("order_book_test — P2P Limit Order Book", () => {
     const startTime = Math.floor(Date.now() / 1000) + 3600;
     // Use FixedOdds mode so buy_shares is rejected but place_order is allowed
     try {
-      await program.methods
-        .createMarket(
-          new anchor.BN(startTime), 2, "Order Book Test Market", "ob", 0, null, null
-        )
+    await program.methods
+      .createMarket(
+        new anchor.BN(startTime), 2, "Order Book Test Market", "ob", 0, { overUnder: {} }, [new anchor.BN(5000), new anchor.BN(5000)], null
+      )
         .accounts({
           global_config: globalConfigPda,
           market: marketPda,
