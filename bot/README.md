@@ -11,9 +11,9 @@ Automates the full market lifecycle using Txodds API:
 
 3. **Suspend** — at `start_time`, suspends markets (no more bets)
 
-4. **Settle with TxLINE Proof** — after `RESULT_DELAY_SECONDS`, fetches final score and settles markets using `settle_with_proof`
+4. **Settle with TxLINE Proof** — after `RESULT_DELAY_SECONDS`, fetches the final TxLINE score bundle and settles markets using `settle_with_proof`
 
-5. **Execute Slips** — backend executes bet slip legs (separate transaction per leg)
+5. **Execute Slips** — the backend executes bet slip legs through `placeSlipAwait` and related slip instructions
 
 6. **Resolve Slips** — settles slip legs and resolves slips after all markets finalize
 
@@ -35,8 +35,8 @@ The bot needs two keypairs:
 
 | Keypair | Role | On-chain requirement |
 |---|---|---|
-| `OPERATOR_KEYPAIR_PATH` | Creates markets, suspends, finalizes, resolves slips | Must be added as operator via `add_operator` |
-| `ORACLE_KEYPAIR_PATH` | Proposes results | Must match `global_config.oracle_pubkey` |
+| `OPERATOR_KEYPAIR_PATH` | Creates markets, suspends, proof-settles, resolves slips | Must be added as operator via `add_operator` |
+| `ORACLE_KEYPAIR_PATH` | Reserved for oracle-related automation | Must match `global_config.oracle_pubkey` |
 
 These can be the same keypair on devnet for testing.
 
@@ -121,7 +121,7 @@ SPORTS=soccer,football,basketball
 bot/
 ├── bot.py           - Main loop with scheduled tasks
 ├── chain.py         - Solana chain interactions (markets, slips, epochs)
-├── txodds_api.py    - Txodds API client (fixtures, odds, scores)
+├── txodds_api.py    - TxODDS API client (fixtures, odds, scores, proofs)
 ├── state.py         - Bot state management
 ├── config.py        - Environment configuration
 └── requirements.txt

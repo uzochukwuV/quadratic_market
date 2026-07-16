@@ -7,7 +7,7 @@ All public functions are async and return the transaction signature string.
 
 import json
 from pathlib import Path
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Any
 
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
@@ -15,6 +15,9 @@ from solders.system_program import ID as SYS_PROGRAM_ID
 from solana.rpc.async_api import AsyncClient
 from anchorpy import Program, Provider, Wallet, Context, Idl
 from anchorpy.program.namespace.instruction import _InstructionFn  # noqa: F401 (type hint only)
+from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
+from spl.token.instructions import create_associated_token_account, get_associated_token_address
+from solana.transaction import Transaction
 
 import structlog
 
@@ -96,11 +99,13 @@ class ChainClient:
         operator_kp: Keypair,
         oracle_kp: Keypair,
         base_mint: Pubkey,
+        txoracle_program_id: Pubkey,
     ) -> None:
         self.program = program
         self.operator_kp = operator_kp
         self.oracle_kp = oracle_kp
         self.base_mint = base_mint
+        self.txoracle_program_id = txoracle_program_id
         self.program_id = program.program_id
 
         self.global_config, _ = global_config_pda(self.program_id)
@@ -115,13 +120,20 @@ class ChainClient:
         operator_kp: Keypair,
         oracle_kp: Keypair,
         base_mint_str: str,
+        txoracle_program_id_str: str,
     ) -> "ChainClient":
         client = AsyncClient(rpc_url)
         wallet = Wallet(operator_kp)
         provider = Provider(client, wallet)
         idl = Idl.from_json(idl_path.read_text())
         program = Program(idl, Pubkey.from_string(program_id_str), provider)
-        return cls(program, operator_kp, oracle_kp, Pubkey.from_string(base_mint_str))
+        return cls(
+            program,
+            operator_kp,
+            oracle_kp,
+            Pubkey.from_string(base_mint_str),
+            Pubkey.from_string(txoracle_program_id_str),
+        )
 
     async def close(self) -> None:
         await self.program.close()
@@ -150,6 +162,47 @@ class ChainClient:
     async def next_slip_id(self) -> int:
         cfg = await self.fetch_global_config()
         return int(cfg.next_slip_id)
+
+    async def fetch_all_slips(self) -> list[tuple[int, Any]]:
+        cfg = await self.fetch_global_config()
+        slips: list[tuple[int, Any]] = []
+        for slip_id in range(1, int(cfg.next_slip_id)):
+            try:
+                slips.append((slip_id, await self.fetch_slip(slip_id)))
+            except Exception:
+                continue
+        return slips
+
+    @staticmethod
+    def _enum_name(value: Any) -> str:
+        if isinstance(value, dict) and len(value) == 1:
+            return next(iter(value.keys()))
+        return str(value)
+
+    async def ensure_associated_token_account(self, owner: Pubkey, mint: Pubkey) -> Pubkey:
+        ata = get_associated_token_address(owner, mint)
+        conn = self.program.provider.connection
+        info = await conn.get_account_info(ata)
+        if info.value is None:
+            ix = create_associated_token_account(
+                payer=self.operator_kp.pubkey(),
+                owner=owner,
+                mint=mint,
+                token_program_id=TOKEN_PROGRAM_ID,
+            )
+            await self.program.provider.send_and_confirm(Transaction().add(ix), [self.operator_kp])
+        return ata
+
+    def daily_scores_roots_pda(self, validation_timestamp_ms: int) -> Pubkey:
+        epoch_day = validation_timestamp_ms // 86_400_000
+        pda, _ = Pubkey.find_program_address(
+            [
+                b"daily_scores_roots",
+                int(epoch_day).to_bytes(2, "little", signed=False),
+            ],
+            self.txoracle_program_id,
+        )
+        return pda
 
     # ── Market Group ───────────────────────────────────────────────────────────
 
@@ -194,6 +247,7 @@ class ChainClient:
         category: int = 0,
         market_type: str = "oneXTwo",  # oneXTwo, overUnder, goalNoGoal
         initial_odds: Optional[List[int]] = None,
+        txline_fixture_id: Optional[int] = None,
     ) -> tuple[int, str]:
         """
         Create a market with fixed odds. Returns (market_id, tx_signature).
@@ -238,6 +292,7 @@ class ChainClient:
             category,
             market_type_arg,
             initial_odds,
+            txline_fixture_id,
             ctx=Context(
                 accounts={
                     "global_config": self.global_config,
@@ -306,6 +361,47 @@ class ChainClient:
         log.info("update_market_odds", market_id=market_id, odds=new_odds, sig=str(sig))
         return str(sig)
 
+    async def settle_with_proof(
+        self,
+        market_id: int,
+        txline_fixture_id: int,
+        proposed_outcome: int,
+        validation_timestamp: int,
+        home_score: int,
+        away_score: int,
+        validation_input: dict[str, Any],
+        strategy: dict[str, Any],
+    ) -> str:
+        market = await self.fetch_market(market_id)
+        mkt_pda, _ = market_pda(self.program_id, market_id)
+        epoch_id = int(market.epoch_id)
+        ep_pda, _ = epoch_pda(self.program_id, epoch_id)
+        daily_scores_roots = self.daily_scores_roots_pda(validation_timestamp)
+
+        sig = await self.program.rpc["settle_with_proof"](
+            market_id,
+            proposed_outcome,
+            txline_fixture_id,
+            validation_timestamp,
+            home_score,
+            away_score,
+            validation_input,
+            strategy,
+            ctx=Context(
+                accounts={
+                    "global_config": self.global_config,
+                    "market": mkt_pda,
+                    "epoch": ep_pda,
+                    "daily_scores_merkle_roots": daily_scores_roots,
+                    "txoracle_program": self.txoracle_program_id,
+                    "caller": self.operator_kp.pubkey(),
+                },
+                signers=[self.operator_kp],
+            ),
+        )
+        log.info("settle_with_proof", market_id=market_id, fixture_id=txline_fixture_id, sig=str(sig))
+        return str(sig)
+
     # ── init_outcome_mint ─────────────────────────────────────────────────────
 
     async def init_outcome_mint(self, market_id: int, outcome_id: int) -> str:
@@ -366,11 +462,15 @@ class ChainClient:
         """
         Execute one leg of a slip (called by backend after user creates slip).
         """
+        slip = await self.fetch_slip(slip_id)
+        market_id = int(slip.leg_market_ids[leg_index])
+        mkt_pda, _ = market_pda(self.program_id, market_id)
+        market = await self.fetch_market(market_id)
+        outcome_mint = Pubkey.from_string(str(market.outcome_mints[leg_index]))
+        buyer_outcome_ata = await self.ensure_associated_token_account(buyer, outcome_mint)
+        treasury_base_ata = await self.ensure_associated_token_account(self.treasury, self.base_mint)
         slip_pda, _ = slip_pda(self.program_id, slip_id)
-        mkt_pda, _ = market_pda(self.program_id, slip_id)  # Would need to fetch slip to get market
 
-        # For this we'd need the actual market PDA
-        # This is simplified - in practice, fetch the slip first
         sig = await self.program.rpc["buy_leg_for_slip"](
             slip_id,
             leg_index,
@@ -378,15 +478,15 @@ class ChainClient:
                 accounts={
                     "global_config": self.global_config,
                     "slip": slip_pda,
-                    "market": mkt_pda,  # Would need proper market PDA
+                    "market": mkt_pda,
                     "treasury": self.treasury,
-                    "buyer_outcome_ata": Pubkey.default(),  # Would need actual ATA
-                    "treasury_base_ata": Pubkey.default(),
-                    "outcome_mint": Pubkey.default(),
+                    "buyer_outcome_ata": buyer_outcome_ata,
+                    "treasury_base_ata": treasury_base_ata,
+                    "outcome_mint": outcome_mint,
                     "base_mint": self.base_mint,
                     "buyer": buyer,
-                    "token_program": Pubkey.default(),
-                    "associated_token_program": Pubkey.default(),
+                    "token_program": TOKEN_PROGRAM_ID,
+                    "associated_token_program": ASSOCIATED_TOKEN_PROGRAM_ID,
                     "system_program": SYS_PROGRAM_ID,
                 },
                 signers=[self.operator_kp],
@@ -403,9 +503,11 @@ class ChainClient:
         """
         Settle one leg of a slip after the market settles.
         """
+        slip = await self.fetch_slip(slip_id)
+        market_id = int(slip.leg_market_ids[leg_index])
+        mkt_pda, _ = market_pda(self.program_id, market_id)
         slip_pda, _ = slip_pda(self.program_id, slip_id)
-        
-        # Would need to fetch slip to get market PDA
+
         sig = await self.program.rpc["settle_slip_leg"](
             slip_id,
             leg_index,
@@ -413,7 +515,7 @@ class ChainClient:
                 accounts={
                     "global_config": self.global_config,
                     "slip": slip_pda,
-                    "market": Pubkey.default(),  # Would need actual market PDA
+                    "market": mkt_pda,
                     "authority": self.operator_kp.pubkey(),
                 },
                 signers=[self.operator_kp],
@@ -426,7 +528,11 @@ class ChainClient:
         """
         Resolve a slip after all legs are settled.
         """
+        slip = await self.fetch_slip(slip_id)
+        owner = Pubkey.from_string(str(slip.owner))
         slip_pda, _ = slip_pda(self.program_id, slip_id)
+        treasury_base_ata = await self.ensure_associated_token_account(self.treasury, self.base_mint)
+        claimer_base_ata = await self.ensure_associated_token_account(owner, self.base_mint)
 
         sig = await self.program.rpc["resolve_slip"](
             slip_id,
@@ -435,7 +541,12 @@ class ChainClient:
                     "global_config": self.global_config,
                     "slip": slip_pda,
                     "treasury": self.treasury,
-                    "authority": self.operator_kp.pubkey(),
+                    "owner": owner,
+                    "claimer_base_ata": claimer_base_ata,
+                    "treasury_base_ata": treasury_base_ata,
+                    "base_mint": self.base_mint,
+                    "token_program": TOKEN_PROGRAM_ID,
+                    "associated_token_program": ASSOCIATED_TOKEN_PROGRAM_ID,
                 },
                 signers=[self.operator_kp],
             ),

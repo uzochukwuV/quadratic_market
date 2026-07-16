@@ -33,6 +33,7 @@ from chain import ChainClient, load_keypair, market_pda
 from txodds_api import (
     TxoddsApiClient, 
     Network, 
+    NETWORK_CONFIG,
     TxoddsFixture,
     TxoddsResult,
     MarketType,
@@ -73,6 +74,12 @@ MARKET_TYPE_CONFIG = {
         "market_type": "goalNoGoal",
     },
 }
+
+
+def _enum_name(value) -> str:
+    if isinstance(value, dict) and len(value) == 1:
+        return next(iter(value.keys()))
+    return str(value)
 
 
 # ─── Bot Tasks ────────────────────────────────────────────────────────────────
@@ -120,6 +127,7 @@ async def task_create_markets(
                 category=0,
                 market_type="oneXTwo",
                 initial_odds=odds_1x2,
+                txline_fixture_id=fix.fixture_id,
             )
             market_ids.append(market_1x2_id)
             
@@ -133,6 +141,7 @@ async def task_create_markets(
                 category=1,
                 market_type="overUnder",
                 initial_odds=odds_ou,
+                txline_fixture_id=fix.fixture_id,
             )
             market_ids.append(market_ou_id)
             
@@ -146,6 +155,7 @@ async def task_create_markets(
                 category=2,
                 market_type="goalNoGoal",
                 initial_odds=odds_ggng,
+                txline_fixture_id=fix.fixture_id,
             )
             market_ids.append(market_ggng_id)
             
@@ -255,19 +265,101 @@ async def task_suspend_markets(
                       error=str(exc))
 
 
+async def task_execute_slip_legs(chain: ChainClient) -> None:
+    """
+    Execute any pending slip legs while their markets are still open.
+    """
+    now = int(time.time())
+    slips = await chain.fetch_all_slips()
+
+    for slip_id, slip in slips:
+        status = _enum_name(slip.status).lower()
+        if status not in {"pending", "active"}:
+            continue
+
+        num_legs = int(slip.num_legs)
+        bought_mask = int(slip.legs_bought_mask)
+        for leg_index in range(num_legs):
+            if bought_mask & (1 << leg_index):
+                continue
+
+            market_id = int(slip.leg_market_ids[leg_index])
+            market = await chain.fetch_market(market_id)
+            market_status = _enum_name(market.status).lower()
+            if market_status != "open":
+                continue
+            if now >= int(market.start_time):
+                continue
+            if now >= int(slip.cancel_deadline):
+                continue
+
+            try:
+                await chain.buy_leg_for_slip(slip_id, leg_index, chain.operator_kp.pubkey())
+                log.info(
+                    "slip_leg_bought",
+                    slip_id=slip_id,
+                    leg_index=leg_index,
+                    market_id=market_id,
+                )
+            except Exception as exc:
+                log.error(
+                    "buy_slip_leg_failed",
+                    slip_id=slip_id,
+                    leg_index=leg_index,
+                    market_id=market_id,
+                    error=str(exc),
+                )
+
+
 async def task_settle_markets(
     chain: ChainClient, 
     api: TxoddsApiClient, 
     state: BotState
 ) -> None:
     """
-    Settlement is now proof-gated on-chain. The bot no longer submits the
-    removed legacy settlement flow here.
+    Fetch the final TxLINE proof bundle and settle markets on-chain.
     """
+    now = int(time.time())
+
     for market in state.all_markets_in_stage(MarketStage.SUSPENDED):
+        if now < market.start_time + config.RESULT_DELAY_SECONDS:
+            continue
+
         log.info("market_requires_proof_settlement",
                  market_id=market.market_id,
                  fixture_id=market.fixture_id)
+        try:
+            proof_bundle = await api.build_final_settlement_proof(market.fixture_id)
+            if not proof_bundle:
+                continue
+
+            await chain.settle_with_proof(
+                market_id=market.market_id,
+                txline_fixture_id=market.fixture_id,
+                proposed_outcome=proof_bundle["proposed_outcome"],
+                validation_timestamp=proof_bundle["validation_timestamp"],
+                home_score=proof_bundle["home_score"],
+                away_score=proof_bundle["away_score"],
+                validation_input=proof_bundle["validation_input"],
+                strategy=proof_bundle["strategy"],
+            )
+            state.mark_market_settled(
+                market.market_id,
+                proof_bundle["proposed_outcome"],
+            )
+            log.info(
+                "market_settled_with_proof",
+                market_id=market.market_id,
+                fixture_id=market.fixture_id,
+                outcome=proof_bundle["proposed_outcome"],
+            )
+        except Exception as exc:
+            log.error(
+                "settle_market_failed",
+                market_id=market.market_id,
+                fixture_id=market.fixture_id,
+                error=str(exc),
+            )
 
 
 async def task_void_expired(
@@ -300,13 +392,53 @@ async def task_settle_slips(
     state: BotState
 ) -> None:
     """
-    Settle slip legs for markets that have been settled.
-    This is called by the bot after markets are finalized.
+    Settle and resolve slips after their markets finalize.
     """
-    for market in state.all_markets_in_stage(MarketStage.FINALIZED):
-        # Find slips that include this market
-        # Note: In practice, this would need to track which slips include which markets
-        log.info("market_ready_for_slip_settlement", market_id=market.market_id)
+    slips = await chain.fetch_all_slips()
+
+    for slip_id, slip in slips:
+        status = _enum_name(slip.status).lower()
+        if status not in {"pending", "active", "won", "lost"}:
+            continue
+
+        num_legs = int(slip.num_legs)
+        for leg_index in range(num_legs):
+            if (int(slip.legs_bought_mask) & (1 << leg_index)) == 0:
+                continue
+            if int(slip.legs_settled_mask) & (1 << leg_index):
+                continue
+
+            market_id = int(slip.leg_market_ids[leg_index])
+            market = await chain.fetch_market(market_id)
+            market_status = _enum_name(market.status).lower()
+            if market_status != "settled":
+                continue
+
+            try:
+                await chain.settle_slip_leg(slip_id, leg_index)
+                log.info(
+                    "slip_leg_settled",
+                    slip_id=slip_id,
+                    leg_index=leg_index,
+                    market_id=market_id,
+                )
+            except Exception as exc:
+                log.error(
+                    "settle_slip_leg_failed",
+                    slip_id=slip_id,
+                    leg_index=leg_index,
+                    market_id=market_id,
+                    error=str(exc),
+                )
+
+        try:
+            refreshed = await chain.fetch_slip(slip_id)
+            refreshed_status = _enum_name(refreshed.status).lower()
+            if refreshed_status in {"won", "lost"}:
+                await chain.resolve_slip(slip_id)
+                log.info("slip_resolved", slip_id=slip_id, status=refreshed_status)
+        except Exception as exc:
+            log.error("resolve_slip_failed", slip_id=slip_id, error=str(exc))
 
 
 # ─── Main Loop ────────────────────────────────────────────────────────────────
@@ -321,16 +453,19 @@ async def run_once(chain: ChainClient, api: TxoddsApiClient, state: BotState) ->
     # 2. Update odds for open markets
     await task_update_odds(chain, api, state)
     
-    # 3. Suspend markets at start time
+    # 3. Execute slip legs while markets are still open
+    await task_execute_slip_legs(chain)
+
+    # 4. Suspend markets at start time
     await task_suspend_markets(chain, state)
-    
-    # 4. Settle markets after delay
+
+    # 5. Settle markets after delay
     await task_settle_markets(chain, api, state)
 
-    # 5. Void expired markets
+    # 6. Void expired markets
     await task_void_expired(chain, state)
 
-    # 6. Settle slip legs
+    # 7. Settle and resolve slips
     await task_settle_slips(chain, state)
 
     log.info("bot_pass_complete")
@@ -345,7 +480,8 @@ async def main(once: bool = False) -> None:
     # Load keypairs
     operator_kp = load_keypair(config.OPERATOR_KEYPAIR_PATH)
     oracle_kp = load_keypair(config.ORACLE_KEYPAIR_PATH)
-    
+    network = Network.DEVNET if config.TXODDS_NETWORK == "devnet" else Network.MAINNET
+
     # Initialize chain client
     chain = await ChainClient.create(
         rpc_url=config.RPC_URL,
@@ -354,10 +490,10 @@ async def main(once: bool = False) -> None:
         operator_kp=operator_kp,
         oracle_kp=oracle_kp,
         base_mint_str=config.BASE_MINT,
+        txoracle_program_id_str=NETWORK_CONFIG[network]["program_id"],
     )
     
     # Initialize txodds API client
-    network = Network.DEVNET if config.TXODDS_NETWORK == "devnet" else Network.MAINNET
     api = TxoddsApiClient(config.TXODDS_API_KEY, network)
     await api.authenticate()
     

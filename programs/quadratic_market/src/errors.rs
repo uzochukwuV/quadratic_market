@@ -45,9 +45,9 @@ pub enum QuadraticMarketError {
     InsufficientShares = 200,
     #[msg("Slippage exceeded: minimum shares not received")]
     SlippageExceeded = 201,
-    #[msg("LMSR cost exceeds maximum payment")]
+    #[msg("Trade cost exceeds maximum payment")]
     LmsrCostExceedsMax = 202,
-    #[msg("LMSR sell price below minimum")]
+    #[msg("Trade sell price below minimum")]
     LmsrSellBelowMin = 203,
     #[msg("Bet size exceeds maximum allowed")]
     BetTooLarge = 204,

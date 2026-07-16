@@ -128,12 +128,9 @@ fn build_validate_stat_v2_ix(
     let mut data = Vec::with_capacity(8 + 512);
     data.extend_from_slice(&VALIDATE_STAT_V2_DISCRIMINATOR);
     data.extend_from_slice(
-        &ValidateStatV2Args {
-            payload,
-            strategy,
-        }
-        .try_to_vec()
-        .map_err(|_| error!(QuadraticMarketError::MathOverflow))?,
+        &ValidateStatV2Args { payload, strategy }
+            .try_to_vec()
+            .map_err(|_| error!(QuadraticMarketError::MathOverflow))?,
     );
 
     Ok(Instruction {
@@ -154,7 +151,8 @@ fn read_txoracle_bool_return(expected_program_id: Pubkey) -> Result<bool> {
     );
 
     let mut bytes: &[u8] = &data;
-    bool::deserialize(&mut bytes).map_err(|_| error!(QuadraticMarketError::TxlineProofValidationFailed))
+    bool::deserialize(&mut bytes)
+        .map_err(|_| error!(QuadraticMarketError::TxlineProofValidationFailed))
 }
 
 fn is_supported_txoracle_program(program_id: &Pubkey) -> bool {
@@ -302,11 +300,7 @@ pub fn settle_with_proof_handler(
     )?;
 
     // Derive winning outcome from scores based on market type
-    let winning_outcome = derive_winning_outcome(
-        home_score,
-        away_score,
-        &market.market_type,
-    )?;
+    let winning_outcome = derive_winning_outcome(home_score, away_score, &market.market_type)?;
     require!(
         winning_outcome == proposed_outcome,
         QuadraticMarketError::InvalidProposedOutcome

@@ -3,6 +3,7 @@ import { Program } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { createHash } from "crypto";
 import { SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { QuadraticMarket } from "../target/types/quadratic_market";
 
 const PROGRAM_ID = new PublicKey("4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA");
@@ -138,16 +139,130 @@ export async function sendCreateMarket(
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
     ],
-    data: program.coder.instruction.encode("createMarket", {
-      startTime,
-      numOutcomes,
-      title,
-      description,
-      category,
-      marketType,
-      initialOdds,
-      txlineFixtureId,
-    }),
+    data: encodeWithDiscriminator(
+      program,
+      "createMarket",
+      {
+        startTime,
+        numOutcomes,
+        title,
+        description,
+        category,
+        marketType,
+        initialOdds,
+        txlineFixtureId,
+      },
+      ["create_market"],
+    ),
   });
   await provider.sendAndConfirm(new Transaction().add(ix), [authority]);
+}
+
+export async function sendInitOutcomeMint(
+  provider: anchor.AnchorProvider,
+  program: Program<QuadraticMarket>,
+  payer: anchor.web3.Keypair,
+  globalConfigPda: PublicKey,
+  marketPda: PublicKey,
+  outcomeMintPda: PublicKey,
+  marketId: anchor.BN,
+  outcomeId: number,
+) {
+  const ix = new anchor.web3.TransactionInstruction({
+    programId: program.programId,
+    keys: [
+      { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+      { pubkey: marketPda, isSigner: false, isWritable: true },
+      { pubkey: outcomeMintPda, isSigner: false, isWritable: true },
+      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+    ],
+    data: encodeWithDiscriminator(
+      program,
+      "initOutcomeMint",
+      {
+        marketId,
+        outcomeId,
+      },
+      ["init_outcome_mint"],
+    ),
+  });
+  await provider.sendAndConfirm(new Transaction().add(ix), [payer]);
+}
+
+export async function sendOptInEpochLiquidity(
+  provider: anchor.AnchorProvider,
+  program: Program<QuadraticMarket>,
+  lp: anchor.web3.Keypair,
+  globalConfigPda: PublicKey,
+  epochVaultPda: PublicKey,
+  lpPositionPda: PublicKey,
+  lpBaseAta: PublicKey,
+  epochVaultBaseAta: PublicKey,
+  epochId: anchor.BN,
+  amount: anchor.BN,
+) {
+  const ix = new anchor.web3.TransactionInstruction({
+    programId: program.programId,
+    keys: [
+      { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+      { pubkey: epochVaultPda, isSigner: false, isWritable: true },
+      { pubkey: lpPositionPda, isSigner: false, isWritable: true },
+      { pubkey: lpBaseAta, isSigner: false, isWritable: true },
+      { pubkey: epochVaultBaseAta, isSigner: false, isWritable: true },
+      { pubkey: lp.publicKey, isSigner: true, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: encodeWithDiscriminator(
+      program,
+      "optInEpochLiquidity",
+      {
+        epochId,
+        amount,
+      },
+      ["opt_in_epoch_liquidity"],
+    ),
+  });
+  await provider.sendAndConfirm(new Transaction().add(ix), [lp]);
+}
+
+export async function sendPlaceSlipAwait(
+  provider: anchor.AnchorProvider,
+  program: Program<QuadraticMarket>,
+  owner: anchor.web3.Keypair,
+  globalConfigPda: PublicKey,
+  slipPda: PublicKey,
+  treasuryPda: PublicKey,
+  ownerBaseAta: PublicKey,
+  treasuryBaseAta: PublicKey,
+  baseMint: PublicKey,
+  legs: Array<{ marketId: anchor.BN; outcomeId: number; numShares: anchor.BN }>,
+  stake: anchor.BN,
+  cancelDeadline: anchor.BN,
+) {
+  const ix = new anchor.web3.TransactionInstruction({
+    programId: program.programId,
+    keys: [
+      { pubkey: globalConfigPda, isSigner: false, isWritable: true },
+      { pubkey: slipPda, isSigner: false, isWritable: true },
+      { pubkey: treasuryPda, isSigner: false, isWritable: false },
+      { pubkey: ownerBaseAta, isSigner: false, isWritable: true },
+      { pubkey: treasuryBaseAta, isSigner: false, isWritable: true },
+      { pubkey: baseMint, isSigner: false, isWritable: false },
+      { pubkey: owner.publicKey, isSigner: true, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: program.coder.instruction.encode("placeSlipAwait", {
+      legs,
+      stake,
+      cancelDeadline,
+    }),
+  });
+  await provider.sendAndConfirm(new Transaction().add(ix), [owner]);
 }

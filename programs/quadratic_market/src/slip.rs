@@ -1,8 +1,8 @@
 use crate::constants::{seeds, MAX_SLIP_LEGS};
 use crate::errors::QuadraticMarketError;
 use crate::state::{
-    market_group::CORRELATION_BPS_MULTIPLIER,
-    GlobalConfig, Market, MarketGroup, MarketStatus, SlipLeg,
+    market_group::CORRELATION_BPS_MULTIPLIER, GlobalConfig, Market, MarketGroup, MarketStatus,
+    SlipLeg,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
@@ -40,13 +40,13 @@ pub struct Slip {
     pub num_legs: u8,
     pub leg_market_ids: [u64; MAX_SLIP_LEGS],
     pub leg_outcome_ids: [u8; MAX_SLIP_LEGS],
-    pub legs_bought_mask: u16,                    // bit i = leg i bought
-    pub legs_settled_mask: u16,                   // bit i = leg i settled
-    pub legs_won_mask: u16,                       // bit i = leg i won
-    pub total_stake: u64,                         // Total USDC escrowed
-    pub total_cost: u64,                          // Sum of actual leg costs (for payout calc)
-    pub potential_payout: u64,                    // Fixed payout if all legs win
-    pub locked_amount: u64,                       // Current treasury lock
+    pub legs_bought_mask: u16,  // bit i = leg i bought
+    pub legs_settled_mask: u16, // bit i = leg i settled
+    pub legs_won_mask: u16,     // bit i = leg i won
+    pub total_stake: u64,       // Total USDC escrowed
+    pub total_cost: u64,        // Sum of actual leg costs (for payout calc)
+    pub potential_payout: u64,  // Fixed payout if all legs win
+    pub locked_amount: u64,     // Current treasury lock
     pub status: SlipStatus,
     pub created_at: i64,
     pub cancel_deadline: i64,

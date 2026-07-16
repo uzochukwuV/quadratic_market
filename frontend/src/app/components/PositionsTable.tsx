@@ -31,7 +31,7 @@ export function PositionsTable({ positions }: { positions: MyPosition[] }) {
             <div className="table-cell">
               <div className="text-white font-medium truncate">{position.market_title}</div>
               <div className="text-caption text-silver-text mt-0.5">
-                Epoch #{position.epoch_id} · {position.market_mode === "Trading" ? "LMSR" : "Fixed"}
+                Epoch #{position.epoch_id} · {position.market_mode === "Trading" ? "Slip" : "Fixed"}
               </div>
             </div>
 

@@ -48,7 +48,7 @@ export const GET = async (req: Request) => {
     icon: `${new URL("/api/og/market", req.url).toString()}`,
     label: `Buy ${outcome.toUpperCase()} at ${price}`,
     title: `Trade: ${title}`,
-    description: `Buy ${outcome.toUpperCase()} shares in "${title}". LMSR-priced, instant on-chain settlement. Current price: ${price}.`,
+    description: `Buy ${outcome.toUpperCase()} shares in "${title}". Fixed-odds, instant on-chain settlement. Current price: ${price}.`,
     links: {
       actions: [
         { type: "transaction", label: `Buy 10 ${outcome.toUpperCase()} (~$${isYes ? "6.80" : "3.20"})`, href: `/api/actions/buy-shares?market=${marketId}&outcome=${outcome}&shares=10` },

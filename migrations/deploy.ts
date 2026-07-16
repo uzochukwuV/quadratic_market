@@ -2,14 +2,10 @@
 // This script initializes the protocol after deployment
 
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
 import { PublicKey, Keypair, SystemProgram, Transaction, TransactionInstruction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { QuadraticMarket } from "../target/types/quadratic_market";
 import { quadraticMarketProgram } from "../tests/program";
-
-// Program ID from Anchor.toml
-const PROGRAM_ID = new PublicKey("4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA");
 
 async function main() {
   // Use AnchorProvider.env() which reads from Anchor.toml
@@ -126,10 +122,10 @@ async function main() {
     console.log("\n=== Deployment Complete ===");
     console.log("Global Config:", globalConfigPda.toString());
     console.log("Next steps:");
-    console.log("1. Add settlement operators with addSettlementOperator");
-    console.log("2. Add market operators with addOperator");
-    console.log("3. Add initial liquidity with addLiquidity");
-    console.log("4. Create markets with createMarket");
+    console.log("1. Add authorized operators with addOperator");
+    console.log("2. Create markets with createMarket and bind txlineFixtureId");
+    console.log("3. Open slips with placeSlipAwait");
+    console.log("4. Settle finalized markets with settleWithProof");
 
   } catch (error) {
     console.error("Deployment failed:", error);

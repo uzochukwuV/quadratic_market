@@ -55,7 +55,7 @@ function TradeContent() {
                   <div className="flex items-center gap-2 mb-2">
                     <span className="badge badge-live">● Live</span>
                     <span className="font-mono text-caption text-silver-text bg-white/[0.04] px-2 py-0.5 rounded border border-graphite">
-                      {market.market_mode === "Trading" ? "LMSR" : "Fixed Odds"}
+                      {market.market_mode === "Trading" ? "Slip" : "Fixed Odds"}
                     </span>
                   </div>
                   <h1 className="text-heading md:text-display text-white font-medium leading-tight">

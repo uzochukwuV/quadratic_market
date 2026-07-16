@@ -37,7 +37,7 @@ export const GET = async (req: Request) => {
     icon: `${new URL("/", req.url).toString()}`,
     label: `Sell ${outcome.toUpperCase()} Shares`,
     title: `Sell ${outcome.toUpperCase()} — Market ${marketId}`,
-    description: `Sell your ${outcome.toUpperCase()} shares back to the LMSR pool at the current market price. Proceeds sent instantly to your wallet.`,
+    description: `Sell your ${outcome.toUpperCase()} shares back at the current market price. Proceeds sent instantly to your wallet.`,
     links: {
       actions: [
         { type: "transaction", label: "Sell 10 shares", href: `/api/actions/sell-shares?market=${marketId}&outcome=${outcome}&shares=10` },

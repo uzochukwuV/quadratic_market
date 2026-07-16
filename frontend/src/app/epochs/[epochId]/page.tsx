@@ -271,7 +271,7 @@ export default function EpochDetailPage({ params }: { params: { epochId: string 
                   <div className="table-cell">
                     <div className="text-white font-medium truncate">{market.title}</div>
                     <div className="text-caption text-silver-text mt-0.5">
-                      {market.market_mode === "Trading" ? "LMSR" : "Fixed Odds"}
+                      {market.market_mode === "Trading" ? "Slip" : "Fixed Odds"}
                     </div>
                   </div>
                   <div className="table-cell">

@@ -33,7 +33,7 @@ export const GET = async (req: Request) => {
     icon: `${new URL("/", req.url).toString()}`,
     label: "Add Liquidity",
     title: "Provide Liquidity — Quadratic Market",
-    description: "Earn trading fees by providing liquidity to the Quadratic Market LMSR pool. Estimated APY: 18.4%. No lock-up period.",
+    description: "Earn trading fees by providing liquidity to the Quadratic Market pool. Estimated APY: 18.4%. No lock-up period.",
     links: {
       actions: [
         { type: "transaction", label: "Add 0.1 SOL", href: `/api/actions/add-liquidity?amount=0.1` },

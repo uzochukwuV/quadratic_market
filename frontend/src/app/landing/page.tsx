@@ -54,8 +54,8 @@ export default function LandingPage() {
             {[
               {
                 icon: "⚡",
-                title: "Fair Prices",
-                desc: "LMSR-based AMM ensures balanced, efficient pricing. No slippage surprises or market manipulation.",
+                title: "Fixed Odds",
+                desc: "Fixed odds are set per market and updated before kickoff. No AMM curve or slippage model.",
               },
               {
                 icon: "🔓",
@@ -145,8 +145,8 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {[
               {
-                title: "LMSR Pricing",
-                desc: "Logarithmic Market Scoring Rule (LMSR) ensures continuous liquidity and fair prices. The wider the outcome spread, the greater the information content.",
+                title: "Slip-Based Bets",
+                desc: "Slips record the match legs and defer pricing until execution time, so odds can update before start.",
               },
               {
                 title: "Epoch-Based Markets",
@@ -210,7 +210,7 @@ export default function LandingPage() {
                 title: "Fair Markets",
                 points: [
                   "No front-running or MEV attacks",
-                  "LMSR prevents manipulation",
+                  "Odds update before start",
                   "Decentralized price discovery",
                 ],
               },

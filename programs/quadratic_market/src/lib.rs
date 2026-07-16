@@ -249,13 +249,7 @@ pub mod quadratic_market {
         validation_input: StatValidationInput,
         strategy: NDimensionalStrategy,
     ) -> Result<()> {
-        update_market_odds_with_proof_handler(
-            ctx,
-            market_id,
-            new_odds,
-            validation_input,
-            strategy,
-        )
+        update_market_odds_with_proof_handler(ctx, market_id, new_odds, validation_input, strategy)
     }
 
     // ─── Bet Slip (New Decomposed System) ───────────────────────

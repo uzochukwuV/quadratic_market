@@ -224,7 +224,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
               { step: "01", title: "Connect", desc: "Link your Solana wallet (Phantom, Backpack, Solflare) in one click." },
-              { step: "02", title: "Choose", desc: "Browse events across sports, finance, crypto. Fair prices via LMSR." },
+              { step: "02", title: "Choose", desc: "Browse events across sports, finance, crypto. Odds are set per market." },
               { step: "03", title: "Trade", desc: "Buy YES or NO at any size. Instant settlement on Solana." },
               { step: "04", title: "Win", desc: "When oracle resolves, claim your share. Fully non-custodial." },
             ].map((item) => (

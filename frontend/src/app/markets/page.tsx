@@ -99,7 +99,7 @@ export default function MarketsPage() {
                 onClick={() => setMode(m)}
                 className={`filter-pill ${mode === m ? "active" : ""}`}
               >
-                {m === "All" ? "All Modes" : m === "FixedOdds" ? "Fixed Odds" : "LMSR"}
+                {m === "All" ? "All Modes" : m === "FixedOdds" ? "Fixed Odds" : "Slip Based"}
               </button>
             ))}
           </div>
@@ -209,7 +209,7 @@ export default function MarketsPage() {
                                 {market.status}
                               </span>
                               <span className="font-mono text-caption text-silver-text/60">
-                                {market.market_mode === "Trading" ? "LMSR" : "Fixed"}
+                                {market.market_mode === "Trading" ? "Slip" : "Fixed"}
                               </span>
                             </div>
                             <div className="font-mono text-caption text-silver-text/40 mt-0.5">

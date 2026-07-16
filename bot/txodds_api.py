@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 import json
+import base64
 from dataclasses import dataclass
 from typing import Optional
 from enum import Enum
@@ -75,6 +76,7 @@ class TxoddsOdds:
 class TxoddsScore:
     """Score record for settlement."""
     fixture_id: int
+    seq: Optional[int]
     home_score: int
     away_score: int
     status_id: int
@@ -336,6 +338,7 @@ class TxoddsApiClient:
         for item in data:
             scores.append(TxoddsScore(
                 fixture_id=item["fixtureId"],
+                seq=item.get("seq") or item.get("Seq"),
                 home_score=item.get("homeScore", 0),
                 away_score=item.get("awayScore", 0),
                 status_id=item.get("statusId", 0),
@@ -377,6 +380,147 @@ class TxoddsApiClient:
         
         return None
 
+    @staticmethod
+    def _to_bytes32(value: str | list[int] | bytes | bytearray | memoryview) -> list[int]:
+        if isinstance(value, str):
+            raw = value[2:] if value.startswith("0x") else value
+            if len(raw) == 64 and all(c in "0123456789abcdefABCDEF" for c in raw):
+                data = bytes.fromhex(raw)
+            else:
+                data = base64.b64decode(raw)
+        else:
+            data = bytes(value)
+        if len(data) != 32:
+            raise ValueError(f"Expected 32 bytes, got {len(data)}")
+        return list(data)
+
+    @staticmethod
+    def _to_proof_nodes(nodes: list[dict]) -> list[dict]:
+        return [
+            {
+                "hash": TxoddsApiClient._to_bytes32(node["hash"]),
+                "isRightSibling": bool(node.get("isRightSibling", node.get("is_right_sibling", False))),
+            }
+            for node in nodes
+        ]
+
+    async def build_final_settlement_proof(self, fixture_id: int) -> Optional[dict]:
+        """
+        Build the TxLINE V2 proof bundle used by settle_with_proof.
+
+        The bot validates the final score record with statKeys 1002 and 1003,
+        which matches the current devnet example shape and gives us a proof
+        payload that can be consumed by the on-chain Txoracle CPI.
+        """
+        scores = await self.get_scores_sequence(fixture_id)
+        final_record = next(
+            (
+                score
+                for score in scores
+                if score.action == "game_finalised" and score.status_id == 100 and score.period == 100
+            ),
+            None,
+        )
+        if final_record is None or final_record.seq is None:
+            return None
+
+        resp = await self._http.get(
+            "scores/stat-validation",
+            params={
+                "fixtureId": fixture_id,
+                "seq": final_record.seq,
+                "statKeys": "1002,1003",
+            },
+            headers=self._headers(),
+        )
+        if resp.status_code == 401:
+            await self.authenticate()
+            resp = await self._http.get(
+                "scores/stat-validation",
+                params={
+                    "fixtureId": fixture_id,
+                    "seq": final_record.seq,
+                    "statKeys": "1002,1003",
+                },
+                headers=self._headers(),
+            )
+        resp.raise_for_status()
+        validation = resp.json()
+
+        update_stats = validation["summary"]["updateStats"]
+        target_ts = int(update_stats["minTimestamp"])
+        stats_to_prove = validation.get("statsToProve", [])
+        stat_proofs = validation.get("statProofs", [])
+
+        payload = {
+            "ts": target_ts,
+            "fixtureSummary": {
+                "fixtureId": int(validation["summary"]["fixtureId"]),
+                "updateStats": {
+                    "updateCount": int(update_stats["updateCount"]),
+                    "minTimestamp": target_ts,
+                    "maxTimestamp": int(update_stats["maxTimestamp"]),
+                },
+                "eventsSubTreeRoot": self._to_bytes32(
+                    validation["summary"].get("eventStatsSubTreeRoot", validation["summary"].get("eventsSubTreeRoot"))
+                ),
+            },
+            "fixtureProof": self._to_proof_nodes(validation.get("subTreeProof", [])),
+            "mainTreeProof": self._to_proof_nodes(validation.get("mainTreeProof", [])),
+            "eventStatRoot": self._to_bytes32(validation["eventStatRoot"]),
+            "stats": [
+                {
+                    "stat": stat,
+                    "statProof": self._to_proof_nodes(stat_proofs[index]),
+                }
+                for index, stat in enumerate(stats_to_prove)
+            ],
+        }
+
+        if len(stats_to_prove) < 2:
+            raise ValueError("TxLINE settlement proof requires at least two stats")
+
+        strategy = {
+            "geometricTargets": [],
+            "distancePredicate": None,
+            "discretePredicates": [
+                {
+                    "single": {
+                        "index": 0,
+                        "predicate": {
+                            "threshold": int(stats_to_prove[0]["value"]),
+                            "comparison": {"equalTo": {}},
+                        },
+                    }
+                },
+                {
+                    "single": {
+                        "index": 1,
+                        "predicate": {
+                            "threshold": int(stats_to_prove[1]["value"]),
+                            "comparison": {"equalTo": {}},
+                        },
+                    }
+                },
+            ],
+        }
+
+        proposed_outcome = 0
+        if final_record.home_score < final_record.away_score:
+            proposed_outcome = 2
+        elif final_record.home_score == final_record.away_score:
+            proposed_outcome = 1
+
+        return {
+            "seq": final_record.seq,
+            "validation_timestamp": target_ts,
+            "home_score": final_record.home_score,
+            "away_score": final_record.away_score,
+            "proposed_outcome": proposed_outcome,
+            "validation_input": payload,
+            "strategy": strategy,
+        }
+
     async def get_scores_sequence(self, fixture_id: int) -> list[TxoddsScore]:
         """Get the full sequence of score updates."""
         resp = await self._http.get(
@@ -398,6 +542,7 @@ class TxoddsApiClient:
         for item in data:
             scores.append(TxoddsScore(
                 fixture_id=item["fixtureId"],
+                seq=item.get("seq") or item.get("Seq"),
                 home_score=item.get("homeScore", 0),
                 away_score=item.get("awayScore", 0),
                 status_id=item.get("statusId", 0),

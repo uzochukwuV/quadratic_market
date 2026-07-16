@@ -132,7 +132,6 @@ npx ts-mocha \
   -t 1000000 \
   "tests/security_tests.ts" \
   "tests/order_book_test.ts" \
-  "tests/lmsr_integration_test.ts" \
   2>&1 || TEST_EXIT=$?
 
 # ── 6. Clean up ───────────────────────────────────────────

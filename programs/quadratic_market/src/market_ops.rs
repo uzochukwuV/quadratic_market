@@ -2,7 +2,9 @@ use crate::constants::{
     seeds, BASE_MINT_DECIMALS, MAX_DESCRIPTION_LEN, MAX_OUTCOMES, MAX_TITLE_LEN,
 };
 use crate::errors::QuadraticMarketError;
-use crate::settlement_with_proof::{validate_txoracle_proof, NDimensionalStrategy, StatValidationInput};
+use crate::settlement_with_proof::{
+    validate_txoracle_proof, NDimensionalStrategy, StatValidationInput,
+};
 use crate::state::{Epoch, GlobalConfig, Market, MarketStatus, MarketType};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token};
