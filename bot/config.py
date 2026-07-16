@@ -18,6 +18,15 @@ def _optional(key: str, default: str) -> str:
     return os.getenv(key, default)
 
 
+def _require_any(keys: tuple[str, ...]) -> str:
+    for key in keys:
+        val = os.getenv(key)
+        if val:
+            return val
+    joined = " / ".join(keys)
+    raise RuntimeError(f"Required env var {joined!r} is not set. Copy .env.example to .env and fill it in.")
+
+
 def _keypair_path(key: str) -> Path:
     raw = _require(key)
     p = Path(raw).expanduser()
@@ -41,7 +50,7 @@ ORACLE_KEYPAIR_PATH: Path = _keypair_path("ORACLE_KEYPAIR_PATH")
 
 # ─── Txodds API ──────────────────────────────────────────────────────────────
 
-TXODDS_API_KEY: str = _require("TXODDS_API_KEY")
+TXODDS_API_KEY: str = _require_any(("TXODDS_API_KEY", "ODDS_API_KEY"))
 TXODDS_NETWORK: str = os.getenv("TXODDS_NETWORK", "devnet")  # "devnet" or "mainnet"
 
 # Sports to track (comma-separated)

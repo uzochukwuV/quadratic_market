@@ -12,3 +12,8 @@ codegen-units = 1
 opt-level = 3
 incremental = false
 codegen-units = 1
+
+[patch.crates-io]
+anchor-spl = { path = "vendor/anchor-spl-0.28.0" }
+spl-associated-token-account = { path = "vendor/spl-associated-token-account-1.1.2" }
+spl-token-2022 = { path = "vendor/spl-token-2022-0.5.0" }

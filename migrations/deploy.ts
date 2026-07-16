@@ -70,9 +70,23 @@ async function main() {
       )
       .accountsStrict({
         globalConfig: globalConfigPda,
-        lpMint: lpMintPda,
         treasury: treasuryPda,
         baseMint: baseMint,
+        admin: admin,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([])
+      .rpc();
+
+    console.log("Protocol initialized!");
+    console.log("Transaction:", initializeTx);
+
+    console.log("\n1b. Initializing LP mint...");
+    const lpMintTx = await program.methods
+      .initializeLpMint()
+      .accountsStrict({
+        globalConfig: globalConfigPda,
+        lpMint: lpMintPda,
         admin: admin,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -81,8 +95,8 @@ async function main() {
       .signers([])
       .rpc();
 
-    console.log("Protocol initialized!");
-    console.log("Transaction:", initializeTx);
+    console.log("LP mint initialized!");
+    console.log("Transaction:", lpMintTx);
 
   // 2. Initialize the first epoch
   console.log("\n2. Initializing first epoch...");

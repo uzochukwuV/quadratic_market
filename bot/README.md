@@ -2,12 +2,12 @@
 
 Automates the full market lifecycle using Txodds API:
 
-1. **Create Markets** — fetches fixtures from Txodds, creates 3 markets per match:
+1. **Create Markets** — fetches fixtures from TxODDS, creates 3 markets per match:
    - 1X2 (3-way: Home, Draw, Away)
    - O/U 2.5 (2-way: Over, Under)
    - GG/NG (2-way: GG, NG)
 
-2. **Update Odds** — fetches latest odds from Txodds, updates market odds until match start
+2. **Update Odds** — fetches latest odds from TxODDS, updates market odds until match start
 
 3. **Suspend** — at `start_time`, suspends markets (no more bets)
 
@@ -16,8 +16,6 @@ Automates the full market lifecycle using Txodds API:
 5. **Execute Slips** — backend executes bet slip legs (separate transaction per leg)
 
 6. **Resolve Slips** — settles slip legs and resolves slips after all markets finalize
-
-7. **Advance Epoch** — advances epoch when all markets in epoch are settled
 
 ## Setup
 
@@ -29,7 +27,7 @@ cp .env.example .env
 pip install -r requirements.txt
 ```
 
-Get a Txodds API key at https://txline.txodds.com (free tier available).
+Get a TxODDS API key at https://txline.txodds.com (free tier available).
 
 ## Keypairs
 
@@ -78,7 +76,7 @@ Match Ends
     ↓
 TxLINE API: Fetch Final Score (action=game_finalised)
     ↓
-Bot calls settle_with_proof(...)
+Bot calls `settle_with_proof(...)`
     ↓
 On-Chain: Validates proof, settles market
     ↓

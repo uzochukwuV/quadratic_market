@@ -12,6 +12,32 @@ import { assert } from "chai";
 
 const TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
 const ATA_PROGRAM  = ASSOCIATED_TOKEN_PROGRAM_ID;
+const anchorMethods = require("@coral-xyz/anchor/dist/cjs/program/namespace/methods.js");
+
+function snakeToCamel(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map(snakeToCamel);
+  }
+  if (!value || typeof value !== "object" || value._bn) {
+    return value;
+  }
+  const out: Record<string, any> = {};
+  for (const [key, inner] of Object.entries(value)) {
+    const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    out[camelKey] = snakeToCamel(inner);
+  }
+  return out;
+}
+
+const originalAccountsPartial = anchorMethods.MethodsBuilder.prototype.accountsPartial;
+anchorMethods.MethodsBuilder.prototype.accountsPartial = function (accounts: any) {
+  return originalAccountsPartial.call(this, snakeToCamel(accounts));
+};
+
+const originalAccountsStrict = anchorMethods.MethodsBuilder.prototype.accountsStrict;
+anchorMethods.MethodsBuilder.prototype.accountsStrict = function (accounts: any) {
+  return originalAccountsStrict.call(this, snakeToCamel(accounts));
+};
 
 // ─── Shared helpers ──────────────────────────────────────────────
 
@@ -90,13 +116,69 @@ describe("Security: fixed vulnerabilities", () => {
     await airdrop(provider, trader.publicKey, 5);
     await airdrop(provider, attacker.publicKey, 5);
 
-    // Read base mint from the already-initialized global config
-    const cfg0 = await program.account.globalConfig.fetch(globalConfigPda);
+    let cfg0;
+    try {
+      cfg0 = await program.account.globalConfig.fetch(globalConfigPda);
+    } catch (_) {
+      baseMint = await createMint(
+        provider.connection,
+        admin,
+        admin.publicKey,
+        null,
+        6,
+      );
+
+      await program.methods
+        .initialize(Array.from(oracle.publicKey.toBytes()), new anchor.BN(1_000_000_000_000))
+        .accounts({
+          global_config: globalConfigPda,
+          treasury: treasuryPda,
+          base_mint: baseMint,
+          admin: admin.publicKey,
+          system_program: SystemProgram.programId,
+        })
+        .signers([admin])
+        .rpc();
+
+      await program.methods
+        .initializeLpMint()
+        .accountsStrict({
+          globalConfig: globalConfigPda,
+          lpMint: lpMintPda,
+          admin: admin.publicKey,
+          tokenProgram: TOKEN_PROGRAM,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([admin])
+        .rpc();
+
+      adminBaseAta = getAssociatedTokenAddressSync(baseMint, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
+      await provider.sendAndConfirm(
+        new Transaction().add(createAssociatedTokenAccountInstruction(
+          provider.wallet.publicKey, adminBaseAta, admin.publicKey, baseMint, TOKEN_PROGRAM, ATA_PROGRAM
+        )),
+        []
+      );
+      await mintTo(provider.connection, admin, baseMint, adminBaseAta, admin, 1_000_000_000_000_000);
+      cfg0 = await program.account.globalConfig.fetch(globalConfigPda);
+    }
+
     baseMint = cfg0.baseMint;
     treasuryBaseAta = getAssociatedTokenAddressSync(baseMint, treasuryPda, true, TOKEN_PROGRAM, ATA_PROGRAM);
 
-    // Admin ATA was funded by protocol_tests — transfer from it to fund participants
+    // Admin ATA is the source of liquidity and trader funding.
     adminBaseAta = getAssociatedTokenAddressSync(baseMint, admin.publicKey, false, TOKEN_PROGRAM, ATA_PROGRAM);
+    try {
+      await getAccount(provider.connection, adminBaseAta);
+    } catch (_) {
+      await provider.sendAndConfirm(
+        new Transaction().add(createAssociatedTokenAccountInstruction(
+          provider.wallet.publicKey, adminBaseAta, admin.publicKey, baseMint, TOKEN_PROGRAM, ATA_PROGRAM
+        )),
+        []
+      );
+    }
     lp1BaseAta      = await fundFromAdmin(provider, lp1,      baseMint, adminBaseAta, 30_000_000);
     traderBaseAta   = await fundFromAdmin(provider, trader,   baseMint, adminBaseAta, 20_000_000);
     attackerBaseAta = await fundFromAdmin(provider, attacker, baseMint, adminBaseAta, 20_000_000);

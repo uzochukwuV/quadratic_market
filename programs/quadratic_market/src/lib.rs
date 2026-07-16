@@ -47,7 +47,11 @@ pub mod quadratic_market {
         oracle_pubkey: [u8; 32],
         max_market_exposure: u64,
     ) -> Result<()> {
-        handler(ctx, oracle_pubkey, max_market_exposure)
+        initialize_handler(ctx, oracle_pubkey, max_market_exposure)
+    }
+
+    pub fn initialize_lp_mint(ctx: Context<InitializeLpMint>) -> Result<()> {
+        initialize_lp_mint_handler(ctx)
     }
 
     // ─── Admin ────────────────────────────────────────────────

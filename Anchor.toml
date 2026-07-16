@@ -1,14 +1,14 @@
 [toolchain]
-address = "https://github.com/solana-foundation/solana"
+solana_version = "1.16.25"
 
 [programs.localnet]
-quadratic_market = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA"
+quadratic_market = { idl = "target/idl/quadratic_market.json", address = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA" }
 
 [programs.devnet]
-quadratic_market = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA"
+quadratic_market = { idl = "target/idl/quadratic_market.json", address = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA" }
 
 [programs.mainnet]
-quadratic_market = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA"
+quadratic_market = { idl = "target/idl/quadratic_market.json", address = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA" }
 
 [provider]
 cluster = "devnet"

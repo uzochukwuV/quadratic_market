@@ -7,8 +7,8 @@
 #   3. Clean up
 # ─────────────────────────────────────────────────────────────
 
-# Program ID from Anchor.toml
-PROGRAM_ID="4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA"
+# Program ID from env, falling back to the Anchor.toml value for the protocol.
+PROGRAM_ID="${PROGRAM_ID:-4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA}"
 PROGRAM_SO="target/deploy/quadratic_market.so"
 
 # Ensure the script uses the rustup-managed Cargo/Anchor and the Solana CLI.

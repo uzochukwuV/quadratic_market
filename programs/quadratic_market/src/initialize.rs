@@ -1,7 +1,7 @@
 use crate::constants::{
     seeds, DEFAULT_CHALLENGE_WINDOW, DEFAULT_EPOCH_DURATION_SECONDS, DEFAULT_HOUSE_FEE_BPS,
     DEFAULT_MAX_ODDS_BPS, DEFAULT_MAX_SINGLE_BET, DEFAULT_MIN_ODDS_BPS,
-    DEFAULT_SETTLEMENT_DEADLINE, DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS, MAX_OPERATORS,
+    DEFAULT_SETTLEMENT_DEADLINE, DEFAULT_WITHDRAWAL_COOLDOWN_SECONDS,
     MIN_FIRST_LIQUIDITY,
 };
 use crate::state::GlobalConfig;
@@ -19,18 +19,9 @@ pub struct Initialize<'info> {
     )]
     pub global_config: Account<'info, GlobalConfig>,
 
-    #[account(
-        init,
-        payer = admin,
-        seeds = [seeds::LP_MINT],
-        bump,
-        mint::decimals = 6,
-        mint::authority = global_config,
-    )]
-    pub lp_mint: Account<'info, Mint>,
-
     /// CHECK: Treasury PDA — owns token accounts, no data needed
     #[account(
+        mut,
         seeds = [seeds::TREASURY],
         bump,
     )]
@@ -41,12 +32,10 @@ pub struct Initialize<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
 }
 
-pub fn handler(
+pub fn initialize_config_handler(
     ctx: Context<Initialize>,
     oracle_pubkey: [u8; 32],
     max_market_exposure: u64,
@@ -59,7 +48,7 @@ pub fn handler(
     config.max_market_exposure = max_market_exposure;
     config.locked_payouts = 0;
     config.total_lp_supply = 0;
-    config.lp_mint = ctx.accounts.lp_mint.key();
+    config.lp_mint = Pubkey::default();
     config.base_mint = ctx.accounts.base_mint.key();
     config.treasury = ctx.accounts.treasury.key();
     config.treasury_bump = *ctx.bumps.get("treasury").unwrap();
@@ -75,14 +64,53 @@ pub fn handler(
     config.min_odds_bps = DEFAULT_MIN_ODDS_BPS;
     config.max_odds_bps = DEFAULT_MAX_ODDS_BPS;
     config.house_fee_bps = DEFAULT_HOUSE_FEE_BPS;
-    config.operators = [Pubkey::default(); MAX_OPERATORS];
     config.num_operators = 0;
     config.bump = *ctx.bumps.get("global_config").unwrap();
     config.next_order_id = 1;
     config.order_collateral_locked = 0;
-    // Epoch state: start unpaused, epoch 0, next epoch starts one duration from now
     config.epoch_paused = false;
-    config.next_epoch_start = 0; // will be set when first epoch is initialized
+    config.next_epoch_start = 0;
 
     Ok(())
+}
+
+#[derive(Accounts)]
+pub struct InitializeLpMint<'info> {
+    #[account(
+        mut,
+        seeds = [seeds::GLOBAL_CONFIG],
+        bump = global_config.bump,
+    )]
+    pub global_config: Account<'info, GlobalConfig>,
+
+    #[account(
+        init,
+        payer = admin,
+        seeds = [seeds::LP_MINT],
+        bump,
+        mint::decimals = 6,
+        mint::authority = global_config,
+    )]
+    pub lp_mint: Account<'info, Mint>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+pub fn initialize_lp_mint_handler(ctx: Context<InitializeLpMint>) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+    config.lp_mint = ctx.accounts.lp_mint.key();
+    Ok(())
+}
+
+pub fn initialize_handler(
+    ctx: Context<Initialize>,
+    oracle_pubkey: [u8; 32],
+    max_market_exposure: u64,
+) -> Result<()> {
+    initialize_config_handler(ctx, oracle_pubkey, max_market_exposure)
 }
