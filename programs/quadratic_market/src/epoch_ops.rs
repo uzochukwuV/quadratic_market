@@ -1,13 +1,9 @@
+use crate::constants::{seeds, MIN_FIRST_LIQUIDITY, SCALE};
+use crate::errors::QuadraticMarketError;
+use crate::state::{Epoch, EpochLpPosition, EpochVault, GlobalConfig};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Token, TokenAccount};
-use crate::state::{GlobalConfig, Epoch, EpochVault, EpochLpPosition};
-use crate::errors::QuadraticMarketError;
-use crate::constants::{
-    seeds,
-    SCALE,
-    MIN_FIRST_LIQUIDITY,
-};
 
 // ─── Init Epoch ────────────────────────────────────────────────
 // Creates the on-chain Epoch account for `global_config.current_epoch`.
@@ -82,60 +78,6 @@ pub fn init_epoch_handler(ctx: Context<InitEpoch>) -> Result<()> {
     Ok(())
 }
 
-// ─── Advance Epoch ─────────────────────────────────────────────
-// Moves global_config.current_epoch forward by one and unpauses the
-// epoch gate. Called by admin after all markets in the previous epoch
-// have settled and LPs have had time to withdraw.
-// The caller must then call init_epoch to create the new epoch account.
-
-#[derive(Accounts)]
-pub struct AdvanceEpoch<'info> {
-    #[account(
-        mut,
-        seeds = [seeds::GLOBAL_CONFIG],
-        bump = global_config.bump,
-    )]
-    pub global_config: Account<'info, GlobalConfig>,
-
-    /// Previous epoch — must be fully settled before we can advance.
-    #[account(
-        seeds = [seeds::EPOCH, global_config.current_epoch.to_le_bytes().as_ref()],
-        bump = prev_epoch.bump,
-    )]
-    pub prev_epoch: Account<'info, Epoch>,
-
-    pub admin: Signer<'info>,
-}
-
-pub fn advance_epoch_handler(ctx: Context<AdvanceEpoch>) -> Result<()> {
-    let config = &mut ctx.accounts.global_config;
-
-    require!(
-        ctx.accounts.admin.key() == config.admin,
-        QuadraticMarketError::Unauthorized
-    );
-
-    let prev = &ctx.accounts.prev_epoch;
-    require!(
-        prev.num_markets == 0 || prev.all_markets_settled,
-        QuadraticMarketError::EpochNotComplete
-    );
-
-    config.current_epoch = config.current_epoch
-        .checked_add(1)
-        .ok_or(QuadraticMarketError::MathOverflow)?;
-
-    config.epoch_paused = false;
-
-    let now = Clock::get()?.unix_timestamp;
-    if config.epoch_duration_seconds > 0 {
-        let epoch_start = (now / config.epoch_duration_seconds) * config.epoch_duration_seconds;
-        config.next_epoch_start = epoch_start + config.epoch_duration_seconds;
-    }
-
-    Ok(())
-}
-
 // ─── Pause Epoch ───────────────────────────────────────────────
 // Admin-only. Blocks new deposits, withdrawals, and market creation.
 // Used to freeze activity between epochs while markets settle.
@@ -196,8 +138,8 @@ pub fn unpause_epoch_handler(ctx: Context<UnpauseEpoch>) -> Result<()> {
 
 // ─── Close Epoch ───────────────────────────────────────────────
 // Explicitly marks an epoch as closed and enables LP withdrawals.
-// Normally withdrawals are auto-enabled when the last market settles
-// (in finalize_result). This is a manual override for edge cases
+// Normally withdrawals are auto-enabled when the last market settles.
+// This is a manual override for edge cases
 // (e.g. all markets voided, epoch has zero markets).
 
 #[derive(Accounts)]
@@ -397,11 +339,6 @@ pub fn opt_in_epoch_liquidity_handler(
     };
 
     // Transfer tokens to epoch vault
-    let vault_seeds: &[&[&[u8]]] = &[&[
-        seeds::EPOCH_VAULT,
-        epoch_id.to_le_bytes().as_ref(),
-        &[vault.bump],
-    ]];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -416,10 +353,12 @@ pub fn opt_in_epoch_liquidity_handler(
     )?;
 
     // Update vault
-    vault.total_deposits = vault.total_deposits
+    vault.total_deposits = vault
+        .total_deposits
         .checked_add(amount)
         .ok_or(QuadraticMarketError::MathOverflow)?;
-    vault.total_shares = vault.total_shares
+    vault.total_shares = vault
+        .total_shares
         .checked_add(shares_to_mint)
         .ok_or(QuadraticMarketError::MathOverflow)?;
     vault.num_lps += 1;
@@ -494,7 +433,10 @@ pub fn withdraw_epoch_liquidity_handler(
         vault.withdrawals_enabled,
         QuadraticMarketError::EpochWithdrawalsNotEnabled
     );
-    require!(!position.withdrawn, QuadraticMarketError::InsufficientLpShares);
+    require!(
+        !position.withdrawn,
+        QuadraticMarketError::InsufficientLpShares
+    );
     require!(
         position.shares >= shares,
         QuadraticMarketError::InsufficientLpShares
@@ -504,13 +446,11 @@ pub fn withdraw_epoch_liquidity_handler(
     let share_price = vault.share_price();
     let withdrawal_amount = ((shares as u128) * (share_price as u128) / SCALE as u128) as u64;
 
-    require!(
-        withdrawal_amount > 0,
-        QuadraticMarketError::InvalidAmount
-    );
+    require!(withdrawal_amount > 0, QuadraticMarketError::InvalidAmount);
 
     // Burn shares
-    position.shares = position.shares
+    position.shares = position
+        .shares
         .checked_sub(shares)
         .ok_or(QuadraticMarketError::MathUnderflow)?;
 
@@ -519,20 +459,18 @@ pub fn withdraw_epoch_liquidity_handler(
     }
 
     // Update vault
-    vault.total_shares = vault.total_shares
+    vault.total_shares = vault
+        .total_shares
         .checked_sub(shares)
         .ok_or(QuadraticMarketError::MathUnderflow)?;
-    vault.total_withdrawals = vault.total_withdrawals
+    vault.total_withdrawals = vault
+        .total_withdrawals
         .checked_add(withdrawal_amount)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
     // Transfer tokens to LP
     let epoch_id_bytes = epoch_id.to_le_bytes();
-    let vault_seeds: &[&[&[u8]]] = &[&[
-        seeds::EPOCH_VAULT,
-        epoch_id_bytes.as_ref(),
-        &[vault.bump],
-    ]];
+    let vault_seeds: &[&[&[u8]]] = &[&[seeds::EPOCH_VAULT, epoch_id_bytes.as_ref(), &[vault.bump]]];
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -598,9 +536,7 @@ pub fn enable_epoch_withdrawals_handler(
 
     vault.withdrawals_enabled = true;
 
-    emit!(EpochWithdrawalsEnabled {
-        epoch_id,
-    });
+    emit!(EpochWithdrawalsEnabled { epoch_id });
 
     Ok(())
 }

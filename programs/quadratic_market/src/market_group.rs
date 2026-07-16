@@ -1,7 +1,7 @@
-use anchor_lang::prelude::*;
-use crate::state::{GlobalConfig, Market, MarketGroup};
-use crate::errors::QuadraticMarketError;
 use crate::constants::{seeds, MAX_GROUP_MARKETS};
+use crate::errors::QuadraticMarketError;
+use crate::state::{GlobalConfig, Market, MarketGroup};
+use anchor_lang::prelude::*;
 
 // ─── Create Market Group ───────────────────────────────────────
 
