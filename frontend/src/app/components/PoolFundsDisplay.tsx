@@ -1,7 +1,7 @@
 "use client";
 
 import type { MarketAccount } from "@/lib/types";
-import { getMarketPrices } from "@/lib/mockData";
+import { getMarketPrices } from "@/lib/contract";
 
 export function PoolFundsDisplay({ market }: { market: MarketAccount }) {
   const prices = getMarketPrices(market);

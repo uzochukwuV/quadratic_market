@@ -1,14 +1,18 @@
 // Solana client utilities
 // These functions avoid executing Solana SDK code at module level to prevent SSG errors
+import { frontendEnv } from "./env";
 
 // Program ID as constant string
-export const PROGRAM_ID_STRING = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA";
+export const PROGRAM_ID_STRING = frontendEnv.programId;
 
 // PDA seed constants as strings
 export const GLOBAL_CONFIG_SEED = "global_config";
 export const EPOCH_SEED = "epoch";
 export const MARKET_SEED = "market";
 export const MARKET_GROUP_SEED = "market_group";
+export const SLIP_SEED = "slip";
+export const EPOCH_VAULT_SEED = "epoch_vault";
+export const EPOCH_LP_POSITION_SEED = "epoch_lp_position";
 
 // Import these lazily to avoid SSG issues
 let _PublicKey: any = null;
@@ -32,7 +36,7 @@ function getProgramId() {
 
 // Get program address as string
 export function getProgramAddress(): string {
-  return PROGRAM_ID_STRING;
+  return frontendEnv.programId;
 }
 
 // Derive global config PDA
@@ -57,6 +61,17 @@ export function deriveMarket(marketId: number): any {
   )[0];
 }
 
+export function deriveMarketGroup(groupId: number): any {
+  const PK = getPublicKey();
+  const PROGRAM_ID = getProgramId();
+  const groupIdBuffer = Buffer.alloc(8);
+  groupIdBuffer.writeBigUInt64LE(BigInt(groupId));
+  return PK.findProgramAddressSync(
+    [Buffer.from(MARKET_GROUP_SEED), groupIdBuffer],
+    PROGRAM_ID
+  )[0];
+}
+
 // Derive epoch PDA
 export function deriveEpoch(epochId: number): any {
   const PK = getPublicKey();
@@ -70,7 +85,7 @@ export function deriveEpoch(epochId: number): any {
 }
 
 // Connection URL
-export const connectionUrl = "https://api.devnet.solana.com";
+export const connectionUrl = frontendEnv.rpcUrl;
 
 // Token program constant
 export const TOKEN_PROGRAM_STRING = "TokenkegQfeZyiNwAjbOdcfLS7PLN3NBuHTL8J5Cw4";

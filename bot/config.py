@@ -27,6 +27,22 @@ def _require_any(keys: tuple[str, ...]) -> str:
     raise RuntimeError(f"Required env var {joined!r} is not set. Copy .env.example to .env and fill it in.")
 
 
+def _read_pubkey_from_file(key: str) -> str:
+    raw = _require(key)
+    p = Path(raw).expanduser()
+    if not p.exists():
+        raise RuntimeError(f"Pubkey file {p} (from {key}) does not exist.")
+    return p.read_text().strip()
+
+
+def _read_text_from_file(key: str) -> str:
+    raw = _require(key)
+    p = Path(raw).expanduser()
+    if not p.exists():
+        raise RuntimeError(f"Text file {p} (from {key}) does not exist.")
+    return p.read_text().strip()
+
+
 def _keypair_path(key: str) -> Path:
     raw = _require(key)
     p = Path(raw).expanduser()
@@ -41,7 +57,12 @@ NETWORK: str = os.getenv("NETWORK", "devnet")  # "devnet" or "mainnet"
 
 RPC_URL: str = os.getenv("RPC_URL", "https://api.devnet.solana.com")
 PROGRAM_ID: str = _require("PROGRAM_ID")
-BASE_MINT: str = _require("BASE_MINT")
+BASE_MINT: str = os.getenv("BASE_MINT", "").strip()
+BASE_MINT_FILE: str = os.getenv("BASE_MINT_FILE", "").strip()
+if not BASE_MINT and BASE_MINT_FILE:
+    BASE_MINT = _read_pubkey_from_file("BASE_MINT_FILE")
+if not BASE_MINT:
+    BASE_MINT = _require("BASE_MINT")
 
 # ─── Keys ──────────────────────────────────────────────────────────────────
 
@@ -50,7 +71,11 @@ ORACLE_KEYPAIR_PATH: Path = _keypair_path("ORACLE_KEYPAIR_PATH")
 
 # ─── Txodds API ──────────────────────────────────────────────────────────────
 
-TXODDS_API_KEY: str = _require_any(("TXODDS_API_KEY", "ODDS_API_KEY"))
+TXODDS_API_TOKEN: str = os.getenv("TXODDS_API_TOKEN", "").strip()
+TXODDS_API_TOKEN_FILE: str = os.getenv("TXODDS_API_TOKEN_FILE", "").strip()
+if not TXODDS_API_TOKEN and TXODDS_API_TOKEN_FILE:
+    TXODDS_API_TOKEN = _read_text_from_file("TXODDS_API_TOKEN_FILE")
+TXODDS_API_KEY: str = TXODDS_API_TOKEN or _require_any(("TXODDS_API_KEY", "ODDS_API_KEY"))
 TXODDS_NETWORK: str = os.getenv("TXODDS_NETWORK", "devnet")  # "devnet" or "mainnet"
 
 # Sports to track (comma-separated)

@@ -5,6 +5,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
 import idl from "@/lib/idl.json";
+import { frontendEnv } from "@/lib/env";
 import {
   deriveGlobalConfig,
   deriveMarket,
@@ -28,7 +29,7 @@ export interface MarketAccount {
   category: string;
   status: "Open" | "Closed" | "Settled";
   epoch_id: number;
-  lmsr_b: number;
+  price_scale: number;
   exposure: number;
   num_outcomes: number;
   settlement_time: number;
@@ -37,7 +38,10 @@ export interface MarketAccount {
   winning_outcome?: number;
 }
 
-const IDL = idl as any;
+const IDL = {
+  ...(idl as any),
+  address: frontendEnv.programId,
+};
 
 export function useProgram() {
   const { connection } = useConnection();
@@ -49,11 +53,14 @@ export function useProgram() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!connection) return;
+    if (!connection) {
+      setLoading(false);
+      return;
+    }
     
     try {
       const wallet = {
-        publicKey: publicKey || PublicKey.default,
+        publicKey: publicKey || new PublicKey("11111111111111111111111111111111"),
         signTransaction: signTransaction || (async (tx: Transaction) => tx),
         signAllTransactions: signAllTransactions || (async (txs: Transaction[]) => txs),
       };
@@ -230,7 +237,7 @@ export function useAddLiquidity() {
       const globalConfig = deriveGlobalConfig();
       const pendingLiquidity = PublicKey.findProgramAddressSync(
         [Buffer.from("pending_liquidity"), publicKey.toBuffer()],
-        new PublicKey(PROGRAM_ID_STRING)
+        new PublicKey(frontendEnv.programId)
       )[0];
 
       const tx = await program.methods

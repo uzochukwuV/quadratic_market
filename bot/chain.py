@@ -495,6 +495,47 @@ class ChainClient:
         log.info("buy_leg_for_slip", slip_id=slip_id, leg_index=leg_index, sig=str(sig))
         return str(sig)
 
+    async def place_slip_await(
+        self,
+        owner: Keypair,
+        legs: list[dict[str, int]],
+        stake: int,
+        cancel_deadline: int,
+    ) -> tuple[int, str]:
+        """
+        Create a slip that records its legs first, then executes them later.
+        Returns (slip_id, signature).
+        """
+        cfg = await self.fetch_global_config()
+        slip_id = int(cfg.next_slip_id)
+        slip_account_pda, _ = slip_pda(self.program_id, slip_id)
+
+        owner_base_ata = await self.ensure_associated_token_account(owner.pubkey(), self.base_mint)
+        treasury_base_ata = await self.ensure_associated_token_account(self.treasury, self.base_mint)
+
+        sig = await self.program.rpc["place_slip_await"](
+            legs,
+            stake,
+            cancel_deadline,
+            ctx=Context(
+                accounts={
+                    "global_config": self.global_config,
+                    "slip": slip_account_pda,
+                    "treasury": self.treasury,
+                    "owner_base_ata": owner_base_ata,
+                    "treasury_base_ata": treasury_base_ata,
+                    "base_mint": self.base_mint,
+                    "owner": owner.pubkey(),
+                    "token_program": TOKEN_PROGRAM_ID,
+                    "associated_token_program": ASSOCIATED_TOKEN_PROGRAM_ID,
+                    "system_program": SYS_PROGRAM_ID,
+                },
+                signers=[owner],
+            ),
+        )
+        log.info("place_slip_await", slip_id=slip_id, sig=str(sig))
+        return slip_id, str(sig)
+
     async def settle_slip_leg(
         self,
         slip_id: int,

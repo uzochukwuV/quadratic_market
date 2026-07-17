@@ -6,7 +6,7 @@ import { SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js"
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { QuadraticMarket } from "../target/types/quadratic_market";
 
-const PROGRAM_ID = new PublicKey("4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA");
+const PROGRAM_ID = new PublicKey("FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN");
 
 function normalizeIdl(value: any): any {
   if (Array.isArray(value)) {

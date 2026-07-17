@@ -2,17 +2,17 @@
 solana_version = "1.16.25"
 
 [programs.localnet]
-quadratic_market = { idl = "target/idl/quadratic_market.json", address = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA" }
+quadratic_market = { idl = "target/idl/quadratic_market.json", address = "FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN" }
 
 [programs.devnet]
-quadratic_market = { idl = "target/idl/quadratic_market.json", address = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA" }
+quadratic_market = { idl = "target/idl/quadratic_market.json", address = "FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN" }
 
 [programs.mainnet]
-quadratic_market = { idl = "target/idl/quadratic_market.json", address = "4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA" }
+quadratic_market = { idl = "target/idl/quadratic_market.json", address = "FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN" }
 
 [provider]
 cluster = "devnet"
-wallet = "devnet-wallet.json"
+wallet = "_keys/deploy-wallet.json"
 
 [scripts]
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""

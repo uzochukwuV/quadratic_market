@@ -26,6 +26,38 @@ export interface EpochAccount {
   lp_shares_at_close: number;
 }
 
+export interface GlobalConfigAccount {
+  admin: string;
+  paused: boolean;
+  oracle_pubkey: string;
+  max_market_exposure: number;
+  locked_payouts: number;
+  total_lp_supply: number;
+  lp_mint: string;
+  base_mint: string;
+  treasury: string;
+  treasury_bump: number;
+  next_market_id: number;
+  challenge_window_seconds: number;
+  settlement_deadline_seconds: number;
+  min_first_liquidity: number;
+  next_slip_id: number;
+  current_epoch: number;
+  epoch_duration_seconds: number;
+  withdrawal_cooldown_seconds: number;
+  max_single_bet: number;
+  min_odds_bps: number;
+  max_odds_bps: number;
+  house_fee_bps: number;
+  operators: string[];
+  num_operators: number;
+  bump: number;
+  next_order_id: number;
+  order_collateral_locked: number;
+  epoch_paused: boolean;
+  next_epoch_start: number;
+}
+
 export interface MarketAccount {
   market_id: number;
   epoch_id: number;
@@ -35,13 +67,46 @@ export interface MarketAccount {
   status: MarketStatus;
   market_mode: MarketMode;
   num_outcomes: number;
-  q_values: number[];
-  lmsr_b: number;
+  price_points: number[];
+  price_scale: number;
   exposure: number;
   start_time: number;
   settlement_time: number;
   winning_outcome: number;
   group_id?: number;
+}
+
+export interface MarketGroupAccount {
+  group_id: number;
+  title: string;
+  description: string;
+  category: string;
+  event_start_time: number;
+  max_group_exposure: number;
+  total_group_exposure: number;
+  num_markets: number;
+  market_ids: number[];
+  correlation_matrix: number[][];
+}
+
+export interface SlipAccount {
+  slip_id: number;
+  owner: string;
+  epoch_id: number;
+  num_legs: number;
+  leg_market_ids: number[];
+  leg_outcome_ids: number[];
+  legs_bought_mask: number;
+  legs_settled_mask: number;
+  legs_won_mask: number;
+  total_stake: number;
+  total_cost: number;
+  potential_payout: number;
+  locked_amount: number;
+  status: string;
+  created_at: number;
+  cancel_deadline: number;
+  claimed: boolean;
 }
 
 export interface SlipLeg {

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import type { MarketAccount } from "@/lib/types";
-import { getMarketPrices } from "@/lib/mockData";
+import type { UiMarketAccount } from "@/lib/contract";
+import { getMarketPrices } from "@/lib/contract";
 import { addToBetSlip } from "./BetSlipDrawer";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -44,7 +44,7 @@ export function MarketCard({
   market,
   onSlipOpen,
 }: {
-  market: MarketAccount;
+  market: UiMarketAccount;
   onSlipOpen?: () => void;
 }) {
   const prices = getMarketPrices(market);

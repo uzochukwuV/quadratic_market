@@ -1,67 +1,89 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { MARKETS, EPOCHS, getMarketPrices } from "@/lib/mockData";
-import type { MarketStatus, MarketMode } from "@/lib/types";
-import { deriveMarket, getProgramAddress } from "@/lib/client";
+import { useMemo, useState } from "react";
+
+import { useContractSnapshot, useSortedSnapshot } from "@/hooks/useContractData";
+import { priceFromMarket } from "@/lib/contract";
+import { frontendEnv } from "@/lib/env";
+import type { MarketAccount } from "@/lib/types";
 
 const CATEGORIES = ["All", "Crypto", "Sports", "Finance", "Politics", "Tech"];
-const MODES: (MarketMode | "All")[] = ["All", "Trading", "FixedOdds"];
-const STATUSES: (MarketStatus | "All")[] = ["All", "Open", "Suspended", "AwaitingResult", "Settled"];
+const MODES = ["All", "Trading", "FixedOdds"] as const;
+const STATUSES = ["All", "Open", "Closed", "Settled"] as const;
+
+function getEpochState(epochStart: number, epochEnd: number, allSettled: boolean) {
+  const now = Math.floor(Date.now() / 1000);
+  if (now >= epochStart && now < epochEnd) return "active";
+  if (allSettled) return "settled";
+  return "closed";
+}
 
 function formatVol(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n}`;
+  return `$${n.toFixed(0)}`;
 }
 
 export default function MarketsPage() {
   const [category, setCategory] = useState("All");
-  const [mode, setMode] = useState<MarketMode | "All">("All");
-  const [statusFilter, setStatusFilter] = useState<MarketStatus | "All">("All");
+  const [mode, setMode] = useState<(typeof MODES)[number]>("All");
+  const [statusFilter, setStatusFilter] = useState<(typeof STATUSES)[number]>("All");
   const [epochFilter, setEpochFilter] = useState<number | "All">("All");
   const [search, setSearch] = useState("");
 
-  const filtered = MARKETS
-    .filter((m) => category === "All" || m.category === category)
-    .filter((m) => mode === "All" || m.market_mode === mode)
-    .filter((m) => statusFilter === "All" || m.status === statusFilter)
-    .filter((m) => epochFilter === "All" || m.epoch_id === epochFilter)
-    .filter((m) => !search || m.title.toLowerCase().includes(search.toLowerCase()));
+  const { snapshot, loading, error } = useContractSnapshot();
+  const { markets, epochs } = useSortedSnapshot(snapshot);
 
-  const byEpoch = EPOCHS.map((epoch) => ({
-    epoch,
-    markets: filtered.filter((m) => m.epoch_id === epoch.epoch_id),
-  })).filter((g) => g.markets.length > 0);
+  const filtered = useMemo(
+    () =>
+      markets
+        .filter((market) => category === "All" || market.category === category)
+        .filter((market) => mode === "All" || market.market_mode === mode)
+        .filter((market) => statusFilter === "All" || market.status === statusFilter)
+        .filter((market) => epochFilter === "All" || market.epoch_id === epochFilter)
+        .filter((market) => !search || market.title.toLowerCase().includes(search.toLowerCase())),
+    [category, epochFilter, markets, mode, search, statusFilter]
+  );
 
-  const programAddress = getProgramAddress();
+  const byEpoch = epochs
+    .map((epoch) => ({
+      epoch,
+      markets: filtered.filter((market) => market.epoch_id === epoch.epoch_id),
+    }))
+    .filter((group) => group.markets.length > 0);
 
   return (
     <div className="min-h-screen bg-rich-black">
       <div className="border-b border-graphite">
         <div className="max-w-content mx-auto px-6 py-12">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
               <p className="font-mono text-caption text-silver-text uppercase tracking-widest mb-1">Browse</p>
               <h1 className="text-heading text-white font-medium">All Markets</h1>
               <p className="text-body text-silver-text mt-1">
-                {filtered.length} markets · {EPOCHS.length} epochs
+                {loading ? "Loading contract snapshot..." : `${filtered.length} markets · ${epochs.length} epochs`}
               </p>
             </div>
             <div className="flex items-center gap-4 text-right">
               <div>
                 <p className="font-mono text-caption text-silver-text">Program ID</p>
-                <p className="font-mono text-caption text-white">{programAddress.slice(0, 16)}...</p>
+                <p className="font-mono text-caption text-white">{frontendEnv.programId.slice(0, 16)}...</p>
               </div>
               <div>
                 <span className="w-2 h-2 rounded-full bg-cadmium-green pulse-dot" />
                 <span className="font-mono text-caption text-silver-text ml-2">
-                  {MARKETS.filter(m => m.status === "Open").length} live
+                  {markets.filter((market) => market.status === "Open").length} live
                 </span>
               </div>
             </div>
           </div>
+
+          {error && (
+            <div className="mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-caption text-red-200">
+              {error}
+            </div>
+          )}
         </div>
       </div>
 
@@ -81,37 +103,37 @@ export default function MarketsPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {CATEGORIES.map((c) => (
+            {CATEGORIES.map((value) => (
               <button
-                key={c}
-                onClick={() => setCategory(c)}
-                className={`filter-pill ${category === c ? "active" : ""}`}
+                key={value}
+                onClick={() => setCategory(value)}
+                className={`filter-pill ${category === value ? "active" : ""}`}
               >
-                {c}
+                {value}
               </button>
             ))}
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {MODES.map((m) => (
+            {MODES.map((value) => (
               <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={`filter-pill ${mode === m ? "active" : ""}`}
+                key={value}
+                onClick={() => setMode(value)}
+                className={`filter-pill ${mode === value ? "active" : ""}`}
               >
-                {m === "All" ? "All Modes" : m === "FixedOdds" ? "Fixed Odds" : "Slip Based"}
+                {value === "All" ? "All Modes" : value === "FixedOdds" ? "Fixed Odds" : "Slip Based"}
               </button>
             ))}
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {STATUSES.map((s) => (
+            {STATUSES.map((value) => (
               <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`filter-pill ${statusFilter === s ? "active" : ""}`}
+                key={value}
+                onClick={() => setStatusFilter(value)}
+                className={`filter-pill ${statusFilter === value ? "active" : ""}`}
               >
-                {s}
+                {value}
               </button>
             ))}
           </div>
@@ -123,13 +145,13 @@ export default function MarketsPage() {
             >
               All Epochs
             </button>
-            {EPOCHS.map((e) => (
+            {epochs.map((epoch) => (
               <button
-                key={e.epoch_id}
-                onClick={() => setEpochFilter(e.epoch_id)}
-                className={`filter-pill ${epochFilter === e.epoch_id ? "active" : ""}`}
+                key={epoch.epoch_id}
+                onClick={() => setEpochFilter(epoch.epoch_id)}
+                className={`filter-pill ${epochFilter === epoch.epoch_id ? "active" : ""}`}
               >
-                Epoch #{e.epoch_id}
+                Epoch #{epoch.epoch_id}
               </button>
             ))}
           </div>
@@ -139,7 +161,13 @@ export default function MarketsPage() {
           <div className="table-container flex flex-col items-center justify-center py-24">
             <p className="font-mono text-body text-silver-text mb-4">No markets found</p>
             <button
-              onClick={() => { setSearch(""); setCategory("All"); setMode("All"); setStatusFilter("All"); setEpochFilter("All"); }}
+              onClick={() => {
+                setSearch("");
+                setCategory("All");
+                setMode("All");
+                setStatusFilter("All");
+                setEpochFilter("All");
+              }}
               className="btn-ghost text-caption text-silver-text hover:text-white"
             >
               Clear all filters
@@ -147,25 +175,25 @@ export default function MarketsPage() {
           </div>
         ) : (
           <div className="space-y-8">
-            {byEpoch.map(({ epoch, markets }) => {
-              const now = Math.floor(Date.now() / 1000);
-              const isActive = now >= epoch.start_time && now < epoch.end_time;
-              const isClosed = epoch.all_markets_settled;
+            {byEpoch.map(({ epoch, markets: epochMarkets }) => {
+              const state = getEpochState(epoch.start_time, epoch.end_time, epoch.all_markets_settled);
 
               return (
                 <div key={epoch.epoch_id} className="animate-fade-in">
                   <div className="flex items-center gap-4 mb-4">
                     <div className="flex items-center gap-3">
                       <span className={`w-2 h-2 rounded-full ${
-                        isActive ? "bg-cadmium-green animate-pulse"
-                          : isClosed ? "bg-graphite"
-                          : "bg-silver-text"
+                        state === "active"
+                          ? "bg-cadmium-green animate-pulse"
+                          : state === "settled"
+                            ? "bg-graphite"
+                            : "bg-silver-text"
                       }`} />
                       <h2 className="text-subheading text-white font-medium">
                         Epoch #{epoch.epoch_id}
                       </h2>
-                      <span className={`badge ${isActive ? "badge-live" : isClosed ? "badge-closed" : "badge-settled"}`}>
-                        {isActive ? "Active" : isClosed ? "Settled" : "Closed"}
+                      <span className={`badge ${state === "active" ? "badge-live" : state === "settled" ? "badge-settled" : "badge-closed"}`}>
+                        {state === "active" ? "Active" : state === "settled" ? "Settled" : "Closed"}
                       </span>
                       {epoch.withdrawals_enabled && (
                         <span className="badge" style={{ borderColor: "#5bc8fa", color: "#5bc8fa", background: "rgba(91, 200, 250, 0.08)" }}>
@@ -189,11 +217,10 @@ export default function MarketsPage() {
                       <div className="table-header">Action</div>
                     </div>
 
-                    {markets.map((market) => {
-                      const prices = getMarketPrices(market);
-                      const yesPrice = prices[0];
-                      const noPrice = prices[1];
-                      const marketPubkey = deriveMarket(market.market_id);
+                    {epochMarkets.map((market: MarketAccount) => {
+                      const yesPrice = priceFromMarket(market, 0);
+                      const noPrice = priceFromMarket(market, 1);
+                      const statusLabel = market.status === "Open" ? "Live" : market.status;
 
                       return (
                         <Link
@@ -206,14 +233,14 @@ export default function MarketsPage() {
                             <div className="text-white font-medium truncate">{market.title}</div>
                             <div className="flex items-center gap-2 mt-1">
                               <span className={`badge ${market.status === "Open" ? "badge-live" : "badge-closed"}`}>
-                                {market.status}
+                                {statusLabel}
                               </span>
                               <span className="font-mono text-caption text-silver-text/60">
                                 {market.market_mode === "Trading" ? "Slip" : "Fixed"}
                               </span>
                             </div>
                             <div className="font-mono text-caption text-silver-text/40 mt-0.5">
-                              {marketPubkey.toBase58().slice(0, 12)}...
+                              {market.market_id}
                             </div>
                           </div>
                           <div className="table-cell">
@@ -222,22 +249,26 @@ export default function MarketsPage() {
                             </span>
                           </div>
                           <div className="table-cell">
-                            <div className="text-cadmium-green font-mono">
-                              {(yesPrice * 100).toFixed(0)}¢
-                            </div>
+                            <div className="text-cadmium-green font-mono">{(yesPrice * 100).toFixed(0)}¢</div>
                           </div>
                           <div className="table-cell">
-                            <div className="text-white font-mono">
-                              {(noPrice * 100).toFixed(0)}¢
-                            </div>
+                            <div className="text-white font-mono">{(noPrice * 100).toFixed(0)}¢</div>
+                          </div>
+                          <div className="table-cell font-mono text-silver-text">
+                            {formatVol(market.exposure)}
                           </div>
                           <div className="table-cell">
-                            <span className="font-mono">{formatVol(market.exposure * 12)}</span>
-                          </div>
-                          <div className="table-cell">
-                            <button className="btn-secondary text-caption px-3 py-1.5">
-                              Trade
-                            </button>
+                            <span
+                              className={`badge ${
+                                market.status === "Open"
+                                  ? "badge-live"
+                                  : market.status === "Settled"
+                                    ? "badge-settled"
+                                    : "badge-closed"
+                              }`}
+                            >
+                              {market.status}
+                            </span>
                           </div>
                         </Link>
                       );

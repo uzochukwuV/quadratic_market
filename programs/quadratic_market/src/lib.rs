@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("4wKXu91KW6EBiecjUUYupQHjab6AULrGCm6hNrWbAvaA");
+declare_id!("FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN");
 
 pub mod constants;
 pub mod errors;
@@ -270,8 +270,9 @@ pub mod quadratic_market {
         ctx: Context<'_, '_, '_, 'info, BuyLegForSlip<'info>>,
         slip_id: u64,
         leg_index: u8,
+        outcome_id: u8,
     ) -> Result<()> {
-        buy_leg_for_slip_handler(ctx, slip_id, leg_index)
+        buy_leg_for_slip_handler(ctx, slip_id, leg_index, outcome_id)
     }
 
     /// Cancel slip if deadline passed or legs not bought.

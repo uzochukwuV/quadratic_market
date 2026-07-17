@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { CURRENT_EPOCH } from "@/lib/mockData";
+import { useProtocol } from "@/hooks/useProtocol";
 
 function formatCountdown(seconds: number): string {
   if (seconds <= 0) return "Ended";
@@ -14,7 +14,8 @@ function formatCountdown(seconds: number): string {
 }
 
 export function EpochBanner() {
-  const e = CURRENT_EPOCH;
+  const { epochs } = useProtocol();
+  const e = epochs[0];
 
   // Client-only clock — avoids hydration mismatch from Date.now() on server
   const [now, setNow] = useState<number | null>(null);
@@ -24,12 +25,20 @@ export function EpochBanner() {
     return () => clearInterval(id);
   }, []);
 
-  const timeLeft    = now !== null ? e.end_time - now : null;
-  const elapsed     = now !== null ? now - e.start_time : 0;
-  const total       = e.end_time - e.start_time;
+  if (!e) {
+    return (
+      <div className="w-full bg-[#0a0a0a] border-b border-white/[0.05]">
+        <div className="max-w-[1078px] mx-auto px-6 py-3 text-caption text-whisper-gray">
+          No epoch data available yet.
+        </div>
+      </div>
+    );
+  }
+
+  const timeLeft = now !== null ? e.end_time - now : null;
+  const elapsed = now !== null ? now - e.start_time : 0;
+  const total = e.end_time - e.start_time || 1;
   const progressPct = now !== null ? Math.min(100, Math.round((elapsed / total) * 100)) : 0;
-  const settledPct  = e.num_markets > 0 ? Math.round((e.num_settled_markets / e.num_markets) * 100) : 0;
-  void settledPct;
 
   const statusColor = useMemo(() => {
     if (e.withdrawals_enabled)  return { dot: "bg-[#ffac2e]",                    text: "text-[#ffac2e]", label: "Withdrawals Open" };

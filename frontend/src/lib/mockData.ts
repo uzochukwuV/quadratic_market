@@ -64,7 +64,7 @@ export const MARKETS: MarketAccount[] = [
     title: "Will Bitcoin close above $120,000 before Dec 31, 2026?",
     description: "Resolves YES if BTC closes above $120,000 on Binance or Coinbase before Jan 1, 2027.",
     category: "Crypto", status: "Open", market_mode: "Trading", num_outcomes: 2,
-    q_values: [68_000_000, 32_000_000], lmsr_b: 50_000_000, exposure: 12_000_000,
+    price_points: [68_000_000, 32_000_000], price_scale: 50_000_000, exposure: 12_000_000,
     start_time: now - 10 * DAY, settlement_time: now + 220 * DAY, winning_outcome: 255,
   },
   {
@@ -72,7 +72,7 @@ export const MARKETS: MarketAccount[] = [
     title: "Will Solana reach $1,000 by end of 2026?",
     description: "Resolves YES if SOL/USD spot price hits $1,000 on any major CEX before Jan 1, 2027.",
     category: "Crypto", status: "Open", market_mode: "Trading", num_outcomes: 2,
-    q_values: [43_000_000, 57_000_000], lmsr_b: 50_000_000, exposure: 9_800_000,
+    price_points: [43_000_000, 57_000_000], price_scale: 50_000_000, exposure: 9_800_000,
     start_time: now - 10 * DAY, settlement_time: now + 220 * DAY, winning_outcome: 255,
   },
   {
@@ -80,7 +80,7 @@ export const MARKETS: MarketAccount[] = [
     title: "Will Argentina win the 2026 FIFA World Cup?",
     description: "Resolves YES if Argentina is crowned champion at the 2026 FIFA World Cup.",
     category: "Sports", status: "Open", market_mode: "FixedOdds", num_outcomes: 2,
-    q_values: [22_000_000, 78_000_000], lmsr_b: 50_000_000, exposure: 6_200_000,
+    price_points: [22_000_000, 78_000_000], price_scale: 50_000_000, exposure: 6_200_000,
     start_time: now - 8 * DAY, settlement_time: now + 56 * DAY, winning_outcome: 255, group_id: 101,
   },
   {
@@ -88,7 +88,7 @@ export const MARKETS: MarketAccount[] = [
     title: "Will Brazil win the 2026 FIFA World Cup?",
     description: "Resolves YES if Brazil is crowned champion at the 2026 FIFA World Cup.",
     category: "Sports", status: "Open", market_mode: "FixedOdds", num_outcomes: 2,
-    q_values: [18_000_000, 82_000_000], lmsr_b: 50_000_000, exposure: 5_100_000,
+    price_points: [18_000_000, 82_000_000], price_scale: 50_000_000, exposure: 5_100_000,
     start_time: now - 8 * DAY, settlement_time: now + 56 * DAY, winning_outcome: 255, group_id: 101,
   },
   {
@@ -96,7 +96,7 @@ export const MARKETS: MarketAccount[] = [
     title: "Will the Fed cut rates at least twice in 2026?",
     description: "Resolves YES if the FOMC cuts the federal funds rate at least 50bps total in calendar year 2026.",
     category: "Finance", status: "Open", market_mode: "Trading", num_outcomes: 2,
-    q_values: [71_000_000, 29_000_000], lmsr_b: 50_000_000, exposure: 8_400_000,
+    price_points: [71_000_000, 29_000_000], price_scale: 50_000_000, exposure: 8_400_000,
     start_time: now - 5 * DAY, settlement_time: now + 200 * DAY, winning_outcome: 255,
   },
   {
@@ -104,7 +104,7 @@ export const MARKETS: MarketAccount[] = [
     title: "Will the US pass a federal crypto bill in 2026?",
     description: "Resolves YES if a federal cryptocurrency regulatory bill passes both chambers and is signed into law before Jan 1, 2027.",
     category: "Politics", status: "Open", market_mode: "Trading", num_outcomes: 2,
-    q_values: [34_000_000, 66_000_000], lmsr_b: 50_000_000, exposure: 4_200_000,
+    price_points: [34_000_000, 66_000_000], price_scale: 50_000_000, exposure: 4_200_000,
     start_time: now - 3 * DAY, settlement_time: now + 200 * DAY, winning_outcome: 255,
   },
   {
@@ -112,7 +112,7 @@ export const MARKETS: MarketAccount[] = [
     title: "Manchester City to win Premier League 2025-26?",
     description: "Resolves YES if Manchester City are the Premier League champions at the end of the 2025-26 season.",
     category: "Sports", status: "Suspended", market_mode: "FixedOdds", num_outcomes: 2,
-    q_values: [45_000_000, 55_000_000], lmsr_b: 50_000_000, exposure: 3_800_000,
+    price_points: [45_000_000, 55_000_000], price_scale: 50_000_000, exposure: 3_800_000,
     start_time: now - 14 * DAY, settlement_time: now + 7 * DAY, winning_outcome: 255,
   },
   {
@@ -120,7 +120,7 @@ export const MARKETS: MarketAccount[] = [
     title: "Will Apple announce Vision Pro 2 at WWDC 2026?",
     description: "Resolves YES if Apple formally announces a second-generation Vision Pro at WWDC in June 2026.",
     category: "Tech", status: "AwaitingResult", market_mode: "Trading", num_outcomes: 2,
-    q_values: [39_000_000, 61_000_000], lmsr_b: 50_000_000, exposure: 2_900_000,
+    price_points: [39_000_000, 61_000_000], price_scale: 50_000_000, exposure: 2_900_000,
     start_time: now - 20 * DAY, settlement_time: now - 2 * DAY, winning_outcome: 255,
   },
   // ── Epoch 2 — settled ──────────────────────────────────────
@@ -128,29 +128,23 @@ export const MARKETS: MarketAccount[] = [
     market_id: 201, epoch_id: 2,
     title: "Will ETH hit $5,000 before April 2026?",
     description: "Resolved.", category: "Crypto", status: "Settled", market_mode: "Trading", num_outcomes: 2,
-    q_values: [45_000_000, 55_000_000], lmsr_b: 50_000_000, exposure: 0,
+    price_points: [45_000_000, 55_000_000], price_scale: 50_000_000, exposure: 0,
     start_time: now - 60 * DAY, settlement_time: now - 20 * DAY, winning_outcome: 0,
   },
   {
     market_id: 202, epoch_id: 2,
     title: "Will Trump announce 2028 run before June 2026?",
     description: "Resolved.", category: "Politics", status: "Settled", market_mode: "Trading", num_outcomes: 2,
-    q_values: [62_000_000, 38_000_000], lmsr_b: 50_000_000, exposure: 0,
+    price_points: [62_000_000, 38_000_000], price_scale: 50_000_000, exposure: 0,
     start_time: now - 55 * DAY, settlement_time: now - 15 * DAY, winning_outcome: 1,
   },
 ];
 
-// ─── LMSR helpers ─────────────────────────────────────────────────────────────
-export function lmsrPrice(q: number[], outcomeIdx: number, b: number): number {
-  const sum = q.reduce((acc, qi) => acc + Math.exp(qi / b), 0);
-  return Math.exp(q[outcomeIdx] / b) / sum;
-}
-
 export function getMarketPrices(market: MarketAccount): number[] {
-  const { q_values, lmsr_b, num_outcomes } = market;
-  const b = lmsr_b || 50_000_000;
-  const qs = q_values.slice(0, num_outcomes);
-  const exps = qs.map((q) => Math.exp(q / b));
+  const { price_points, price_scale, num_outcomes } = market;
+  const scale = price_scale || 50_000_000;
+  const qs = price_points.slice(0, num_outcomes);
+  const exps = qs.map((q) => Math.exp(q / scale));
   const sum = exps.reduce((a, b) => a + b, 0);
   return exps.map((e) => e / sum);
 }

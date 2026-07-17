@@ -1,12 +1,30 @@
 "use client";
 
-import { ORDER_BOOK_SELLS, ORDER_BOOK_BUYS } from "@/lib/mockData";
+import type { UiLimitOrderAccount } from "@/lib/contract";
 
-export function OrderBook({ marketId }: { marketId: number }) {
-  const sells = ORDER_BOOK_SELLS.filter((o) => o.market_id === marketId);
-  const buys = ORDER_BOOK_BUYS.filter((o) => o.market_id === marketId);
+export function OrderBook({
+  marketId,
+  orders,
+}: {
+  marketId: number;
+  orders?: UiLimitOrderAccount[];
+}) {
+  const sourceOrders = orders ?? [];
+  const sells = sourceOrders.filter((o) => o.market_id === marketId && o.side === "Sell");
+  const buys = sourceOrders.filter((o) => o.market_id === marketId && o.side === "Buy");
 
-  const maxSize = Math.max(...sells.map((s) => s.num_shares), ...buys.map((b) => b.num_shares));
+  if (sells.length === 0 && buys.length === 0) {
+    return (
+      <div className="h-96 flex flex-col items-center justify-center text-center border border-graphite rounded-md bg-white/[0.02] px-6">
+        <p className="text-white mb-2">Order book not loaded</p>
+        <p className="text-caption text-silver-text max-w-sm">
+          The frontend is connected to chain state, but there are no limit orders returned yet for market #{marketId}.
+        </p>
+      </div>
+    );
+  }
+
+  const maxSize = Math.max(...sells.map((s) => s.num_shares), ...buys.map((b) => b.num_shares), 1);
 
   return (
     <div className="grid grid-cols-2 gap-4 h-96">

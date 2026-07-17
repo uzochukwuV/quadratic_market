@@ -433,7 +433,7 @@ pub fn place_slip_await_handler<'info>(
 // Backend calls this N times after place_slip_await.
 
 #[derive(Accounts)]
-#[instruction(slip_id: u64, leg_index: u8)]
+#[instruction(slip_id: u64, leg_index: u8, outcome_id: u8)]
 pub struct BuyLegForSlip<'info> {
     #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -464,7 +464,7 @@ pub struct BuyLegForSlip<'info> {
 
     #[account(
         mut,
-        constraint = outcome_mint.key() == market.outcome_mints[leg_index as usize] @ QuadraticMarketError::WrongOutcomeToken,
+        constraint = outcome_mint.key() == market.outcome_mints[outcome_id as usize] @ QuadraticMarketError::WrongOutcomeToken,
     )]
     pub outcome_mint: Account<'info, Mint>,
 
@@ -481,6 +481,7 @@ pub fn buy_leg_for_slip_handler<'info>(
     ctx: Context<'_, '_, '_, 'info, BuyLegForSlip<'info>>,
     slip_id: u64,
     leg_index: u8,
+    outcome_id: u8,
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     let slip = &mut ctx.accounts.slip;
@@ -494,6 +495,10 @@ pub fn buy_leg_for_slip_handler<'info>(
     require!(
         leg_index < slip.num_legs,
         QuadraticMarketError::InvalidOutcomeId
+    );
+    require!(
+        outcome_id == slip.leg_outcome_ids[leg_index as usize],
+        QuadraticMarketError::WrongOutcomeToken
     );
 
     // Check if leg already bought

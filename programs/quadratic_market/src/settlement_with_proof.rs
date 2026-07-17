@@ -81,9 +81,9 @@ pub struct TraderPredicate {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub enum Comparison {
-    EqualTo,
     GreaterThan,
     LessThan,
+    EqualTo,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

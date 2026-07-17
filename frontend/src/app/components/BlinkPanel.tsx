@@ -2,6 +2,7 @@
 
 import { Blink, useBlink } from "@dialectlabs/blinks";
 import { useBlinkSolanaWalletAdapter } from "@dialectlabs/blinks/hooks/solana";
+import { frontendEnv } from "@/lib/env";
 import "@dialectlabs/blinks/index.css";
 
 interface BlinkPanelProps {
@@ -10,7 +11,7 @@ interface BlinkPanelProps {
 }
 
 export function BlinkPanel({ actionUrl, title }: BlinkPanelProps) {
-  const { adapter } = useBlinkSolanaWalletAdapter("https://api.devnet.solana.com");
+  const { adapter } = useBlinkSolanaWalletAdapter(frontendEnv.rpcUrl);
   const { blink, isLoading } = useBlink({ url: actionUrl });
 
   return (

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useState, useEffect } from "react";
 import { useBetSlip } from "./BetSlipDrawer";
+import { getNetworkLabel } from "@/lib/env";
 
 const NAV_LINKS = [
   { label: "Markets",   href: "/markets"   },
@@ -57,7 +58,7 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
           {/* Network badge */}
           <span className="hidden sm:flex items-center gap-2 px-3 h-9 text-caption font-mono text-silver-text border border-graphite rounded-full bg-white/[0.02]">
             <span className="w-1.5 h-1.5 rounded-full bg-cadmium-green pulse-dot" />
-            Devnet
+            {getNetworkLabel()}
           </span>
 
           {/* Bet slip button */}
