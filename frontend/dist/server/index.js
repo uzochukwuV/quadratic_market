@@ -4,9 +4,8 @@ import path from "node:path";
 
 process.env.NODE_ENV = "production";
 
-const standaloneDir = path.join(process.cwd(), "standalone");
-const require = createRequire(path.join(standaloneDir, "package.json"));
-const next = require(path.join(standaloneDir, "node_modules/next/dist/server/next.js"));
+const require = createRequire(path.join(process.cwd(), "package.json"));
+const next = require(path.join(process.cwd(), "node_modules/next/dist/server/next.js"));
 
 const port = Number(process.env.PORT || process.env.npm_config_port || 3000);
 const app = next({ dev: false, dir: process.cwd() });
