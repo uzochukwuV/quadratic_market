@@ -1,6 +1,8 @@
-const path = require("path");
+import { fileURLToPath } from "node:url";
 
 process.env.NODE_ENV = "production";
-process.chdir(path.join(__dirname, "../.."));
 
-require(path.join(__dirname, "../../.next/standalone/server.js"));
+const projectRoot = fileURLToPath(new URL("../..", import.meta.url));
+process.chdir(projectRoot);
+
+await import(new URL("../../.next/standalone/server.js", import.meta.url));
