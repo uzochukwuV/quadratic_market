@@ -1,6 +1,7 @@
-const path = require("path");
+import { createRequire } from "node:module";
+import path from "node:path";
 
 process.env.NODE_ENV = "production";
-process.chdir(__dirname);
 
-require(path.join(__dirname, "standalone/server.js"));
+const require = createRequire(path.join(process.cwd(), "index.js"));
+require("./standalone/server.js");
