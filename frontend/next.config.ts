@@ -2,6 +2,7 @@ import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   serverExternalPackages: ["@solana/web3.js", "@coral-xyz/anchor"],
   turbopack: {
     root: path.join(__dirname),
