@@ -69,6 +69,13 @@ if not BASE_MINT:
 OPERATOR_KEYPAIR_PATH: Path = _keypair_path("OPERATOR_KEYPAIR_PATH")
 ORACLE_KEYPAIR_PATH: Path = _keypair_path("ORACLE_KEYPAIR_PATH")
 
+# ─── API ───────────────────────────────────────────────────────────────────
+
+BOT_API_ENABLED: bool = os.getenv("BOT_API_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+BOT_API_HOST: str = os.getenv("BOT_API_HOST", "0.0.0.0")
+BOT_API_PORT: int = int(os.getenv("BOT_API_PORT", "8787"))
+BOT_API_KEY: str = os.getenv("BOT_API_KEY", "").strip()
+
 # ─── Txodds API ──────────────────────────────────────────────────────────────
 
 TXODDS_API_TOKEN: str = os.getenv("TXODDS_API_TOKEN", "").strip()

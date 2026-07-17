@@ -22,11 +22,17 @@ import asyncio
 import sys
 import time
 import argparse
+import contextlib
 from pathlib import Path
 from typing import List, Optional
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field
+import uvicorn
+from solders.pubkey import Pubkey
+from fastapi.middleware.cors import CORSMiddleware
 
 import config
 from chain import ChainClient, load_keypair, market_pda
@@ -53,6 +59,89 @@ log = structlog.get_logger(__name__)
 
 # Path to the compiled IDL (built by `anchor build`)
 IDL_PATH = Path(__file__).parent.parent / "target" / "idl" / "quadratic_market.json"
+
+app = FastAPI(title="Quadratic Market Bot API", version="1.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+_runtime: "BotRuntime | None" = None
+
+
+class BotRuntime:
+    def __init__(self, chain: ChainClient, api: TxoddsApiClient, state: BotState) -> None:
+        self.chain = chain
+        self.api = api
+        self.state = state
+
+
+class MintBaseRequest(BaseModel):
+    recipient: str = Field(..., description="Recipient wallet public key")
+    amount: int = Field(..., gt=0, description="Amount in base mint units")
+
+
+class MintBaseResponse(BaseModel):
+    recipient: str
+    recipient_ata: str
+    amount: int
+    signature: str
+
+
+def set_runtime(runtime: BotRuntime) -> None:
+    global _runtime
+    _runtime = runtime
+
+
+def get_runtime() -> BotRuntime:
+    if _runtime is None:
+        raise HTTPException(status_code=503, detail="Bot runtime is not initialized")
+    return _runtime
+
+
+def require_api_key(x_api_key: str | None) -> None:
+    if config.BOT_API_KEY and x_api_key != config.BOT_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+@app.post("/api/mint-base", response_model=MintBaseResponse)
+async def mint_base(
+    body: MintBaseRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> MintBaseResponse:
+    require_api_key(x_api_key)
+    runtime = get_runtime()
+
+    try:
+        recipient = Pubkey.from_string(body.recipient)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Invalid recipient public key") from exc
+
+    try:
+        signature, recipient_ata = await runtime.chain.mint_base_to(recipient, body.amount)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Mint failed: {exc}") from exc
+
+    return MintBaseResponse(
+        recipient=body.recipient,
+        recipient_ata=str(recipient_ata),
+        amount=body.amount,
+        signature=signature,
+    )
+
+
+async def run_api_server() -> None:
+    config_obj = uvicorn.Config(
+        app,
+        host=config.BOT_API_HOST,
+        port=config.BOT_API_PORT,
+        log_level="info",
+        loop="asyncio",
+        lifespan="off",
+    )
+    server = uvicorn.Server(config_obj)
+    await server.serve()
 
 
 # ─── Market Type Mapping ───────────────────────────────────────────────────
@@ -499,6 +588,8 @@ async def main(once: bool = False) -> None:
     
     # Load state
     state = BotState()
+    runtime = BotRuntime(chain=chain, api=api, state=state)
+    set_runtime(runtime)
     
     try:
         if once:
@@ -520,7 +611,12 @@ async def main(once: bool = False) -> None:
         log.info("bot_started", 
                  interval_seconds=config.POLL_INTERVAL_SECONDS,
                  sports=config.SPORTS)
-        
+
+        api_task: asyncio.Task[None] | None = None
+        if config.BOT_API_ENABLED:
+            api_task = asyncio.create_task(run_api_server())
+            log.info("bot_api_started", host=config.BOT_API_HOST, port=config.BOT_API_PORT)
+
         # Run immediately on startup
         await run_once(chain, api, state)
         
@@ -531,6 +627,10 @@ async def main(once: bool = False) -> None:
         except (KeyboardInterrupt, SystemExit):
             log.info("bot_stopping")
             scheduler.shutdown()
+            if api_task is not None:
+                api_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await api_task
     finally:
         await chain.close()
         await api.close()

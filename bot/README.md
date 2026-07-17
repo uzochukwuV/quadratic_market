@@ -23,6 +23,7 @@ Automates the full market lifecycle using Txodds API:
 cd bot
 cp .env.example .env
 # Edit .env — fill in RPC_URL, keypair paths, PROGRAM_ID, BASE_MINT, TXODDS_API_KEY
+# Set BOT_API_KEY if you want mint requests to require authentication
 
 pip install -r requirements.txt
 ```
@@ -49,6 +50,23 @@ python bot.py
 # Single pass (for cron)
 python bot.py --once
 ```
+
+When `BOT_API_ENABLED=true`, the same process also exposes:
+
+- `POST /api/mint-base`
+
+Example body:
+
+```json
+{
+  "recipient": "WalletPubkeyHere",
+  "amount": 1000000
+}
+```
+
+`amount` is in base-mint units, so with 6 decimals `1000000` equals `1.0` token.
+If `BOT_API_KEY` is set, send it as `X-API-Key: your-secret`.
+The endpoint only works if the configured operator wallet is still the mint authority for the base mint.
 
 ## Market Types
 

@@ -16,7 +16,7 @@ from solana.rpc.async_api import AsyncClient
 from anchorpy import Program, Provider, Wallet, Context, Idl
 from anchorpy.program.namespace.instruction import _InstructionFn  # noqa: F401 (type hint only)
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
-from spl.token.instructions import create_associated_token_account, get_associated_token_address
+from spl.token.instructions import create_associated_token_account, get_associated_token_address, mint_to
 from solana.transaction import Transaction
 
 import structlog
@@ -192,6 +192,34 @@ class ChainClient:
             )
             await self.program.provider.send_and_confirm(Transaction().add(ix), [self.operator_kp])
         return ata
+
+    async def mint_base_to(self, recipient: Pubkey, amount: int) -> tuple[str, Pubkey]:
+        """
+        Mint the base token to a recipient wallet.
+
+        The base mint must still have the operator wallet as mint authority.
+        """
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+
+        recipient_ata = await self.ensure_associated_token_account(recipient, self.base_mint)
+        ix = mint_to(
+            TOKEN_PROGRAM_ID,
+            self.base_mint,
+            recipient_ata,
+            self.operator_kp.pubkey(),
+            [],
+            amount,
+        )
+        sig = await self.program.provider.send_and_confirm(Transaction().add(ix), [self.operator_kp])
+        log.info(
+            "mint_base_to",
+            recipient=str(recipient),
+            ata=str(recipient_ata),
+            amount=amount,
+            sig=str(sig),
+        )
+        return str(sig), recipient_ata
 
     def daily_scores_roots_pda(self, validation_timestamp_ms: int) -> Pubkey:
         epoch_day = validation_timestamp_ms // 86_400_000
