@@ -1,8 +1,21 @@
 import { createRequire } from "node:module";
-import path from "node:path";
+import http from "node:http";
 
 process.env.NODE_ENV = "production";
 
-const standaloneDir = path.join(process.cwd(), ".next/standalone");
-const require = createRequire(path.join(standaloneDir, "package.json"));
-require(path.join(standaloneDir, "server.js"));
+const require = createRequire(`${process.cwd()}/.next/standalone/package.json`);
+const next = require("next");
+
+const port = Number(process.env.PORT || process.env.npm_config_port || 3000);
+const app = next({ dev: false, dir: process.cwd() });
+const handle = app.getRequestHandler();
+
+app.prepare().then(() => {
+  http
+    .createServer((req, res) => {
+      handle(req, res);
+    })
+    .listen(port, "0.0.0.0", () => {
+      console.log(`Frontend listening on port ${port}`);
+    });
+});
