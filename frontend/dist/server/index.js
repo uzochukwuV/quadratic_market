@@ -1,10 +1,12 @@
 import { createRequire } from "node:module";
 import http from "node:http";
+import path from "node:path";
 
 process.env.NODE_ENV = "production";
 
-const require = createRequire(`${process.cwd()}/.next/standalone/package.json`);
-const next = require("next");
+const standaloneDir = path.join(process.cwd(), ".next/standalone");
+const require = createRequire(path.join(standaloneDir, "package.json"));
+const next = require(path.join(standaloneDir, "node_modules/next/dist/server/next.js"));
 
 const port = Number(process.env.PORT || process.env.npm_config_port || 3000);
 const app = next({ dev: false, dir: process.cwd() });
