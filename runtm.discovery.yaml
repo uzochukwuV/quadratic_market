@@ -1,0 +1,22 @@
+description: |
+  Quadratic Market is a Solana-based prediction market and sports trading app where users can browse live markets, place slip-based bets, and manage positions through a wallet-connected Next.js interface. The protocol includes liquidity pools, epoch-based market organization, exposure controls, and proof-based settlement using TxODDS and TxLINE automation.
+
+summary: "Solana prediction markets with sports betting, liquidity pools, and proof settlement"
+
+capabilities:
+  - "Trade sports and prediction markets with wallet-connected on-chain execution"
+  - "Provide liquidity to shared pools and track LP positions, fees, and withdrawals"
+  - "Automate market creation, odds updates, suspension, and TxLINE proof-based settlement"
+
+use_cases:
+  - "Crypto users who want non-custodial sports and prediction market trading on Solana"
+  - "Liquidity providers seeking exposure to market-making fees in pooled prediction markets"
+  - "Developers building oracle-settled, epoch-based betting or conditional market protocols"
+
+tags:
+  - solana
+  - prediction-markets
+  - sports-betting
+  - defi
+  - anchor
+  - liquidity-pools

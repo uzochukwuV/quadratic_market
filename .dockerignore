@@ -1,0 +1,35 @@
+# Hidden dirs (sandbox caches, app runtime config)
+.*
+!.dockerignore
+
+# Dependencies (reinstalled during build)
+node_modules/
+.venv/
+venv/
+env/
+vendor/
+
+# Build artifacts
+dist/
+build/
+.next/
+out/
+__output/
+target/
+__pycache__/
+
+# Secrets & env
+.env
+.env.local
+.env.*.local
+
+# Logs & dumps
+*.log
+core
+*.core
+*.dump
+
+# runtm metadata
+.runtmignore
+runtm.yaml
+runtm.discovery.yaml

@@ -1,0 +1,5 @@
+name: deploy-the-frontend
+template: docker
+port: 3000
+health_path: /health
+tier: starter
