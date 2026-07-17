@@ -1,19 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
-import type { PublicKey } from "@solana/web3.js";
-import { useProgram } from "@/hooks/useContract";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
-  normalizeEpoch,
-  normalizeEpochLpPosition,
-  normalizeEpochVault,
-  normalizeMarket,
-  normalizeMarketGroup,
-  normalizeOrder,
-  normalizePendingLiquidity,
-  normalizeSlip,
-  normalizeWithdrawalRequest,
+  fetchContractSnapshot,
   type UiEpochAccount,
   type UiEpochLpPositionAccount,
   type UiEpochVaultAccount,
@@ -25,18 +15,8 @@ import {
   type UiWithdrawalRequestAccount,
 } from "@/lib/contract";
 
-type AnchorAccountEntry<T> = {
-  publicKey: PublicKey;
-  account: T;
-};
-
-async function fetchAll<T>(loader: Promise<AnchorAccountEntry<T>[]>) {
-  const rows = await loader;
-  return rows.map((row, index) => ({ ...row, index }));
-}
-
 export function useProtocol() {
-  const { program } = useProgram();
+  const { connection } = useConnection();
   const { publicKey } = useWallet();
 
   const [markets, setMarkets] = useState<UiMarketAccount[]>([]);
@@ -60,7 +40,7 @@ export function useProtocol() {
     let cancelled = false;
 
     async function run() {
-      if (!program) {
+      if (!connection) {
         setLoading(false);
         return;
       }
@@ -69,39 +49,19 @@ export function useProtocol() {
         setLoading(true);
         setError(null);
 
-        const [
-          rawMarkets,
-          rawEpochs,
-          rawMarketGroups,
-          rawSlips,
-          rawOrders,
-          rawPending,
-          rawWithdrawals,
-          rawEpochVaults,
-          rawEpochLpPositions,
-        ] = await Promise.all([
-          fetchAll(program.account.market.all()),
-          fetchAll(program.account.epoch.all()),
-          fetchAll(program.account.marketGroup.all()),
-          fetchAll(program.account.slip.all()),
-          fetchAll(program.account.limitOrder.all()),
-          fetchAll(program.account.pendingLiquidity.all()),
-          fetchAll(program.account.withdrawalRequest.all()),
-          fetchAll(program.account.epochVault.all()),
-          fetchAll(program.account.epochLpPosition.all()),
-        ]);
+        const snapshot = await fetchContractSnapshot(connection);
 
         if (cancelled) return;
 
-        setMarkets(rawMarkets.map((item, index) => normalizeMarket(item.account, index)));
-        setEpochs(rawEpochs.map((item, index) => normalizeEpoch(item.account, index)));
-        setMarketGroups(rawMarketGroups.map((item) => normalizeMarketGroup(item.account)));
-        setSlips(rawSlips.map((item, index) => normalizeSlip(item.account, index)));
-        setOrders(rawOrders.map((item, index) => normalizeOrder(item.account, index)));
-        setPendingLiquidity(rawPending.map((item) => normalizePendingLiquidity(item.account)));
-        setWithdrawals(rawWithdrawals.map((item) => normalizeWithdrawalRequest(item.account)));
-        setEpochVaults(rawEpochVaults.map((item) => normalizeEpochVault(item.account)));
-        setEpochLpPositions(rawEpochLpPositions.map((item) => normalizeEpochLpPosition(item.account)));
+        setMarkets(snapshot.markets);
+        setEpochs(snapshot.epochs);
+        setMarketGroups(snapshot.marketGroups);
+        setSlips(snapshot.slips);
+        setOrders(snapshot.limitOrders);
+        setPendingLiquidity(snapshot.pendingLiquidity);
+        setWithdrawals(snapshot.withdrawalRequests);
+        setEpochVaults(snapshot.epochVaults);
+        setEpochLpPositions(snapshot.epochLpPositions);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load protocol state");
@@ -117,7 +77,7 @@ export function useProtocol() {
     return () => {
       cancelled = true;
     };
-  }, [program, refreshIndex]);
+  }, [connection, refreshIndex]);
 
   const userEpochPositions = useMemo(() => {
     if (!publicKey) return [];

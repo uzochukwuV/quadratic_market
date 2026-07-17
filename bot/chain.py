@@ -11,13 +11,13 @@ from typing import Optional, Tuple, List, Any
 
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction as SoldersTransaction
 from solders.system_program import ID as SYS_PROGRAM_ID
 from solana.rpc.async_api import AsyncClient
 from anchorpy import Program, Provider, Wallet, Context, Idl
 from anchorpy.program.namespace.instruction import _InstructionFn  # noqa: F401 (type hint only)
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
 from spl.token.instructions import create_associated_token_account, get_associated_token_address, mint_to
-from solana.transaction import Transaction
 
 import structlog
 
@@ -147,6 +147,10 @@ class ChainClient:
         pda, _ = market_pda(self.program_id, market_id)
         return await self.program.account["Market"].fetch(pda)
 
+    async def fetch_market_group(self, group_id: int) -> dict:
+        pda, _ = market_group_pda(self.program_id, group_id)
+        return await self.program.account["MarketGroup"].fetch(pda)
+
     async def fetch_slip(self, slip_id: int) -> dict:
         pda, _ = slip_pda(self.program_id, slip_id)
         return await self.program.account["Slip"].fetch(pda)
@@ -190,7 +194,14 @@ class ChainClient:
                 mint=mint,
                 token_program_id=TOKEN_PROGRAM_ID,
             )
-            await self.program.provider.send_and_confirm(Transaction().add(ix), [self.operator_kp])
+            blockhash = (await conn.get_latest_blockhash()).value.blockhash
+            tx = SoldersTransaction.new_signed_with_payer(
+                [ix],
+                self.operator_kp.pubkey(),
+                [self.operator_kp],
+                blockhash,
+            )
+            await self.program.provider.send(tx)
         return ata
 
     async def mint_base_to(self, recipient: Pubkey, amount: int) -> tuple[str, Pubkey]:
@@ -211,7 +222,14 @@ class ChainClient:
             [],
             amount,
         )
-        sig = await self.program.provider.send_and_confirm(Transaction().add(ix), [self.operator_kp])
+        blockhash = (await self.program.provider.connection.get_latest_blockhash()).value.blockhash
+        tx = SoldersTransaction.new_signed_with_payer(
+            [ix],
+            self.operator_kp.pubkey(),
+            [self.operator_kp],
+            blockhash,
+        )
+        sig = await self.program.provider.send(tx)
         log.info(
             "mint_base_to",
             recipient=str(recipient),
@@ -255,7 +273,7 @@ class ChainClient:
                 accounts={
                     "global_config": self.global_config,
                     "market_group": gp_pda,
-                    "authority": self.operator_kp.pubkey(),
+                    "creator": self.operator_kp.pubkey(),
                     "system_program": SYS_PROGRAM_ID,
                 },
                 signers=[self.operator_kp],
@@ -276,6 +294,7 @@ class ChainClient:
         market_type: str = "oneXTwo",  # oneXTwo, overUnder, goalNoGoal
         initial_odds: Optional[List[int]] = None,
         txline_fixture_id: Optional[int] = None,
+        market_id: Optional[int] = None,
     ) -> tuple[int, str]:
         """
         Create a market with fixed odds. Returns (market_id, tx_signature).
@@ -289,7 +308,7 @@ class ChainClient:
             market_type: Anchor enum variant name
             initial_odds: List of odds in BPS (e.g., [20000, 35000, 30000])
         """
-        mid = await self.next_market_id()
+        mid = market_id if market_id is not None else await self.next_market_id()
         mkt_pda, _ = market_pda(self.program_id, mid)
 
         # Get current epoch
@@ -297,13 +316,14 @@ class ChainClient:
         current_epoch = int(cfg.current_epoch)
         ep_pda, _ = epoch_pda(self.program_id, current_epoch)
 
-        # Convert market_type to Anchor variant
+        # Convert market_type to the generated Anchor enum variant.
+        market_type_enum = self.program.type["MarketType"]
         market_type_map = {
-            "oneXTwo": {"oneXTwo": {}},
-            "overUnder": {"overUnder": {}},
-            "goalNoGoal": {"goalNoGoal": {}},
+            "oneXTwo": market_type_enum.OneXTwo(),
+            "overUnder": market_type_enum.OverUnder(),
+            "goalNoGoal": market_type_enum.GoalNoGoal(),
         }
-        market_type_arg = market_type_map.get(market_type, {"oneXTwo": {}})
+        market_type_arg = market_type_map.get(market_type, market_type_enum.OneXTwo())
 
         # Default odds if not provided
         if initial_odds is None:
@@ -311,6 +331,8 @@ class ChainClient:
                 initial_odds = [20000, 35000, 30000]  # 2.0x, 3.5x, 3.0x
             else:
                 initial_odds = [20000, 20000]  # 2.0x, 2.0x
+
+        from solders.sysvar import RENT as SYSVAR_RENT
 
         sig = await self.program.rpc["create_market"](
             start_time,
@@ -328,6 +350,7 @@ class ChainClient:
                     "epoch": ep_pda,
                     "authority": self.operator_kp.pubkey(),
                     "system_program": SYS_PROGRAM_ID,
+                    "rent": SYSVAR_RENT,
                 },
                 signers=[self.operator_kp],
             ),
@@ -345,6 +368,7 @@ class ChainClient:
         Add a market to a market group.
         """
         gp_pda, _ = market_group_pda(self.program_id, group_id)
+        mkt_pda, _ = market_pda(self.program_id, market_id)
 
         sig = await self.program.rpc["add_market_to_group"](
             group_id,
@@ -353,6 +377,7 @@ class ChainClient:
                 accounts={
                     "global_config": self.global_config,
                     "market_group": gp_pda,
+                    "market": mkt_pda,
                     "authority": self.operator_kp.pubkey(),
                 },
                 signers=[self.operator_kp],

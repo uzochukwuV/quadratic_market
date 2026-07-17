@@ -145,9 +145,9 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-rich-black border-b border-graphite">
-      <div className="max-w-content mx-auto px-6 flex items-center justify-between h-14">
+      <div className="max-w-content mx-auto px-4 sm:px-6 flex flex-wrap md:flex-nowrap items-center justify-between gap-3 min-h-14 py-2 md:py-0">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-3 flex-shrink-0 h-full">
+        <Link href="/" className="flex items-center gap-3 flex-shrink-0 h-9 md:h-full">
           <div className="w-5 h-5 rounded-full bg-cadmium-green" />
           <span className="text-body text-white font-medium tracking-tight hidden sm:block">
             Quad<span className="text-silver-text font-normal">.market</span>
@@ -175,7 +175,7 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-2 h-full">
+        <div className="flex items-center gap-2 h-full ml-auto md:ml-0">
           {/* Network badge */}
           <span className="hidden sm:flex items-center gap-2 px-3 h-9 text-caption font-mono text-silver-text border border-graphite rounded-full bg-white/[0.02]">
             <span className="w-1.5 h-1.5 rounded-full bg-cadmium-green pulse-dot" />
@@ -217,7 +217,7 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
           </button>
 
           {/* Wallet - adjust height */}
-          <div className="h-9 flex items-center">
+          <div className="hidden sm:flex h-9 items-center">
             <WalletMultiButton />
           </div>
 
@@ -239,7 +239,19 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
 
       {/* Mobile menu */}
       {menuOpen && (
-        <div className="md:hidden absolute top-16 left-0 right-0 bg-rich-black border-b border-graphite py-3 px-6 flex flex-col">
+        <div className="md:hidden absolute top-full left-0 right-0 bg-rich-black border-b border-graphite px-4 sm:px-6 py-4 flex flex-col gap-4 shadow-2xl shadow-black/30">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-graphite bg-white/[0.02]">
+              <span className="w-1.5 h-1.5 rounded-full bg-cadmium-green pulse-dot" />
+              <span className="text-caption font-mono text-silver-text">{getNetworkLabel()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-graphite bg-white/[0.02]">
+              <span className="text-caption font-mono text-silver-text">{connected ? solLabel : "-- SOL"}</span>
+              <span className="text-caption font-mono text-silver-text/50">/</span>
+              <span className="text-caption font-mono text-silver-text">{connected ? balanceLabel : "-- BASE"}</span>
+            </div>
+          </div>
+
           {NAV_LINKS.map((link) => {
             const active = pathname === link.href;
             return (
@@ -254,7 +266,17 @@ export function Navbar({ onSlipOpen }: { onSlipOpen?: () => void }) {
               </Link>
             );
           })}
-          <div className="pt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                setMintOpen(true);
+              }}
+              disabled={!connected}
+              className="h-11 rounded-xl border border-cadmium-green/40 text-cadmium-green hover:text-white hover:border-cadmium-green hover:bg-cadmium-green/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Mint Base
+            </button>
             <WalletMultiButton />
           </div>
         </div>

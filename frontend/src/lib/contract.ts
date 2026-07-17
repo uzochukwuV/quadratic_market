@@ -128,7 +128,7 @@ export interface UiMarketGroupAccount {
   correlation_matrix: number[];
 }
 
-const CATEGORY_LABELS = ["Sports", "Crypto", "Finance", "Politics", "Tech", "Other"] as const;
+const CATEGORY_LABELS = ["Sports", "Other"] as const;
 const STATUS_LABELS: UiMarketStatus[] = ["Open", "Suspended", "AwaitingResult", "Proposed", "Settled", "Voided"];
 
 function toNumber(value: unknown): number {
@@ -164,7 +164,7 @@ function firstDefined<T>(...values: Array<T | undefined | null>): T | undefined 
 export function getCategoryLabel(category: unknown): string {
   if (typeof category === "string") return category;
   const idx = toNumber(category);
-  return CATEGORY_LABELS[idx] ?? "Other";
+  return idx === 0 ? "Sports" : "Other";
 }
 
 export function getMarketStatusLabel(status: unknown): UiMarketStatus {
@@ -207,6 +207,12 @@ export interface ContractSnapshot {
   withdrawalRequests: UiWithdrawalRequestAccount[];
   epochVaults: UiEpochVaultAccount[];
   epochLpPositions: UiEpochLpPositionAccount[];
+}
+
+export interface MarketSnapshot {
+  epochs: EpochAccount[];
+  markets: MarketAccount[];
+  marketGroups: UiMarketGroupAccount[];
 }
 
 function toUiMarket(market: UiMarketAccount): MarketAccount {
@@ -272,6 +278,26 @@ export async function fetchContractSnapshot(connection: Connection): Promise<Con
     withdrawalRequests: withdrawalRequestRows.map((item) => normalizeWithdrawalRequest(item.account)),
     epochVaults: epochVaultRows.map((item) => normalizeEpochVault(item.account)),
     epochLpPositions: epochLpPositionRows.map((item) => normalizeEpochLpPosition(item.account)),
+  };
+}
+
+export async function fetchMarketSnapshot(connection: Connection): Promise<MarketSnapshot> {
+  const program = createReadonlyProgram(connection);
+  const accounts = program.account as any;
+  const [markets, epochs, marketGroups] = await Promise.all([
+    accounts.market.all(),
+    accounts.epoch.all(),
+    accounts.marketGroup.all(),
+  ]);
+
+  const marketRows = markets as Array<{ account: UiMarketAccount }>;
+  const epochRows = epochs as Array<{ account: UiEpochAccount }>;
+  const marketGroupRows = marketGroups as Array<{ account: UiMarketGroupAccount }>;
+
+  return {
+    markets: sortMarkets(marketRows.map((item, index) => toUiMarket(normalizeMarket(item.account, index)))),
+    epochs: sortEpochs(epochRows.map((item, index) => normalizeEpoch(item.account, index))),
+    marketGroups: marketGroupRows.map((item) => normalizeMarketGroup(item.account)),
   };
 }
 

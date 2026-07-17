@@ -117,6 +117,10 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ─── Filter Pills ────────────────────────────────────── */
 .filter-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
   background: transparent;
   color: var(--color-silver-text);
   border: 1px solid var(--color-graphite);

@@ -9,21 +9,22 @@ import { BuySellWidget } from "@/app/components/BuySellWidget";
 import { OrderBook } from "@/app/components/OrderBook";
 import { PoolFundsDisplay } from "@/app/components/PoolFundsDisplay";
 import { TradingChart } from "@/app/components/TradingChart";
-import { useContractSnapshot } from "@/hooks/useContractData";
+import { useContractSnapshot, useMarketSnapshot } from "@/hooks/useContractData";
 import { priceFromMarket } from "@/lib/contract";
 
 function TradeContent() {
   const searchParams = useSearchParams();
   const marketId = Number(searchParams.get("market") || "0");
-  const { snapshot, loading } = useContractSnapshot();
+  const { markets, loading: marketLoading, error: marketError } = useMarketSnapshot();
+  const { snapshot: fullSnapshot } = useContractSnapshot();
   const market = useMemo(
-    () => snapshot?.markets.find((entry) => entry.market_id === marketId) ?? snapshot?.markets[0] ?? null,
-    [marketId, snapshot]
+    () => markets.find((entry) => entry.market_id === marketId) ?? markets[0] ?? null,
+    [marketId, markets]
   );
   const [selectedOutcome, setSelectedOutcome] = useState(0);
   const [tradeTab, setTradeTab] = useState<"chart" | "book">("chart");
 
-  if (loading && !market) {
+  if (marketLoading && !market) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-graphite border-t-cadmium-green rounded-full animate-spin" />
@@ -36,6 +37,7 @@ function TradeContent() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-white mb-4">Market not found</p>
+          {marketError && <p className="text-silver-text text-caption mb-4">{marketError}</p>}
           <Link href="/markets" className="btn-primary">
             Back to Markets
           </Link>
@@ -125,7 +127,7 @@ function TradeContent() {
               {tradeTab === "chart" ? (
                 <TradingChart market={market} />
               ) : (
-                <OrderBook marketId={market.market_id} orders={snapshot?.limitOrders ?? []} />
+                <OrderBook marketId={market.market_id} orders={fullSnapshot?.limitOrders ?? []} />
               )}
             </div>
 

@@ -194,62 +194,97 @@ async def task_create_markets(
         odds_snapshot = await api.get_best_odds(fix.fixture_id)
         
         try:
-            # Create market group
-            group_id = await chain.next_market_id()
             title = f"{fix.home_team} vs {fix.away_team}"
-            
-            await chain.create_market_group(
-                group_id=group_id,
-                title=title,
-                event_start_time=fix.start_time,
-            )
-            
+            market_titles = [
+                f"1X2: {title}",
+                f"O/U 2.5: {title}",
+                f"GG/NG: {title}",
+            ]
+
+            current_market_id = await chain.next_market_id()
+            group_id = current_market_id
+            market_start_id = current_market_id
             market_ids = []
-            
-            # Create 1X2 market
-            odds_1x2 = derive_market_odds(fix.fixture_id, odds_snapshot, MarketType.ONE_X_TWO) if odds_snapshot else [20000, 35000, 30000]
-            market_1x2_id, _ = await chain.create_market(
-                start_time=fix.start_time,
-                num_outcomes=3,
-                title=f"1X2: {title}",
-                description=f"{fix.sport_key}",
-                category=0,
-                market_type="oneXTwo",
-                initial_odds=odds_1x2,
-                txline_fixture_id=fix.fixture_id,
-            )
-            market_ids.append(market_1x2_id)
-            
-            # Create O/U 2.5 market
-            odds_ou = derive_market_odds(fix.fixture_id, odds_snapshot, MarketType.OVER_UNDER) if odds_snapshot else [18000, 19000]
-            market_ou_id, _ = await chain.create_market(
-                start_time=fix.start_time,
-                num_outcomes=2,
-                title=f"O/U 2.5: {title}",
-                description=f"{fix.sport_key}",
-                category=1,
-                market_type="overUnder",
-                initial_odds=odds_ou,
-                txline_fixture_id=fix.fixture_id,
-            )
-            market_ids.append(market_ou_id)
-            
-            # Create GG/NG market
-            odds_ggng = derive_market_odds(fix.fixture_id, odds_snapshot, MarketType.GG_NG) if odds_snapshot else [17000, 20000]
-            market_ggng_id, _ = await chain.create_market(
-                start_time=fix.start_time,
-                num_outcomes=2,
-                title=f"GG/NG: {title}",
-                description=f"{fix.sport_key}",
-                category=2,
-                market_type="goalNoGoal",
-                initial_odds=odds_ggng,
-                txline_fixture_id=fix.fixture_id,
-            )
-            market_ids.append(market_ggng_id)
-            
+
+            # If we already partially created this fixture, reuse the existing group
+            # and any market that already landed on-chain.
+            for candidate_group_id in (current_market_id, current_market_id - 1 if current_market_id > 0 else None):
+                if candidate_group_id is None:
+                    continue
+                try:
+                    existing_group = await chain.fetch_market_group(candidate_group_id)
+                except Exception:
+                    continue
+                if getattr(existing_group, "title", None) != title:
+                    continue
+                group_id = candidate_group_id
+                log.info("market_group_exists", fixture_id=fix.fixture_id, group_id=group_id)
+
+                try:
+                    existing_first_market = await chain.fetch_market(group_id)
+                    if getattr(existing_first_market, "title", None) == market_titles[0]:
+                        market_ids.append(group_id)
+                        market_start_id = group_id + 1
+                except Exception:
+                    market_start_id = group_id
+                break
+            else:
+                await chain.create_market_group(
+                    group_id=group_id,
+                    title=title,
+                    event_start_time=fix.start_time,
+                )
+
+            market_specs = [
+                {
+                    "num_outcomes": 3,
+                    "title": market_titles[0],
+                    "description": fix.sport_key,
+                    "category": 0,
+                    "market_type": "oneXTwo",
+                    "initial_odds": derive_market_odds(fix.fixture_id, odds_snapshot, MarketType.ONE_X_TWO) if odds_snapshot else [20000, 35000, 30000],
+                },
+                {
+                    "num_outcomes": 2,
+                    "title": market_titles[1],
+                    "description": fix.sport_key,
+                    "category": 1,
+                    "market_type": "overUnder",
+                    "initial_odds": derive_market_odds(fix.fixture_id, odds_snapshot, MarketType.OVER_UNDER) if odds_snapshot else [18000, 19000],
+                },
+                {
+                    "num_outcomes": 2,
+                    "title": market_titles[2],
+                    "description": fix.sport_key,
+                    "category": 2,
+                    "market_type": "goalNoGoal",
+                    "initial_odds": derive_market_odds(fix.fixture_id, odds_snapshot, MarketType.GG_NG) if odds_snapshot else [17000, 20000],
+                },
+            ]
+
+            for market_offset, spec in enumerate(market_specs[len(market_ids):]):
+                market_id = market_start_id + market_offset
+                created_market_id, _ = await chain.create_market(
+                    start_time=fix.start_time,
+                    num_outcomes=spec["num_outcomes"],
+                    title=spec["title"],
+                    description=spec["description"],
+                    category=spec["category"],
+                    market_type=spec["market_type"],
+                    initial_odds=spec["initial_odds"],
+                    txline_fixture_id=fix.fixture_id,
+                    market_id=market_id,
+                )
+                market_ids.append(created_market_id)
+
             # Add markets to group
             for i, mkt_id in enumerate(market_ids):
+                try:
+                    mkt = await chain.fetch_market(mkt_id)
+                    if getattr(mkt, "group_id", None) is not None:
+                        continue
+                except Exception:
+                    pass
                 await chain.add_market_to_group(group_id, mkt_id, i)
             
             # Track group

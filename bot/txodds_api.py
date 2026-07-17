@@ -162,7 +162,7 @@ class TxoddsApiClient:
         Returns the JWT for use in subsequent requests.
         """
         resp = await self._http.post(
-            "auth/guest/start",
+            self._config["guest_auth"],
             json={},
         )
         resp.raise_for_status()
@@ -181,6 +181,13 @@ class TxoddsApiClient:
             "Authorization": f"Bearer {self._jwt}",
             "X-Api-Token": self._api_key,
         }
+
+    @staticmethod
+    def _first_value(item: dict, *keys: str, default=None):
+        for key in keys:
+            if key in item and item[key] is not None:
+                return item[key]
+        return default
 
     async def close(self) -> None:
         await self._http.aclose()
@@ -220,14 +227,18 @@ class TxoddsApiClient:
         
         fixtures = []
         for item in data:
+            fixture_id = int(self._first_value(item, "fixtureId", "FixtureId"))
+            start_time = self._first_value(item, "startTime", "StartTime")
+            competition_id = self._first_value(item, "leagueId", "LeagueId", "CompetitionId")
+            competition_name = self._first_value(item, "leagueName", "LeagueName", "Competition")
             fixtures.append(TxoddsFixture(
-                fixture_id=item["fixtureId"],
-                home_team=item.get("homeTeam", "Home"),
-                away_team=item.get("awayTeam", "Away"),
-                start_time=item["startTime"] // 1000 if isinstance(item["startTime"], int) else item["startTime"],  # ms to s
-                sport_key=item.get("sportKey", "soccer"),
-                league_id=item.get("leagueId"),
-                league_name=item.get("leagueName"),
+                fixture_id=fixture_id,
+                home_team=self._first_value(item, "homeTeam", "HomeTeam", "Participant1", default="Home"),
+                away_team=self._first_value(item, "awayTeam", "AwayTeam", "Participant2", default="Away"),
+                start_time=int(start_time) // 1000 if isinstance(start_time, int) and start_time > 10**12 else int(start_time),
+                sport_key=self._first_value(item, "sportKey", "SportKey", default="soccer"),
+                league_id=competition_id,
+                league_name=competition_name,
             ))
         
         log.info("fixtures_fetched", count=len(fixtures))
@@ -277,7 +288,10 @@ class TxoddsApiClient:
         
         odds_list = []
         for item in data:
-            prices = item.get("prices", [])
+            fixture_id = int(self._first_value(item, "fixtureId", "FixtureId"))
+            ts = int(self._first_value(item, "ts", "Ts", default=0))
+            prices = self._first_value(item, "prices", "Prices", default=[])
+            price_names = self._first_value(item, "priceNames", "PriceNames", default=[])
             # Convert to basis points if decimal
             converted_prices = []
             for p in prices:
@@ -287,12 +301,12 @@ class TxoddsApiClient:
                     converted_prices.append(p)
             
             odds_list.append(TxoddsOdds(
-                fixture_id=item["fixtureId"],
-                ts=item["ts"],
+                fixture_id=fixture_id,
+                ts=ts,
                 prices=converted_prices,
-                price_names=item.get("priceNames", []),
-                bookmaker=item.get("bookmaker", "unknown"),
-                in_running=item.get("inRunning", False),
+                price_names=price_names,
+                bookmaker=self._first_value(item, "bookmaker", "Bookmaker", default="unknown"),
+                in_running=bool(self._first_value(item, "inRunning", "InRunning", default=False)),
             ))
         
         log.debug("odds_snapshot", fixture_id=fixture_id, lines=len(odds_list))
@@ -338,14 +352,14 @@ class TxoddsApiClient:
         scores = []
         for item in data:
             scores.append(TxoddsScore(
-                fixture_id=item["fixtureId"],
-                seq=item.get("seq") or item.get("Seq"),
-                home_score=item.get("homeScore", 0),
-                away_score=item.get("awayScore", 0),
-                status_id=item.get("statusId", 0),
-                period=item.get("period", 0),
-                action=item.get("action", ""),
-                ts=item.get("ts", 0),
+                fixture_id=int(self._first_value(item, "fixtureId", "FixtureId")),
+                seq=self._first_value(item, "seq", "Seq"),
+                home_score=self._first_value(item, "homeScore", "HomeScore", default=0),
+                away_score=self._first_value(item, "awayScore", "AwayScore", default=0),
+                status_id=self._first_value(item, "statusId", "StatusId", default=0),
+                period=self._first_value(item, "period", "Period", default=0),
+                action=self._first_value(item, "action", "Action", default=""),
+                ts=int(self._first_value(item, "ts", "Ts", default=0)),
             ))
         
         return scores
@@ -446,14 +460,14 @@ class TxoddsApiClient:
         scores = []
         for item in data:
             scores.append(TxoddsScore(
-                fixture_id=item["fixtureId"],
-                seq=item.get("seq") or item.get("Seq"),
-                home_score=item.get("homeScore", 0),
-                away_score=item.get("awayScore", 0),
-                status_id=item.get("statusId", 0),
-                period=item.get("period", 0),
-                action=item.get("action", ""),
-                ts=item.get("ts", 0),
+                fixture_id=int(self._first_value(item, "fixtureId", "FixtureId")),
+                seq=self._first_value(item, "seq", "Seq"),
+                home_score=self._first_value(item, "homeScore", "HomeScore", default=0),
+                away_score=self._first_value(item, "awayScore", "AwayScore", default=0),
+                status_id=self._first_value(item, "statusId", "StatusId", default=0),
+                period=self._first_value(item, "period", "Period", default=0),
+                action=self._first_value(item, "action", "Action", default=""),
+                ts=int(self._first_value(item, "ts", "Ts", default=0)),
             ))
         
         return scores

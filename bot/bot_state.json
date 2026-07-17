@@ -1,0 +1,61 @@
+{
+  "groups": [
+    {
+      "fixture_id": 18143850,
+      "group_id": 31,
+      "home_team": "Vietnam",
+      "away_team": "Myanmar",
+      "sport_key": "soccer",
+      "start_time": 1784376000,
+      "market_ids": [
+        31,
+        32,
+        33
+      ],
+      "stage": "mints_init",
+      "created_at": 1784271279
+    }
+  ],
+  "markets": [
+    {
+      "fixture_id": 18143850,
+      "market_id": 31,
+      "market_type": "1x2",
+      "category": 0,
+      "num_outcomes": 3,
+      "start_time": 1784376000,
+      "stage": "mints_init",
+      "title": "1x2: Vietnam vs Myanmar",
+      "market_index": 0,
+      "created_at": 1784271279,
+      "proposed_outcome": null
+    },
+    {
+      "fixture_id": 18143850,
+      "market_id": 32,
+      "market_type": "over_under",
+      "category": 1,
+      "num_outcomes": 2,
+      "start_time": 1784376000,
+      "stage": "mints_init",
+      "title": "over_under: Vietnam vs Myanmar",
+      "market_index": 1,
+      "created_at": 1784271279,
+      "proposed_outcome": null
+    },
+    {
+      "fixture_id": 18143850,
+      "market_id": 33,
+      "market_type": "gg_ng",
+      "category": 2,
+      "num_outcomes": 2,
+      "start_time": 1784376000,
+      "stage": "mints_init",
+      "title": "gg_ng: Vietnam vs Myanmar",
+      "market_index": 2,
+      "created_at": 1784271279,
+      "proposed_outcome": null
+    }
+  ],
+  "slips": []
+}

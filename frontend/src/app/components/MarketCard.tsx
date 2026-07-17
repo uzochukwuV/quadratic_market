@@ -7,10 +7,6 @@ import { addToBetSlip } from "./BetSlipDrawer";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Sports:   "text-[#a0e0ab] border-[#a0e0ab]/30 bg-[#a0e0ab]/[0.08]",
-  Crypto:   "text-[#a07bff] border-[#a07bff]/30 bg-[#a07bff]/[0.08]",
-  Finance:  "text-[#5bc8fa] border-[#5bc8fa]/30 bg-[#5bc8fa]/[0.08]",
-  Politics: "text-[#ffac2e] border-[#ffac2e]/30 bg-[#ffac2e]/[0.08]",
-  Tech:     "text-[#f79aca] border-[#f79aca]/30 bg-[#f79aca]/[0.08]",
   Other:    "text-whisper-gray border-white/20 bg-white/[0.04]",
 };
 
@@ -50,7 +46,7 @@ export function MarketCard({
   const prices = getMarketPrices(market);
   const yesPrice = prices[0];
   const noPrice = prices[1] ?? 1 - yesPrice;
-  const cat = CATEGORY_COLORS[market.category] ?? CATEGORY_COLORS.Other;
+  const cat = CATEGORY_COLORS[market.category === "Sports" ? "Sports" : "Other"] ?? CATEGORY_COLORS.Other;
   const statusBadge = STATUS_BADGE[market.status];
   const isFixedOdds = market.market_mode === "FixedOdds";
   const isTrading = market.market_mode === "Trading";

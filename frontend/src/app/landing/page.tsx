@@ -102,8 +102,8 @@ export default function LandingPage() {
               },
               {
                 step: "02",
-                title: "Browse Markets",
-                desc: "Explore prediction markets across sports, crypto, finance, and more. View live odds and pool size.",
+                title: "Browse Sports Markets",
+                desc: "Explore live sports markets with on-chain odds, market depth, and epoch timing.",
               },
               {
                 step: "03",
@@ -146,11 +146,11 @@ export default function LandingPage() {
             {[
               {
                 title: "Slip-Based Bets",
-                desc: "Slips record the match legs and defer pricing until execution time, so odds can update before start.",
+                desc: "Slips record the match legs and defer pricing until execution time, so odds can update before kickoff.",
               },
               {
                 title: "Epoch-Based Markets",
-                desc: "Markets are organized into epochs. Each epoch contains multiple prediction markets, simplifying portfolio management and LP strategy.",
+                desc: "Sports markets are organized into epochs. Each epoch contains multiple matches, simplifying portfolio management and LP strategy.",
               },
               {
                 title: "Liquidity Pools",
@@ -249,12 +249,12 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {[
-              { category: "Sports", example: "Will the Celtics beat the Lakers?" },
-              { category: "Crypto", example: "Will Bitcoin reach $100K by Q4 2025?" },
-              { category: "Finance", example: "Will the Fed cut rates in the next FOMC meeting?" },
-              { category: "Politics", example: "Who will win the 2024 election?" },
-              { category: "Technology", example: "Will AI reach AGI by 2030?" },
-              { category: "Weather", example: "Will it snow in NYC this winter?" },
+              { category: "Match Winner", example: "Will Arsenal beat Liverpool at home?" },
+              { category: "Totals", example: "Will the game finish over 2.5 goals?" },
+              { category: "Both Teams", example: "Will both teams score in the match?" },
+              { category: "Handicap", example: "Will the underdog cover the spread?" },
+              { category: "First Half", example: "Will there be a first-half goal?" },
+              { category: "Correct Score", example: "Will the match end 2-1?" },
             ].map((item, idx) => (
               <div
                 key={idx}

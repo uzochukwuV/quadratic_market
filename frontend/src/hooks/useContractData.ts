@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useProtocol } from "@/hooks/useProtocol";
-import { sortEpochs, sortMarkets, type ContractSnapshot } from "@/lib/contract";
+import { fetchMarketSnapshot, sortEpochs, sortMarkets, type ContractSnapshot, type MarketSnapshot } from "@/lib/contract";
 import type { EpochAccount, MarketAccount } from "@/lib/types";
+import { useConnection } from "@solana/wallet-adapter-react";
 
 export function useContractSnapshot() {
   const {
@@ -38,6 +39,57 @@ export function useContractSnapshot() {
   );
 
   return { snapshot, loading, error, refresh: refetch };
+}
+
+export function useMarketSnapshot() {
+  const { connection } = useConnection();
+  const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshIndex, setRefreshIndex] = useState(0);
+
+  const refetch = useCallback(() => {
+    setRefreshIndex((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      if (!connection) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await fetchMarketSnapshot(connection);
+        if (cancelled) return;
+        setSnapshot(result);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load markets");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, refreshIndex]);
+
+  return {
+    markets: snapshot?.markets ?? [],
+    epochs: snapshot?.epochs ?? [],
+    marketGroups: snapshot?.marketGroups ?? [],
+    loading,
+    error,
+    refetch,
+  };
 }
 
 export function useContractMarket(marketId: number) {
