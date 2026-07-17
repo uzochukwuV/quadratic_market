@@ -4,7 +4,7 @@ import path from "node:path";
 
 process.env.NODE_ENV = "production";
 
-const standaloneDir = path.join(process.cwd(), ".next/standalone");
+const standaloneDir = path.join(process.cwd(), "standalone");
 const require = createRequire(path.join(standaloneDir, "package.json"));
 const next = require(path.join(standaloneDir, "node_modules/next/dist/server/next.js"));
 
