@@ -55,7 +55,7 @@ def _keypair_path(key: str) -> Path:
 
 NETWORK: str = os.getenv("NETWORK", "devnet")  # "devnet" or "mainnet"
 
-RPC_URL: str = os.getenv("RPC_URL", "https://api.devnet.solana.com")
+RPC_URL: str = os.getenv("RPC_URL", "https://rpc.ankr.com/solana_devnet/34e09c0b23e338cc418de4198834f827a1ddfc21af2f3bcafd94a5370ff59dea")
 PROGRAM_ID: str = _require("PROGRAM_ID")
 BASE_MINT: str = os.getenv("BASE_MINT", "").strip()
 BASE_MINT_FILE: str = os.getenv("BASE_MINT_FILE", "").strip()

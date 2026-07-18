@@ -1,898 +1,371 @@
-import React, { useState, useMemo } from "react";
-import { X, Trash2, Receipt } from "lucide-react";
-import { betHistory } from "@/lib/sportsData";
+# Dovetail — Style Reference
+> blueprint control room at midnight.
 
-const QUICK_STAKES = [500, 1000, 2000, 5000];
+**Theme:** dark
 
-const statusColors = {
-  won: "bg-green-500",
-  lost: "bg-red-500",
-  pending: "bg-sunset-orange",
-};
+Dovetail's design language is a dark command center: near-black canvas, subtle grid wireframes, and cool gray type that recedes so charts and data can lead. A single vivid cornflower blue (#6798ff) acts as the system's only chromatic accent — it appears on the announcement bar, feature icons, and active highlights, never as decorative noise. Typography is Inter at every layer with progressively tighter tracking as sizes grow (from -0.012em at 14px to -0.036em at 64px), giving headlines a compressed, engineered quality rather than a marketing gloss. Components are weightless: 8px radii, hairline borders at #1e1e1 or #313131, zero shadows, and flat surfaces that stack through tone rather than elevation. The overall rhythm is compact, technical, and instrument-like — a tool room, not a pitch deck.
 
-const statusLabels = {
-  won: "Won",
-  lost: "Lost",
-  pending: "Pending",
-};
+## Tokens — Colors
 
-export default function BetSlip({ bets, onRemoveBet, onClearSlip }) {
-  const [stake, setStake] = useState(1000);
-  const [activeTab, setActiveTab] = useState("slip");
+| Name | Value | Token | Role |
+|------|-------|-------|------|
+| Blue Cornflower | `#6798ff` | `--color-blue-cornflower` | Accent for announcement bar, feature icons, active states, and data highlight strokes |
+| Page Ink | `#0a0a0a` | `--color-page-ink` | Primary page background — the dark canvas that everything sits on |
+| Card Carbon | `#1e1e1e` | `--color-card-carbon` | Card surfaces, button backgrounds, and key borders that delineate panels |
+| Deep Coal | `#141414` | `--color-deep-coal` | Alternate surface level for nested cards and section backgrounds |
+| Onyx | `#000000` | `--color-onyx` | Pure black used in SVG illustration fills and contrast anchors |
+| Steel Border | `#313131` | `--color-steel-border` | Hairline borders on image frames and subtle dividers |
+| Graphite | `#454545` | `--color-graphite` | Mid-tone borders on outline buttons and input frames |
+| Fog | `#7c7c7c` | `--color-fog` | Disabled or de-emphasized button text |
+| Ash | `#a7a7a7` | `--color-ash` | Secondary body text, borders on muted elements, icon strokes |
+| Snow | `#ffffff` | `--color-snow` | Primary text, primary filled button background, icon fills, nav links |
 
-  const totalOdds = useMemo(() => {
-    if (bets.length === 0) return 1;
-    return bets.reduce((acc, bet) => acc * bet.odds, 1);
-  }, [bets]);
+## Tokens — Typography
 
-  const potentialWin = totalOdds * stake;
+### Inter — All UI and editorial text. Weight 400 for body and meta, 500 for nav and button labels, 600 for headings. Display sizes (56–64px) carry heavy negative tracking to feel engineered and compact. · `--font-inter`
+- **Substitute:** Inter is freely available on Google Fonts
+- **Weights:** 400, 500, 600
+- **Sizes:** 14, 16, 20, 24, 40, 56, 64
+- **Line height:** 1.13–1.57
+- **Letter spacing:** -0.17px at 14px, -0.19px at 16px, -0.50px at 24px, -0.84px at 40px, -2.02px at 56px, -2.30px at 64px
+- **OpenType features:** `"liga" on`
+- **Role:** All UI and editorial text. Weight 400 for body and meta, 500 for nav and button labels, 600 for headings. Display sizes (56–64px) carry heavy negative tracking to feel engineered and compact.
 
-  const formatCurrency = (num) =>
-    num.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+### JetBrains Mono — Monospaced labels for section eyebrows (e.g. "HOW IT WORKS"), BETA tags, and small data codes. Wide positive tracking (0.071–0.083em) gives these labels a technical, instrument-panel feel. · `--font-jetbrains-mono`
+- **Substitute:** JetBrains Mono via Google Fonts
+- **Weights:** 400
+- **Sizes:** 12, 14
+- **Line height:** 1.00, 1.40
+- **Letter spacing:** 1.0px at 14px, 0.85px at 12px
+- **OpenType features:** `"liga" on`
+- **Role:** Monospaced labels for section eyebrows (e.g. "HOW IT WORKS"), BETA tags, and small data codes. Wide positive tracking (0.071–0.083em) gives these labels a technical, instrument-panel feel.
 
-  const handleStakeInput = (e) => {
-    const raw = e.target.value.replace(/[^0-9]/g, "");
-    setStake(raw === "" ? 0 : parseInt(raw, 10));
-  };
+### Type Scale
 
-  return (
-    <aside className="w-[280px] bg-canvas border-l border-light-pearl shrink-0 flex flex-col sticky top-0 h-[calc(100vh-100px)] overflow-hidden">
-      {/* Header */}
-      <div className="px-4 pt-4 pb-0 shrink-0">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <h3 className="font-inter text-[15px] font-bold text-midnight">Bet Slip</h3>
-            {bets.length > 0 && (
-              <span className="bg-sunset-orange text-white font-inter text-[11px] font-bold min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center">
-                {bets.length}
-              </span>
-            )}
-          </div>
-          {bets.length > 0 && (
-            <button
-              onClick={onClearSlip}
-              className="flex items-center gap-1 text-silver-ash hover:text-midnight transition-colors"
-              title="Clear all"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span className="font-inter text-[12px]">Clear</span>
-            </button>
-          )}
-        </div>
+| Role | Size | Line Height | Letter Spacing | Token |
+|------|------|-------------|----------------|-------|
+| caption | 12px | 1.4 | 0.85px | `--text-caption` |
+| body-sm | 14px | 1.5 | -0.17px | `--text-body-sm` |
+| body | 16px | 1.5 | -0.19px | `--text-body` |
+| subheading | 20px | 1.4 | -0.42px | `--text-subheading` |
+| heading-sm | 24px | 1.33 | -0.5px | `--text-heading-sm` |
+| heading | 40px | 1.2 | -0.84px | `--text-heading` |
+| heading-lg | 56px | 1.14 | -2.02px | `--text-heading-lg` |
+| display | 64px | 1.13 | -2.3px | `--text-display` |
 
-        {/* Tabs */}
-        <div className="flex border-b border-light-pearl">
-          {["slip", "history"].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 font-inter text-[13px] font-medium transition-colors border-b-2 -mb-px ${
-                activeTab === tab
-                  ? "border-midnight text-midnight"
-                  : "border-transparent text-silver-ash hover:text-dark-shale"
-              }`}
-            >
-              {tab === "slip" ? "Selections" : (
-                <>
-                  <Receipt className="w-3.5 h-3.5" />
-                  History
-                </>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+## Tokens — Spacing & Shapes
 
-      {/* Slip Tab */}
-      {activeTab === "slip" && (
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Selections list */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-            {bets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <div className="w-12 h-12 rounded-full bg-cloud-whisper flex items-center justify-center">
-                  <Receipt className="w-5 h-5 text-silver-ash" />
-                </div>
-                <p className="font-inter text-[13px] text-silver-ash text-center">
-                  Click any odds to<br />add selections
-                </p>
-              </div>
-            ) : (
-              bets.map((bet) => (
-                <div key={bet.id} className="bg-cloud-whisper rounded-lg p-3 relative group border border-transparent hover:border-light-pearl transition-all">
-                  <button
-                    onClick={() => onRemoveBet(bet.id)}
-                    className="absolute top-2 right-2 text-silver-ash hover:text-midnight opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                  <div className="font-inter text-[11px] text-silver-ash mb-1 pr-5 truncate">{bet.match}</div>
-                  <div className="flex items-center justify-between pr-4">
-                    <span className="font-inter text-[13px] font-semibold text-midnight leading-tight">{bet.selection}</span>
-                    <span className="font-inter text-[15px] font-bold text-sunset-orange ml-2 shrink-0">{bet.odds.toFixed(2)}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+**Base unit:** 8px
 
-          {/* Stake & Payout — always visible at bottom */}
-          <div className="shrink-0 border-t border-light-pearl px-4 pt-3 pb-4 space-y-3 bg-canvas">
-            {/* Stake input */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="font-inter text-[12px] font-semibold text-dark-shale uppercase tracking-wide">Stake</label>
-                <span className="font-inter text-[12px] text-silver-ash">₦</span>
-              </div>
-              <input
-                type="text"
-                value={stake === 0 ? "" : stake.toLocaleString("en-NG")}
-                onChange={handleStakeInput}
-                placeholder="Enter amount"
-                className="w-full border border-midnight/20 rounded-lg px-3 py-2 font-inter text-[15px] font-semibold text-midnight focus:outline-none focus:border-sunset-orange transition-colors bg-canvas text-right"
-              />
-            </div>
+**Density:** compact
 
-            {/* Quick stake buttons */}
-            <div className="grid grid-cols-4 gap-1.5">
-              {QUICK_STAKES.map((amount) => (
-                <button
-                  key={amount}
-                  onClick={() => setStake(amount)}
-                  className={`py-1 rounded font-inter text-[11px] font-medium border transition-all ${
-                    stake === amount
-                      ? "bg-midnight text-white border-midnight"
-                      : "bg-cloud-whisper text-dark-shale border-light-pearl hover:border-silver-ash"
-                  }`}
-                >
-                  {amount >= 1000 ? `${amount / 1000}K` : amount}
-                </button>
-              ))}
-            </div>
+### Spacing Scale
 
-            {/* Summary rows */}
-            <div className="space-y-1.5 bg-cloud-whisper rounded-lg px-3 py-2.5">
-              <div className="flex items-center justify-between">
-                <span className="font-inter text-[12px] text-silver-ash">{bets.length} Selection{bets.length !== 1 ? "s" : ""}</span>
-                <span className="font-inter text-[12px] font-medium text-dark-shale">Accumulator</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="font-inter text-[12px] text-silver-ash">Total Odds</span>
-                <span className="font-inter text-[13px] font-bold text-midnight">{bets.length > 0 ? totalOdds.toFixed(2) : "—"}</span>
-              </div>
-              <div className="h-px bg-light-pearl my-1" />
-              <div className="flex items-center justify-between">
-                <span className="font-inter text-[13px] font-semibold text-dark-shale">Potential Win</span>
-                <span className="font-inter text-[15px] font-bold text-midnight">
-                  {bets.length > 0 ? `₦ ${formatCurrency(potentialWin)}` : "—"}
-                </span>
-              </div>
-            </div>
+| Name | Value | Token |
+|------|-------|-------|
+| 8 | 8px | `--spacing-8` |
+| 16 | 16px | `--spacing-16` |
+| 24 | 24px | `--spacing-24` |
+| 32 | 32px | `--spacing-32` |
+| 40 | 40px | `--spacing-40` |
+| 64 | 64px | `--spacing-64` |
+| 96 | 96px | `--spacing-96` |
+| 200 | 200px | `--spacing-200` |
 
-            <button
-              disabled={bets.length === 0 || stake === 0}
-              className="w-full bg-sunset-orange text-white font-inter text-[14px] font-bold py-3 rounded-[20px] hover:bg-sunset-orange/90 transition-colors active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed tracking-wide"
-            >
-              PLACE BET — ₦ {stake > 0 ? formatCurrency(stake) : "0.00"}
-            </button>
-          </div>
-        </div>
-      )}
+### Border Radius
 
-      {/* History Tab */}
-      {activeTab === "history" && (
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-          {betHistory.map((item) => (
-            <div key={item.id} className="bg-cloud-whisper rounded-lg px-3 py-2.5 flex items-center gap-3">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${statusColors[item.status]}`} />
-              <div className="flex-1 min-w-0">
-                <div className="font-inter text-[13px] font-medium text-midnight truncate">{item.match}</div>
-                <div className="font-inter text-[11px] text-silver-ash">{statusLabels[item.status]}</div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="font-inter text-[13px] font-bold text-midnight">{item.amount}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </aside>
-  );
+| Element | Value |
+|---------|-------|
+| tags | 4px |
+| cards | 8px |
+| inputs | 8px |
+| buttons | 8px |
+
+### Layout
+
+- **Page max-width:** 1200px
+- **Section gap:** 64-96px
+- **Card padding:** 24-32px
+- **Element gap:** 8-16px
+
+## Components
+
+### White Filled Button (Primary)
+**Role:** Primary action — the most prominent CTA on a page
+
+White background (#ffffff), near-black text (#0a0a0a), 8px radius, 16px horizontal / 10px vertical padding. Inter 500 at 14px. Used for "Contact sales" and "Try Dovetail free" in high-priority positions. No border, no shadow.
+
+### Dark Outlined Button (Secondary)
+**Role:** Secondary action paired beside a primary
+
+Transparent or #0a0a0a background, 1px border at #454545, white text (#ffffff), 8px radius, 16px / 10px padding. Inter 500 at 14px. The lower-emphasis counterpart to the white filled button.
+
+### Ghost Nav Button
+**Role:** Top-bar utility actions like "Log in"
+
+No background, no border, white text at 14px Inter 500. Sits inline with nav items. Padding matches nav height rhythm.
+
+### Stat Card
+**Role:** Highlights a single metric in the "How it works" section
+
+#1e1e1 background, 1px border at #1e1e1 (or transparent — separation comes from surface tone), 8px radius, 24px padding. A small #6798ff icon sits above a 40px Inter 600 metric value in white, followed by a 14px label in #a7a7a7. No shadow, no hover lift.
+
+### Section Eyebrow Label
+**Role:** Small uppercase label above section headlines (e.g. "HOW IT WORKS")
+
+JetBrains Mono 400 at 12px, white or #a7a7a7 text, letter-spacing 0.85px. No background, sits directly above headline with 16-24px gap.
+
+### Product Preview Card
+**Role:** Inset mockup of the Dovetail dashboard inside the hero
+
+#1e1e1 surface with 8px radius, contains a real product UI rendering with charts, tables, and colored data bars. Acts as a flat, borderless visual element — no shadow or frame chrome.
+
+### BETA Tag
+**Role:** Marks features in early release (e.g. "AI Docs BETA")
+
+Inline text tag, no background, #a7a7a7 text at 12px Inter 400, with "BETA" uppercase in JetBrains Mono 400 at 12px. Sits beside the feature name with 8px gap.
+
+### Logo Strip Item
+**Role:** Customer logo in the trust bar
+
+Greyscale SVG, roughly 80px wide, 8-16px gap between items. Logos sit on transparent background at ~60% opacity to stay subordinate to the page.
+
+### Footer Link Column
+**Role:** Site map columns in the footer
+
+Column header in 12px Inter 500 uppercase at #a7a7a7 (letter-spacing ~0.5px). Links below in 14px Inter 400 white, 8-12px vertical gap between links. No bullet markers.
+
+### Social Icon Button
+**Role:** LinkedIn, X, Instagram, YouTube in footer
+
+24px square, white stroke or fill, no background, no border, no hover chrome — flat icon-on-dark.
+
+### Announcement Bar
+**Role:** Top-of-page promo strip
+
+Full-width #6798ff blue background, white text at 14px Inter 500, centered content with a small dismiss icon on the right. 8px vertical padding.
+
+### Rating Badge
+**Role:** G2 and Capterra star ratings below the logo strip
+
+5 white stars at 12-14px, followed by "4.5/5 · 62" or similar in 12px Inter 400 #a7a7a7. Inline horizontal layout with 16px gap.
+
+## Do's and Don'ts
+
+### Do
+- Use 8px radius for all buttons, cards, and inputs — the only deviation is 4px for small tags and inline chips.
+- Set page background to #0a0a0a and reserve #1e1e1 exclusively for card and button surfaces so the surface hierarchy reads through tone alone.
+- Use #6798ff only for functional accents: announcement bars, feature icons, active nav states, and data highlight strokes — never as a background fill for content blocks.
+- Set display headlines at 56-64px Inter 600 with tracking between -2.0 and -2.3px so they feel engineered, not editorial.
+- Reserve JetBrains Mono for eyebrows, BETA tags, and small data labels with positive 0.85-1.0px tracking — never use it for body or headings.
+- Keep section gaps between 64-96px and element gaps between 8-16px to maintain the compact, technical density.
+- Default to white filled buttons for primary actions and dark outlined (1px #454545) for secondary — never use the blue accent on a button background.
+
+### Don't
+- Do not introduce a second chromatic color — the system is monochrome with a single blue accent.
+- Do not use shadows or elevation to separate surfaces — rely on tone shifts between #0a0a0a, #141414, and #1e1e1e.
+- Do not use gradients on any surface, button, or background.
+- Do not use #6798ff as a filled button background — it belongs only on icons, the announcement bar, and small accent strokes.
+- Do not use 66px or pill radii on cards or buttons — the 8px corner is the system signature.
+- Do not set body text below 14px or use weights lighter than 400 — the type stack is deliberately compact, not delicate.
+- Do not use pure #000000 as a page background — it is reserved for SVG illustration fills; pages live on #0a0a0a or #141414.
+
+## Surfaces
+
+| Level | Name | Value | Purpose |
+|-------|------|-------|---------|
+| 0 | Canvas | `#0a0a0a` | Page background |
+| 1 | Section | `#141414` | Alternate band or inset section background |
+| 2 | Card | `#1e1e1` | Card, button fill, and bordered component surface |
+| 3 | Raised Edge | `#313131` | Image frames and fine separators |
+
+## Elevation
+
+The system deliberately avoids box-shadows entirely. Surface separation is achieved through flat tone shifts (#0a0a0a → #141414 → #1e1e1 → #313131) and 1px hairline borders at #1e1e1 or #454545. Components feel like instrument panels — flush, parallel, and dimensional only through color value, not depth.
+
+## Imagery
+
+Imagery is minimal and functional: greyscale customer logos in a single trust strip, one or two product-screenshot cards showing real dashboard UI (charts, tables, data bars), and sparse flat illustrations in the footer (a pixel smiley face on a #6798ff tile). No lifestyle photography, no hero video, no decorative 3D. The grid wireframe pattern overlaid on the dark background is the only repeated visual motif — it signals "blueprint" and gives the dark surface structure. Icons are small, single-color (white or #6798ff), 16-20px, stroke-based with a 1.5-2px weight, and sit inline with text rather than floating as decoration.
+
+## Layout
+
+Pages are max-width 1200px centered with generous side padding. The hero uses an asymmetric 50/50 split: left column carries headline, subtext, and dual CTAs; right column holds a product preview card. Section rhythm is uniform — dark background continues throughout with no alternating bands, separated only by vertical spacing. Stat highlights and feature grids use 3-column or 4-column card rows at equal widths. Navigation is a single top bar with logo, product/use-cases/resources/enterprise/customers/pricing links center-left, and Log in + Contact sales right-aligned. No sidebar, no mega-menu. Footer is a 4-column link grid plus a single illustration card on the right. The overall density is compact and consistent — every section breathes the same amount.
+
+## Agent Prompt Guide
+
+**Quick Color Reference**
+- text: #ffffff (primary), #a7a7a7 (secondary), #7c7c7c (disabled)
+- background: #0a0a0a (page), #1e1e1e (card/button)
+- border: #1e1e1e (subtle), #454545 (outlined button), #313131 (image frame)
+- accent: #6798ff (icons, announcement bar, active states)
+- primary action: #1e1e1e (filled action)
+
+**Example Component Prompts**
+1. Create a Primary Action Button: #1e1e1e background, #ffffff text, 9999px radius, compact pill padding. Use this filled treatment for the main CTA.
+2. Build a 3-column stat row: each cell is a #1e1e1e card with 8px radius and 24px padding. Inside, a #6798ff icon (16px, stroke) sits above a 40px Inter 600 white metric value, followed by a 14px Inter 400 #a7a7a7 label.
+3. Build a top navigation bar: #0a0a0a background, logo on the left, nav links in 14px Inter 500 #ffffff, spaced 24px apart, centered. On the right, a ghost "Log in" text link and a white filled "Contact sales" button (8px radius, 16px/10px padding). Height 64px.
+4. Build a section with a JetBrains Mono eyebrow: 12px uppercase label in #a7a7a7 with 0.85px letter-spacing, 24px gap below to a 40px Inter 600 #ffffff headline with -0.84px tracking.
+5. Build a footer link column: 12px Inter 500 uppercase #a7a7a7 header with 0.5px tracking, followed by 14px Inter 400 white links stacked at 12px vertical gap. No bullets, no separators.
+
+## Grid Wireframe Motif
+
+A subtle 1px grid pattern at #1e1e1e sits behind the dark canvas across hero and feature sections. The grid is square (roughly 40-60px cells), very low contrast, and never carries content — it exists to give the otherwise flat dark surface a sense of structure and engineering intent. When recreating this system, overlay a 1px #1e1e1e linear-gradient or repeating-linear-gradient grid on the page background; do not attempt to recreate it with borders on individual elements.
+
+## Similar Brands
+
+- **Linear** — Same dark canvas, single vivid blue accent, Inter typeface, 8px radii, and zero-shadow flat surfaces with tone-based hierarchy.
+- **Vercel** — Dark-first instrument-panel aesthetic with tight Inter tracking on display sizes, monochrome palette, and minimal blue functional accents.
+- **Cursor** — Compact dark UI with a single cool accent color, compact density, and a product-preview-led hero layout.
+- **Retool** — Developer-tool dark theme with neutral primary buttons, hairline borders, and product UI inlined directly into marketing sections.
+
+## Quick Start
+
+### CSS Custom Properties
+
+```css
+:root {
+  /* Colors */
+  --color-blue-cornflower: #6798ff;
+  --color-page-ink: #0a0a0a;
+  --color-card-carbon: #1e1e1e;
+  --color-deep-coal: #141414;
+  --color-onyx: #000000;
+  --color-steel-border: #313131;
+  --color-graphite: #454545;
+  --color-fog: #7c7c7c;
+  --color-ash: #a7a7a7;
+  --color-snow: #ffffff;
+
+  /* Typography — Font Families */
+  --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-jetbrains-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Typography — Scale */
+  --text-caption: 12px;
+  --leading-caption: 1.4;
+  --tracking-caption: 0.85px;
+  --text-body-sm: 14px;
+  --leading-body-sm: 1.5;
+  --tracking-body-sm: -0.17px;
+  --text-body: 16px;
+  --leading-body: 1.5;
+  --tracking-body: -0.19px;
+  --text-subheading: 20px;
+  --leading-subheading: 1.4;
+  --tracking-subheading: -0.42px;
+  --text-heading-sm: 24px;
+  --leading-heading-sm: 1.33;
+  --tracking-heading-sm: -0.5px;
+  --text-heading: 40px;
+  --leading-heading: 1.2;
+  --tracking-heading: -0.84px;
+  --text-heading-lg: 56px;
+  --leading-heading-lg: 1.14;
+  --tracking-heading-lg: -2.02px;
+  --text-display: 64px;
+  --leading-display: 1.13;
+  --tracking-display: -2.3px;
+
+  /* Typography — Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Spacing */
+  --spacing-unit: 8px;
+  --spacing-8: 8px;
+  --spacing-16: 16px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-64: 64px;
+  --spacing-96: 96px;
+  --spacing-200: 200px;
+
+  /* Layout */
+  --page-max-width: 1200px;
+  --section-gap: 64-96px;
+  --card-padding: 24-32px;
+  --element-gap: 8-16px;
+
+  /* Border Radius */
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-full: 66px;
+
+  /* Named Radii */
+  --radius-tags: 4px;
+  --radius-cards: 8px;
+  --radius-inputs: 8px;
+  --radius-buttons: 8px;
+
+  /* Surfaces */
+  --surface-canvas: #0a0a0a;
+  --surface-section: #141414;
+  --surface-card: #1e1e1;
+  --surface-raised-edge: #313131;
 }
+```
 
+### Tailwind v4
 
-------------------------------
+```css
+@theme {
+  /* Colors */
+  --color-blue-cornflower: #6798ff;
+  --color-page-ink: #0a0a0a;
+  --color-card-carbon: #1e1e1e;
+  --color-deep-coal: #141414;
+  --color-onyx: #000000;
+  --color-steel-border: #313131;
+  --color-graphite: #454545;
+  --color-fog: #7c7c7c;
+  --color-ash: #a7a7a7;
+  --color-snow: #ffffff;
 
+  /* Typography */
+  --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-jetbrains-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-import React, { useRef, useState } from "react";
-import { liveMatches as defaultLiveMatches } from "@/lib/sportsData";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+  /* Typography — Scale */
+  --text-caption: 12px;
+  --leading-caption: 1.4;
+  --tracking-caption: 0.85px;
+  --text-body-sm: 14px;
+  --leading-body-sm: 1.5;
+  --tracking-body-sm: -0.17px;
+  --text-body: 16px;
+  --leading-body: 1.5;
+  --tracking-body: -0.19px;
+  --text-subheading: 20px;
+  --leading-subheading: 1.4;
+  --tracking-subheading: -0.42px;
+  --text-heading-sm: 24px;
+  --leading-heading-sm: 1.33;
+  --tracking-heading-sm: -0.5px;
+  --text-heading: 40px;
+  --leading-heading: 1.2;
+  --tracking-heading: -0.84px;
+  --text-heading-lg: 56px;
+  --leading-heading-lg: 1.14;
+  --tracking-heading-lg: -2.02px;
+  --text-display: 64px;
+  --leading-display: 1.13;
+  --tracking-display: -2.3px;
 
-export default function LiveMatches({ onOddsClick, selectedOdds, matches = defaultLiveMatches }) {
-  const scrollRef = useRef(null);
-  const [animatingId, setAnimatingId] = useState(null);
+  /* Spacing */
+  --spacing-8: 8px;
+  --spacing-16: 16px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-64: 64px;
+  --spacing-96: 96px;
+  --spacing-200: 200px;
 
-  const scroll = (dir) => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollBy({ left: dir * 300, behavior: "smooth" });
-    }
-  };
-
-  const handleOddsClick = (match, market, odds) => {
-    const id = `live-${match.id}-${market}`;
-    setAnimatingId(id);
-    setTimeout(() => setAnimatingId(null), 200);
-    onOddsClick({
-      matchId: match.id,
-      match: `${match.home} vs ${match.away}`,
-      selection: `${market} (${market === "1" ? "Home" : market === "2" ? "Away" : "Draw"})`,
-      market,
-      odds,
-    });
-  };
-
-  const isSelected = (matchId, market) => {
-    return selectedOdds.some((o) => o.matchId === matchId && o.market === market);
-  };
-
-  return (
-    <div className="mb-6">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-red-500 live-pulse" />
-          <h2 className="font-inter text-lg font-bold text-midnight">LIVE NOW</h2>
-          <span className="bg-sunset-orange/10 text-sunset-orange font-inter text-xs font-semibold px-2.5 py-0.5 rounded-full">
-            {matches.length} Live
-          </span>
-        </div>
-        <div className="flex gap-1">
-          <button onClick={() => scroll(-1)} className="p-1 rounded-full hover:bg-slate-mist transition-colors">
-            <ChevronLeft className="w-4 h-4 text-silver-ash" />
-          </button>
-          <button onClick={() => scroll(1)} className="p-1 rounded-full hover:bg-slate-mist transition-colors">
-            <ChevronRight className="w-4 h-4 text-silver-ash" />
-          </button>
-        </div>
-      </div>
-
-      <div ref={scrollRef} className="flex gap-3 overflow-x-auto hide-scrollbar pb-1">
-        {matches.map((match) => (
-          <div
-            key={match.id}
-            className="bg-slate-mist rounded-lg p-4 min-w-[272px] shrink-0 flex flex-col"
-          >
-            <div className="flex items-center gap-1.5 mb-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 live-pulse" />
-              <span className="font-inter text-[12px] text-silver-ash">
-                {match.league} � {match.minute}
-              </span>
-            </div>
-            <div className="font-inter text-[15px] font-bold text-midnight mb-1">
-              {match.home} vs {match.away}
-            </div>
-            <div className="font-inter text-2xl font-bold text-sunset-orange text-center my-2">
-              {match.homeScore} � {match.awayScore}
-            </div>
-            <div className="flex gap-2 mt-auto">
-              {Object.entries(match.odds).map(([market, odds]) => {
-                const btnId = `live-${match.id}-${market}`;
-                const sel = isSelected(match.id, market);
-                return (
-                  <button
-                    key={market}
-                    onClick={() => handleOddsClick(match, market, odds)}
-                    className={`flex-1 py-2 rounded-lg border font-inter text-[13px] font-medium transition-all ${
-                      sel
-                        ? "bg-sunset-orange border-sunset-orange text-white"
-                        : "border-midnight/20 text-midnight hover:bg-sunset-orange hover:border-sunset-orange hover:text-white"
-                    } ${animatingId === btnId ? "odds-pop" : ""}`}
-                  >
-                    <div className="text-[10px] opacity-60">{market}</div>
-                    <div>{odds.toFixed(2)}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  /* Border Radius */
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-full: 66px;
 }
-
-
-=======================
-
-import React from "react";
-import { marketTabs as defaultMarketTabs } from "@/lib/sportsData";
-
-export default function MarketTabs({ activeMarket, setActiveMarket, tabs = defaultMarketTabs }) {
-  return (
-    <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1 mb-4">
-      {tabs.map((tab) => (
-        <button
-          key={tab}
-          onClick={() => setActiveMarket(tab)}
-          className={`shrink-0 px-4 py-[6px] rounded-[20px] font-inter text-[13px] font-medium transition-all border ${
-            activeMarket === tab
-              ? "bg-midnight text-white border-midnight"
-              : "bg-cloud-whisper text-dark-shale border-light-pearl hover:border-silver-ash"
-          }`}
-        >
-          {tab}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-
-------------------------
-
-
-import React, { useMemo, useState } from "react";
-import {
-  matchesByLeague as defaultMatchesByLeague,
-  oddsColumns as defaultOddsColumns,
-  marketColumnMap as defaultMarketColumnMap,
-  oddsLabelMap as defaultOddsLabelMap,
-} from "@/lib/sportsData";
-import { ChevronDown, ChevronUp } from "lucide-react";
-
-const CONTRACT_MARKET_NAMES = {
-  0: "1X2",
-  1: "O/U 2.5",
-  2: "GG / NG",
-};
-
-const CONTRACT_OUTCOME_LABELS = {
-  0: ["1", "X", "2"],
-  1: ["O2.5", "U2.5"],
-  2: ["GG", "NG"],
-};
-
-function formatContractOdd(value) {
-  const n = Number(value) / 1_000_000
-  return Number.isFinite(n) && n > 0 ? n.toFixed(2) : "�";
-}
-
-function isContractGroup(group) {
-  return Boolean(group && Array.isArray(group.markets));
-}
-
-export default function OddsTable({
-  activeMarket,
-  onOddsClick,
-  selectedOdds,
-  leagues = defaultMatchesByLeague,
-  columns = defaultOddsColumns,
-  columnMap = defaultMarketColumnMap,
-  labelMap = defaultOddsLabelMap,
-  groups = [],
-}) {
-  const [animatingId, setAnimatingId] = useState(null);
-  const [expandedMatch, setExpandedMatch] = useState(null);
-
-  const visibleColumns = columnMap[activeMarket]
-    ? columns.filter((c) => columnMap[activeMarket].includes(c.key))
-    : columns;
-
-  const isSelected = (matchId, market) => {
-    return selectedOdds.some((o) => o.matchId === matchId && o.market === market);
-  };
-
-  const handleLegacyClick = (match, col) => {
-    const id = `${match.id}-${col.key}`;
-    setAnimatingId(id);
-    setTimeout(() => setAnimatingId(null), 200);
-    onOddsClick({
-      matchId: match.id,
-      match: `${match.home} vs ${match.away}`,
-      selection: `${col.key} (${labelMap[col.key] || col.key})`,
-      market: col.key,
-      odds: match.odds[col.key],
-    });
-  };
-
-  const handleContractClick = (group, market, outcomeIndex, outcomeLabel) => {
-    const id = `${group.groupId}-${market.marketId}-${outcomeLabel}`;
-    setAnimatingId(id);
-    setTimeout(() => setAnimatingId(null), 200);
-    onOddsClick({
-      matchId: group.groupId,
-      groupId: group.groupId,
-      marketId: market.marketId,
-      match: group.title || `Group ${group.groupId}`,
-      selection: `${outcomeLabel} (${CONTRACT_MARKET_NAMES[market.marketType] || market.title || `Market ${market.groupMarketIndex + 1}`})`,
-      market: `${market.marketId}:${outcomeLabel}`,
-      odds: Number(market.currentOdds?.[outcomeIndex] || 0) / 1_000_000,
-      marketTitle: market.title,
-      marketType: market.marketType,
-      outcomeLabel,
-    });
-  };
-
-  const contractGroups = useMemo(() => groups.filter(isContractGroup), [groups]);
-  const useContractView = contractGroups.length > 0;
-
-  if (useContractView) {
-    return (
-      <div className="border border-light-pearl rounded-lg overflow-hidden">
-        <div className="bg-slate-mist flex items-center sticky top-0 z-10">
-          <div className="font-inter text-[12px] font-semibold text-silver-ash w-[80px] px-3 py-2.5 shrink-0">
-            Time
-          </div>
-          <div className="font-inter text-[12px] font-semibold text-silver-ash flex-1 min-w-[200px] px-2 py-2.5">
-            Match
-          </div>
-          <div className="font-inter text-[12px] font-semibold text-silver-ash w-[120px] px-2 py-2.5 text-right shrink-0">
-            Status
-          </div>
-          <div className="w-[44px] shrink-0" />
-        </div>
-
-        {contractGroups.map((group) => {
-          const markets = [...group.markets].sort((a, b) => (a.raw?.groupMarketIndex ?? a.index) - (b.raw?.groupMarketIndex ?? b.index))
-          const isExpanded = expandedMatch === group.groupId
-
-          return (
-            <React.Fragment key={group.groupId}>
-              <div className="flex items-center bg-canvas hover:bg-cloud-whisper border-b border-light-pearl transition-colors group">
-                <div className="font-inter text-[12px] text-silver-ash w-[80px] px-3 py-2.5 shrink-0">
-                  {group.eventStartTime ? new Date(group.eventStartTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '�'}
-                </div>
-                <div className="flex-1 min-w-[200px] px-2 py-2.5">
-                  <div className="font-inter text-[14px] font-semibold text-midnight">{group.title || `Group ${group.groupId}`}</div>
-                  <div className="font-inter text-[12px] text-silver-ash">
-                    {markets.length} markets � {group.resultFinalized ? `Final ${group.homeScore}-${group.awayScore}` : `Exposure ${group.currentExposure ? 'live' : 'open'}`}
-                  </div>
-                </div>
-                <div className="w-[120px] px-2 py-2.5 text-right shrink-0">
-                  <div className="font-inter text-[12px] font-semibold text-midnight">{group.status || 'Live'}</div>
-                  <div className="font-inter text-[11px] text-silver-ash">Group #{group.groupId}</div>
-                </div>
-                <div className="w-[44px] shrink-0 flex items-center justify-center">
-                  <button
-                    onClick={() => setExpandedMatch(isExpanded ? null : group.groupId)}
-                    className="flex items-center gap-0.5 font-inter text-[12px] text-sunset-orange hover:underline"
-                    aria-label={isExpanded ? 'Collapse match markets' : 'Expand match markets'}
-                  >
-                    {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className={`border-b border-light-pearl ${isExpanded ? 'block' : 'block'}`}>
-                <div className="bg-cloud-whisper px-4 py-3 space-y-3">
-                  {markets.slice(0, 3).map((market) => {
-                    const labels = CONTRACT_OUTCOME_LABELS[market.marketType] || Array.from({ length: market.numOutcomes || 0 }, (_, i) => `O${i + 1}`)
-                    const marketName = CONTRACT_MARKET_NAMES[market.marketType] || market.title || `Market ${market.groupMarketIndex + 1}`
-
-                    return (
-                      <div key={market.marketId} className="grid grid-cols-[180px_1fr] gap-3 items-center rounded-lg border border-light-pearl bg-canvas px-3 py-2">
-                        <div>
-                          <div className="font-inter text-[13px] font-semibold text-midnight">{marketName}</div>
-                          <div className="font-inter text-[11px] text-silver-ash">
-                            {market.status} � {market.startTime ? new Date(market.startTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '�'}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2 justify-end">
-                          {labels.map((outcomeLabel, outcomeIndex) => {
-                            const btnId = `${group.groupId}-${market.marketId}-${outcomeLabel}`;
-                            const sel = isSelected(group.groupId, `${market.marketId}:${outcomeLabel}`)
-                            return (
-                              <button
-                                key={outcomeLabel}
-                                onClick={() => handleContractClick(group, market, outcomeIndex, outcomeLabel)}
-                                className={`min-w-[86px] px-3 py-2 rounded-lg border font-inter text-[13px] transition-all ${
-                                  sel
-                                    ? "bg-sunset-orange border-sunset-orange text-white font-semibold"
-                                    : "bg-cloud-whisper border-light-pearl text-midnight hover:border-sunset-orange hover:text-sunset-orange"
-                                } ${animatingId === btnId ? "odds-pop" : ""}`}
-                              >
-                                <div className="text-[10px] opacity-60">{outcomeLabel}</div>
-                                <div>{formatContractOdd(market.currentOdds?.[outcomeIndex])}</div>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </React.Fragment>
-          )
-        })}
-      </div>
-    )
-  }
-
-  return (
-    <div className="border border-light-pearl rounded-lg overflow-hidden">
-      <div className="bg-slate-mist flex items-center sticky top-0 z-10">
-        <div className="font-inter text-[12px] font-semibold text-silver-ash w-[60px] px-3 py-2.5 shrink-0">
-          Time
-        </div>
-        <div className="font-inter text-[12px] font-semibold text-silver-ash flex-1 min-w-[140px] px-2 py-2.5">
-          Match
-        </div>
-        {visibleColumns.map((col) => (
-          <div
-            key={col.key}
-            className="font-inter text-[12px] font-semibold text-silver-ash w-[52px] text-center px-1 py-2.5 shrink-0"
-          >
-            {col.label}
-          </div>
-        ))}
-        <div className="w-[44px] shrink-0" />
-      </div>
-
-      {leagues.map((league) => (
-        <div key={league.league}>
-          <div className="bg-cloud-whisper px-4 py-2 border-b border-light-pearl">
-            <span className="font-inter text-[13px] font-bold text-dark-shale">{league.league}</span>
-          </div>
-          {league.matches.map((match) => (
-            <React.Fragment key={match.id}>
-              <div className="flex items-center bg-canvas hover:bg-cloud-whisper border-b border-light-pearl transition-colors group">
-                <div className="font-inter text-[12px] text-silver-ash w-[60px] px-3 py-2.5 shrink-0">
-                  {match.time}
-                </div>
-                <div className="flex-1 min-w-[140px] px-2 py-2.5">
-                  <span className="font-inter text-[14px] font-semibold text-midnight">{match.home}</span>
-                  <span className="font-inter text-[13px] text-silver-ash mx-1.5">vs</span>
-                  <span className="font-inter text-[14px] text-dark-shale">{match.away}</span>
-                </div>
-                {visibleColumns.map((col) => {
-                  const btnId = `${match.id}-${col.key}`;
-                  const sel = isSelected(match.id, col.key);
-                  return (
-                    <div key={col.key} className="w-[52px] px-1 py-1.5 shrink-0 flex justify-center">
-                      <button
-                        onClick={() => handleLegacyClick(match, col)}
-                        className={`w-[44px] py-1 rounded font-inter text-[13px] border transition-all ${
-                          sel
-                            ? "bg-sunset-orange border-sunset-orange text-white font-semibold"
-                            : "bg-cloud-whisper border-light-pearl text-midnight hover:border-sunset-orange hover:text-sunset-orange"
-                        } ${animatingId === btnId ? "odds-pop" : ""}`}
-                      >
-                        {match.odds[col.key]?.toFixed(2)}
-                      </button>
-                    </div>
-                  );
-                })}
-                <div className="w-[44px] shrink-0 flex items-center justify-center">
-                  <button
-                    onClick={() => setExpandedMatch(expandedMatch === match.id ? null : match.id)}
-                    className="flex items-center gap-0.5 font-inter text-[12px] text-sunset-orange hover:underline"
-                  >
-                    +{match.more}
-                    {expandedMatch === match.id ? (
-                      <ChevronUp className="w-3 h-3" />
-                    ) : (
-                      <ChevronDown className="w-3 h-3" />
-                    )}
-                  </button>
-                </div>
-              </div>
-              {expandedMatch === match.id && (
-                <div className="bg-cloud-whisper px-6 py-4 border-b border-light-pearl">
-                  <div className="font-inter text-[12px] text-silver-ash mb-2">All Markets � {match.home} vs {match.away}</div>
-                  <div className="flex flex-wrap gap-2">
-                    {columns.map((col) => {
-                      const sel = isSelected(match.id, col.key);
-                      return (
-                        <button
-                          key={col.key}
-                          onClick={() => handleLegacyClick(match, col)}
-                          className={`px-3 py-1.5 rounded-lg font-inter text-[12px] border transition-all ${
-                            sel
-                              ? "bg-sunset-orange border-sunset-orange text-white"
-                              : "bg-canvas border-light-pearl text-midnight hover:border-sunset-orange"
-                          }`}
-                        >
-                          <span className="text-silver-ash mr-1">{col.label}</span>
-                          <span className="font-semibold">{match.odds[col.key]?.toFixed(2)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-
----------------------
-
-
-import React from "react";
-import { sportsCategories, popularLeagues } from "@/lib/sportsData";
-
-export default function Sidebar({ activeSport, setActiveSport }) {
-  return (
-    <aside className="w-[220px] bg-canvas border-r border-light-pearl shrink-0 overflow-y-auto h-full hidden lg:block">
-      <div className="py-4">
-        <h3 className="font-inter text-[11px] font-semibold text-silver-ash uppercase tracking-wider px-5 mb-2">
-          Sports
-        </h3>
-        {sportsCategories.map((sport) => {
-          const isActive = activeSport === sport.name;
-          return (
-            <button
-              key={sport.name}
-              onClick={() => setActiveSport(sport.name)}
-              className={`w-full flex items-center gap-3 px-5 py-[10px] font-inter text-[14px] transition-all text-left ${
-                isActive
-                  ? "border-l-[3px] border-l-sunset-orange bg-slate-mist text-midnight font-medium"
-                  : "border-l-[3px] border-l-transparent text-midnight hover:bg-cloud-whisper"
-              }`}
-            >
-              <span className="text-base">{sport.icon}</span>
-              <span className="flex-1">{sport.name}</span>
-              <span className="font-inter text-[12px] text-silver-ash">({sport.count})</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="border-t border-light-pearl py-4">
-        <h3 className="font-inter text-[11px] font-semibold text-silver-ash uppercase tracking-wider px-5 mb-2">
-          Popular Leagues
-        </h3>
-        {popularLeagues.map((league) => (
-          <button
-            key={league.name}
-            className="w-full flex items-center gap-3 px-5 py-[9px] font-inter text-[13px] text-dark-shale hover:bg-cloud-whisper hover:text-midnight transition-colors text-left"
-          >
-            <span className="text-base">{league.flag}</span>
-            <span>{league.name}</span>
-          </button>
-        ))}
-      </div>
-    </aside>
-  );
-}
-
-
------------------------
-
-
-
-import React from "react";
-
-const defaultStats = [
-  { icon: "stats", label: "Total Markets Today", value: "4,521" },
-  { icon: "live", label: "Live Events", value: "12" },
-  { icon: "soon", label: "Starting Soon (1hr)", value: "34" },
-  { icon: "odds", label: "Highest Odds Today", value: "245.00" },
-];
-
-export default function StatsBar({ stats = defaultStats }) {
-  return (
-    <div className="bg-cloud-whisper border-b border-light-pearl px-6 lg:px-10 py-2 flex items-center gap-6 overflow-x-auto hide-scrollbar">
-      {stats.map((stat, i) => (
-        <React.Fragment key={stat.label}>
-          {i > 0 && <span className="text-light-pearl hidden sm:block">|</span>}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-sm">{stat.icon}</span>
-            <span className="font-inter text-[13px] text-dark-shale">{stat.label}:</span>
-            <span className="font-inter text-[13px] font-semibold text-midnight">{stat.value}</span>
-          </div>
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
-
-
------------------------
-
-
-
-import React, { useMemo, useState } from 'react'
-import { Copy, LogOut, Wallet, ExternalLink, Loader2 } from 'lucide-react'
-import { useMagicSession } from '@/hooks/useMagicSession'
-import { cn } from '@/lib/utils'
-
-const navLinks = ['Live', 'Pre-Match', 'Outrights', 'My Bets', 'Results']
-
-export default function TopNav({ activeNav, setActiveNav }) {
-  const { isLoggedIn, isLoading, address, shortAddress, balanceEth, connect, logout, showWallet, hasConfig } = useMagicSession()
-  const [copyState, setCopyState] = useState('idle')
-
-  const walletLabel = useMemo(() => {
-    if (!hasConfig) return 'Magic not configured'
-    if (isLoggedIn) return shortAddress || 'Wallet connected'
-    return 'Connect wallet'
-  }, [hasConfig, isLoggedIn, shortAddress])
-
-  const handleCopy = async () => {
-    if (!address) return
-    try {
-      await navigator.clipboard.writeText(address)
-      setCopyState('copied')
-      window.setTimeout(() => setCopyState('idle'), 1200)
-    } catch {
-      setCopyState('error')
-      window.setTimeout(() => setCopyState('idle'), 1200)
-    }
-  }
-
-  return (
-    <header className="sticky top-0 z-50 bg-canvas border-b border-light-pearl h-[60px] flex items-center px-6 lg:px-10">
-      <div className="flex items-center gap-2 mr-8 shrink-0">
-        <span className="text-lg">TB</span>
-        <span className="font-inter font-bold text-lg text-midnight tracking-tight">TradeBook</span>
-      </div>
-
-      <nav className="hidden md:flex items-center gap-1 flex-1 justify-center">
-        {navLinks.map((link) => (
-          <button
-            key={link}
-            onClick={() => setActiveNav(link)}
-            className={cn(
-              'font-inter text-[15px] px-4 py-[18px] relative transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midnight/30 rounded-md',
-              activeNav === link ? 'text-midnight font-semibold' : 'text-dark-shale hover:text-midnight'
-            )}
-          >
-            {link}
-            {activeNav === link && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[2px] bg-midnight rounded-full" />
-            )}
-          </button>
-        ))}
-      </nav>
-
-      <div className="flex items-center gap-3 ml-auto shrink-0">
-        {isLoggedIn && (
-          <div className="hidden lg:flex items-center gap-2 bg-cloud-whisper border border-light-pearl rounded-full px-3 py-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span className="font-inter text-[12px] text-dark-shale">{balanceEth} ETH</span>
-          </div>
-        )}
-
-        {isLoggedIn && address && (
-          <div className="hidden xl:flex items-center gap-2 bg-slate-mist border border-light-pearl rounded-full px-3 py-1.5">
-            <span className="font-inter text-[12px] font-medium text-midnight">{shortAddress}</span>
-            <button
-              onClick={handleCopy}
-              className="text-silver-ash hover:text-midnight transition-colors"
-              aria-label="Copy wallet address"
-              title={copyState === 'copied' ? 'Copied' : 'Copy address'}
-            >
-              <Copy className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        <button
-          onClick={isLoggedIn ? showWallet : connect}
-          disabled={isLoading || !hasConfig}
-          className="inline-flex items-center gap-2 font-inter text-sm font-medium text-midnight border border-midnight px-4 py-1.5 rounded-[20px] hover:bg-midnight hover:text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
-          <span>{isLoading ? 'Loading' : walletLabel}</span>
-        </button>
-
-        {isLoggedIn ? (
-          <>
-            <button
-              onClick={showWallet}
-              className="hidden sm:inline-flex items-center gap-2 font-inter text-sm font-medium text-midnight border border-light-pearl bg-cloud-whisper px-4 py-1.5 rounded-[20px] hover:border-midnight hover:bg-slate-mist transition-colors"
-            >
-              <ExternalLink className="w-4 h-4" />
-              Wallet
-            </button>
-            <button
-              onClick={logout}
-              className="hidden sm:inline-flex items-center gap-2 font-inter text-sm font-medium text-dark-shale border border-light-pearl px-4 py-1.5 rounded-[20px] hover:text-midnight hover:border-midnight transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              Disconnect
-            </button>
-          </>
-        ) : null}
-      </div>
-    </header>
-  )
-}
-
-
-
----------------
-
-
-import React, { useState, useCallback } from "react";
-import TopNav from "@/components/tradebook/TopNav";
-import StatsBar from "@/components/tradebook/StatsBar";
-import Sidebar from "@/components/tradebook/Sidebar";
-import LiveMatches from "@/components/tradebook/LiveMatches";
-import MarketTabs from "@/components/tradebook/MarketTabs";
-import OddsTable from "@/components/tradebook/OddsTable";
-import BetSlip from "@/components/tradebook/BetSlip";
-import { initialBetSlip, marketTabs as defaultMarketTabs, liveMatches as defaultLiveMatches, matchesByLeague as defaultMatchesByLeague, oddsColumns as defaultOddsColumns, marketColumnMap as defaultMarketColumnMap, oddsLabelMap as defaultOddsLabelMap } from "@/lib/sportsData";
-import { useContractDashboard } from "@/hooks/useContractDashboard";
-
-export default function Dashboard() {
-  const { uiData } = useContractDashboard();
-  const dashboardData = uiData || {};
-
-  const [activeNav, setActiveNav] = useState("Pre-Match");
-  const [activeSport, setActiveSport] = useState("Football");
-  const [activeMarket, setActiveMarket] = useState(defaultMarketTabs[0]);
-  const [betSlip, setBetSlip] = useState(initialBetSlip);
-
-  const selectedOdds = betSlip.map((b) => ({ matchId: b.matchId, market: b.market }));
-
-  const handleOddsClick = useCallback((selection) => {
-    setBetSlip((prev) => {
-      const exists = prev.find(
-        (b) => b.matchId === selection.matchId && b.market === selection.market
-      );
-      if (exists) {
-        return prev.filter((b) => b.id !== exists.id);
-      }
-      return [
-        ...prev,
-        {
-          id: `bet-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-          ...selection,
-        },
-      ];
-    });
-  }, []);
-
-  const handleRemoveBet = useCallback((id) => {
-    setBetSlip((prev) => prev.filter((b) => b.id !== id));
-  }, []);
-
-  const handleClearSlip = useCallback(() => {
-    setBetSlip([]);
-  }, []);
-
-  return (
-    <div className="h-screen flex flex-col bg-canvas overflow-hidden font-inter">
-      <TopNav activeNav={activeNav} setActiveNav={setActiveNav} />
-      <StatsBar stats={dashboardData.stats} />
-
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar activeSport={activeSport} setActiveSport={setActiveSport} />
-
-        <main className="flex-1 overflow-y-auto px-4 lg:px-6 py-4">
-          <LiveMatches
-            onOddsClick={handleOddsClick}
-            selectedOdds={selectedOdds}
-            matches={dashboardData.liveMatches || defaultLiveMatches}
-          />
-          <MarketTabs
-            activeMarket={activeMarket}
-            setActiveMarket={setActiveMarket}
-            tabs={dashboardData.marketTabs || defaultMarketTabs}
-          />
-          <OddsTable
-            activeMarket={activeMarket}
-            onOddsClick={handleOddsClick}
-            selectedOdds={selectedOdds}
-            leagues={dashboardData.matchesByLeague || defaultMatchesByLeague}
-            columns={dashboardData.oddsColumns || defaultOddsColumns}
-            columnMap={dashboardData.marketColumnMap || defaultMarketColumnMap}
-            labelMap={dashboardData.oddsLabelMap || defaultOddsLabelMap}
-            groups={dashboardData.groups || []}
-          />
-        </main>
-
-        <BetSlip bets={betSlip} onRemoveBet={handleRemoveBet} onClearSlip={handleClearSlip} />
-      </div>
-    </div>
-  );
-}
-
-
+```

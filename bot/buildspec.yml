@@ -1,0 +1,25 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - aws --version
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - IMAGE_TAG=${IMAGE_TAG:-latest}
+      - IMAGE_REPO_NAME=${IMAGE_REPO_NAME:-quadratic-market-bot}
+      - REPOSITORY_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}
+      - aws ecr describe-repositories --repository-names "$IMAGE_REPO_NAME" >/dev/null 2>&1 || aws ecr create-repository --repository-name "$IMAGE_REPO_NAME" >/dev/null
+      - aws ecr get-login-password | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+  build:
+    commands:
+      - cd bot
+      - docker build -t "${IMAGE_REPO_NAME}:${IMAGE_TAG}" .
+      - docker tag "${IMAGE_REPO_NAME}:${IMAGE_TAG}" "${REPOSITORY_URI}:${IMAGE_TAG}"
+  post_build:
+    commands:
+      - docker push "${REPOSITORY_URI}:${IMAGE_TAG}"
+      - printf '{"imageUri":"%s"}\n' "${REPOSITORY_URI}:${IMAGE_TAG}" > imageDetail.json
+
+artifacts:
+  files:
+    - bot/imageDetail.json

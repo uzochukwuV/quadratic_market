@@ -7,11 +7,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <title>Quadratic Market</title>
-        <meta name="description" content="Quadratic Market is a Solana sports betting protocol." />
+        <title>Quadratic Market | TxLINE sports odds</title>
+        <meta
+          name="description"
+          content="Quadratic Market is a sports betting home for match odds, simple slips, and result checks powered by TxLINE odds."
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+          rel="stylesheet"
+        />
       </head>
       <body>
         {children}

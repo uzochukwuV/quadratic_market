@@ -37,7 +37,7 @@ NETWORK_CONFIG = {
         "guest_auth": "https://txline-dev.txodds.com/auth/guest/start",
         "api_base": "https://txline-dev.txodds.com/api/",
         "program_id": "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J",
-        "rpc_url": "https://api.devnet.solana.com",
+        "rpc_url": "https://rpc.ankr.com/solana_devnet/34e09c0b23e338cc418de4198834f827a1ddfc21af2f3bcafd94a5370ff59dea",
     },
     Network.MAINNET: {
         "guest_auth": "https://txline.txodds.com/auth/guest/start",
@@ -161,10 +161,8 @@ class TxoddsApiClient:
         Authenticate and get JWT token.
         Returns the JWT for use in subsequent requests.
         """
-        resp = await self._http.post(
-            self._config["guest_auth"],
-            json={},
-        )
+        async with httpx.AsyncClient(timeout=30.0) as auth_http:
+            resp = await auth_http.post(self._config["guest_auth"], json={})
         resp.raise_for_status()
         data = resp.json()
         self._jwt = data.get("token") or data.get("access_token")
