@@ -12,7 +12,7 @@ export default function LandingPage() {
             <div className="inline-flex items-center gap-2 mb-6 px-3 py-1.5 rounded-full bg-cadmium-green/10 border border-cadmium-green/30">
               <span className="w-1.5 h-1.5 rounded-full bg-cadmium-green pulse-dot" />
               <span className="font-mono text-caption text-cadmium-green uppercase tracking-widest">
-                Solana Prediction Markets
+                Solana Sportsbook
               </span>
             </div>
 
@@ -22,7 +22,7 @@ export default function LandingPage() {
             </h1>
 
             <p className="text-body md:text-subheading text-silver-text max-w-2xl mx-auto mb-10 leading-relaxed">
-              Quadratic Market brings prediction markets to Solana with fair prices, zero intermediaries, and instant settlement. Trade on any outcome. Earn as a liquidity provider.
+              Quadratic Market brings sports markets to Solana with fixed odds, grouped fixtures, and instant on-chain settlement.
             </p>
           </div>
 
@@ -108,7 +108,7 @@ export default function LandingPage() {
               {
                 step: "03",
                 title: "Place Your Trade",
-                desc: "Buy YES or NO shares at any size. Market or limit orders. Instant execution on Solana.",
+                desc: "Place sports-side selections at fixed odds. Market-style execution updates before kickoff.",
               },
               {
                 step: "04",
@@ -391,10 +391,10 @@ export default function LandingPage() {
               Explore Markets
             </Link>
             <Link
-              href="/epochs"
+              href="/markets"
               className="btn-secondary px-8 py-4 text-body font-medium whitespace-nowrap"
             >
-              View Epochs
+              Open Markets
             </Link>
           </div>
         </div>

@@ -1,4 +1,4 @@
-const DEFAULT_RPC_URL = "https://api.devnet.solana.com";
+const DEFAULT_RPC_URL = "https://rpc.ankr.com/solana_devnet/34e09c0b23e338cc418de4198834f827a1ddfc21af2f3bcafd94a5370ff59dea";
 const DEFAULT_PROGRAM_ID = "FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN";
 const DEFAULT_TXORACLE_PROGRAM_ID = "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J";
 const DEFAULT_BASE_MINT = "8yqhLuiQRnvuU1RjDPM4kcRCcD1D5wPRfWdpG6dom3Vk";

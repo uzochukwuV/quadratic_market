@@ -24,14 +24,14 @@ export function PositionsTable({ positions }: { positions: MyPosition[] }) {
         return (
           <Link
             key={position.market_id}
-            href={`/trade?market=${position.market_id}`}
+            href={`/markets?market=${position.market_id}`}
             className="grid min-w-full table-row hover:bg-white/[0.02]"
             style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 100px" }}
           >
             <div className="table-cell">
               <div className="text-white font-medium truncate">{position.market_title}</div>
               <div className="text-caption text-silver-text mt-0.5">
-                Epoch #{position.epoch_id} · {position.market_mode === "Trading" ? "Slip" : "Fixed"}
+                Market #{position.market_id} · {position.market_mode === "Trading" ? "Live trading" : "Fixed odds"}
               </div>
             </div>
 
@@ -64,7 +64,7 @@ export function PositionsTable({ positions }: { positions: MyPosition[] }) {
 
             <div className="table-cell flex justify-end pr-4">
               <button className="btn-secondary text-caption px-3 py-1.5">
-                Trade →
+                Open →
               </button>
             </div>
           </Link>

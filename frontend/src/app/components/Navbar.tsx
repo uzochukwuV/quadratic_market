@@ -12,8 +12,6 @@ import { frontendEnv, getNetworkLabel } from "@/lib/env";
 
 const NAV_LINKS = [
   { label: "Markets",   href: "/markets"   },
-  { label: "Trade",     href: "/trade"     },
-  { label: "Epochs",    href: "/epochs"    },
   { label: "Portfolio", href: "/portfolio" },
   { label: "Liquidity", href: "/liquidity" },
 ];

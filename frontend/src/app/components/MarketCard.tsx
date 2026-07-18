@@ -69,7 +69,7 @@ export function MarketCard({
   return (
     <div className="glass-card glass-card-hover rounded-card flex flex-col group">
       {/* Top bar */}
-      <Link href={`/trade?market=${market.market_id}`} className="block p-5 pb-0 flex-1">
+      <Link href={`/markets?market=${market.market_id}`} className="block p-5 pb-0 flex-1">
         {/* Tags row */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-pill border ${cat}`}>
@@ -174,10 +174,10 @@ export function MarketCard({
               </>
             ) : (
               <Link
-                href={`/trade?market=${market.market_id}`}
+                href={`/markets?market=${market.market_id}`}
                 className="px-4 py-1.5 rounded-pill text-[12px] font-semibold bg-white/[0.08] text-white border border-white/15 hover:bg-white/15 transition-all"
               >
-                Trade →
+                Open →
               </Link>
             )}
           </div>

@@ -55,9 +55,6 @@ export default function DashboardPage() {
                 <Link href="/markets" className="btn-primary">
                   Browse Markets
                 </Link>
-                <Link href="/trade" className="btn-secondary">
-                  Open Trade View
-                </Link>
                 <Link href="/liquidity" className="btn-secondary">
                   Liquidity
                 </Link>
@@ -126,7 +123,7 @@ export default function DashboardPage() {
                   return (
                     <Link
                       key={market.market_id}
-                      href={`/trade?market=${market.market_id}`}
+                      href={`/markets?market=${market.market_id}`}
                       className="grid min-w-full table-row hover:bg-white/[0.02]"
                       style={{ gridTemplateColumns: "2.3fr 1fr 1fr 1fr 92px" }}
                     >

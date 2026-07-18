@@ -14,8 +14,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <title>Quadratic Market — Solana Prediction Markets</title>
-        <meta name="description" content="Trade prediction markets on Solana. Fixed-odds, slip-based, fully decentralized." />
+        <title>Quadratic Market — Sportsbook Board</title>
+        <meta name="description" content="Sports-first markets on Solana with fixed odds, grouped fixtures, and epoch liquidity." />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500&display=swap" rel="stylesheet" />
