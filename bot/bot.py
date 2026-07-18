@@ -522,19 +522,29 @@ async def task_close_settled_epochs(chain: ChainClient, state: BotState) -> None
     """
     Close epochs once every tracked market in the epoch has finalized.
     """
-    epoch_ids = sorted({market.epoch_id for market in state._markets.values() if market.epoch_id})
-    for epoch_id in epoch_ids:
-        epoch_markets = state.all_markets_in_epoch(epoch_id)
-        if not epoch_markets:
+    epoch_to_markets: dict[int, list[int]] = {}
+    for market in state.all_markets_in_stage(MarketStage.FINALIZED):
+        epoch_id = int(getattr(market, "epoch_id", 0))
+        if epoch_id <= 0:
+            try:
+                onchain_market = await chain.fetch_market(market.market_id)
+                epoch_id = int(getattr(onchain_market, "epoch_id", 0))
+            except Exception:
+                continue
+        if epoch_id <= 0:
             continue
-        if any(market.stage != MarketStage.FINALIZED for market in epoch_markets):
+        epoch_to_markets.setdefault(epoch_id, []).append(market.market_id)
+
+    for epoch_id, market_ids in sorted(epoch_to_markets.items()):
+        epoch_markets = state.all_markets_in_epoch(epoch_id)
+        if epoch_markets and any(market.stage != MarketStage.FINALIZED for market in epoch_markets):
             continue
         try:
             await chain.close_epoch(epoch_id)
             log.info(
                 "epoch_closed",
                 epoch_id=epoch_id,
-                markets=[market.market_id for market in epoch_markets],
+                markets=market_ids,
             )
         except Exception as exc:
             log.error("close_epoch_failed", epoch_id=epoch_id, error=str(exc))
