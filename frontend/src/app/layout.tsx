@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import { SolanaWalletProvider } from "@/components/wallet/SolanaWalletProvider";
 import "./globals.css";
+import "@solana/wallet-adapter-react-ui/styles.css";
 
 export default function RootLayout({
   children,
@@ -20,7 +22,7 @@ export default function RootLayout({
         />
       </head>
       <body>
-        {children}
+        <SolanaWalletProvider>{children}</SolanaWalletProvider>
       </body>
     </html>
   );
