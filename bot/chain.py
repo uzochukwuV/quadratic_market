@@ -17,7 +17,12 @@ from solana.rpc.async_api import AsyncClient
 from anchorpy import Program, Provider, Wallet, Context, Idl
 from anchorpy.program.namespace.instruction import _InstructionFn  # noqa: F401 (type hint only)
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
-from spl.token.instructions import create_associated_token_account, get_associated_token_address, mint_to
+from spl.token.instructions import (
+    MintToParams,
+    create_associated_token_account,
+    get_associated_token_address,
+    mint_to,
+)
 
 import structlog
 
@@ -215,12 +220,14 @@ class ChainClient:
 
         recipient_ata = await self.ensure_associated_token_account(recipient, self.base_mint)
         ix = mint_to(
-            TOKEN_PROGRAM_ID,
-            self.base_mint,
-            recipient_ata,
-            self.operator_kp.pubkey(),
-            [],
-            amount,
+            MintToParams(
+                program_id=TOKEN_PROGRAM_ID,
+                mint=self.base_mint,
+                dest=recipient_ata,
+                mint_authority=self.operator_kp.pubkey(),
+                amount=amount,
+                signers=[],
+            )
         )
         blockhash = (await self.program.provider.connection.get_latest_blockhash()).value.blockhash
         tx = SoldersTransaction.new_signed_with_payer(
@@ -685,4 +692,23 @@ class ChainClient:
             ),
         )
         log.info("init_epoch", epoch_id=epoch_id, sig=str(sig))
+        return str(sig)
+
+    async def close_epoch(self, epoch_id: int) -> str:
+        """
+        Close an epoch once all markets have settled.
+        """
+        ep_pda, _ = epoch_pda(self.program_id, epoch_id)
+
+        sig = await self.program.rpc["close_epoch"](
+            ctx=Context(
+                accounts={
+                    "global_config": self.global_config,
+                    "epoch": ep_pda,
+                    "authority": self.operator_kp.pubkey(),
+                },
+                signers=[self.operator_kp],
+            ),
+        )
+        log.info("close_epoch", epoch_id=epoch_id, sig=str(sig))
         return str(sig)

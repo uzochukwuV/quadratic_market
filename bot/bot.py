@@ -22,12 +22,11 @@ import asyncio
 import sys
 import time
 import argparse
-import contextlib
+import threading
 from pathlib import Path
 from typing import List, Optional
 
 import structlog
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 import uvicorn
@@ -68,6 +67,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 _runtime: "BotRuntime | None" = None
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 class BotRuntime:
@@ -131,8 +135,8 @@ async def mint_base(
     )
 
 
-async def run_api_server() -> None:
-    config_obj = uvicorn.Config(
+def run_api_server() -> None:
+    uvicorn.run(
         app,
         host=config.BOT_API_HOST,
         port=config.BOT_API_PORT,
@@ -140,8 +144,6 @@ async def run_api_server() -> None:
         loop="asyncio",
         lifespan="off",
     )
-    server = uvicorn.Server(config_obj)
-    await server.serve()
 
 
 # ─── Market Type Mapping ───────────────────────────────────────────────────
@@ -182,6 +184,8 @@ async def task_create_markets(
     Fetch upcoming fixtures and create market groups with 3 markets each:
     1X2, O/U 2.5, GG/NG
     """
+    cfg = await chain.fetch_global_config()
+    current_epoch = int(cfg.current_epoch)
     fixtures = await api.get_upcoming_fixtures(config.MARKET_LOOKAHEAD_DAYS)
     
     for fix in fixtures:
@@ -296,7 +300,7 @@ async def task_create_markets(
                 sport_key=fix.sport_key,
                 start_time=fix.start_time,
                 market_ids=market_ids,
-                stage=MarketStage.MINTS_INIT,
+                stage=MarketStage.CREATED,
             )
             state.add_group(group)
             
@@ -307,11 +311,12 @@ async def task_create_markets(
                 market = TrackedMarket(
                     fixture_id=fix.fixture_id,
                     market_id=mkt_id,
+                    epoch_id=current_epoch,
                     market_type=StateMarketType(mkt_type),
                     category=mkt_config["category"],
                     num_outcomes=mkt_config["num_outcomes"],
                     start_time=fix.start_time,
-                    stage=MarketStage.MINTS_INIT,
+                    stage=MarketStage.CREATED,
                     title=f"{mkt_type}: {title}",
                     market_index=i,
                 )
@@ -326,6 +331,33 @@ async def task_create_markets(
             log.error("create_market_group_failed", 
                       fixture_id=fix.fixture_id, 
                       error=str(exc))
+
+
+async def task_init_market_mints(chain: ChainClient, state: BotState) -> None:
+    """
+    Initialize outcome mints for newly created markets.
+    """
+    default_pubkey = str(Pubkey.default())
+    for market in state.all_markets_in_stage(MarketStage.CREATED):
+        try:
+            onchain_market = await chain.fetch_market(market.market_id)
+            outcome_mints = [
+                str(mint) for mint in getattr(onchain_market, "outcome_mints", [])
+            ]
+
+            for outcome_id in range(int(market.num_outcomes)):
+                if outcome_id < len(outcome_mints) and outcome_mints[outcome_id] != default_pubkey:
+                    continue
+                await chain.init_outcome_mint(market.market_id, outcome_id)
+
+            state.advance_market(market.market_id, MarketStage.MINTS_INIT)
+            log.info("market_mints_initialized", market_id=market.market_id)
+        except Exception as exc:
+            log.error(
+                "init_market_mints_failed",
+                market_id=market.market_id,
+                error=str(exc),
+            )
 
 
 async def task_update_odds(
@@ -486,6 +518,28 @@ async def task_settle_markets(
             )
 
 
+async def task_close_settled_epochs(chain: ChainClient, state: BotState) -> None:
+    """
+    Close epochs once every tracked market in the epoch has finalized.
+    """
+    epoch_ids = sorted({market.epoch_id for market in state._markets.values() if market.epoch_id})
+    for epoch_id in epoch_ids:
+        epoch_markets = state.all_markets_in_epoch(epoch_id)
+        if not epoch_markets:
+            continue
+        if any(market.stage != MarketStage.FINALIZED for market in epoch_markets):
+            continue
+        try:
+            await chain.close_epoch(epoch_id)
+            log.info(
+                "epoch_closed",
+                epoch_id=epoch_id,
+                markets=[market.market_id for market in epoch_markets],
+            )
+        except Exception as exc:
+            log.error("close_epoch_failed", epoch_id=epoch_id, error=str(exc))
+
+
 async def task_void_expired(
     chain: ChainClient, 
     state: BotState
@@ -571,25 +625,38 @@ async def run_once(chain: ChainClient, api: TxoddsApiClient, state: BotState) ->
     """Execute one full pass of all bot tasks in dependency order."""
     log.info("bot_pass_start")
     
-    # 1. Create new markets from upcoming fixtures
+    # 1. Ensure the active epoch exists
+    try:
+        cfg = await chain.fetch_global_config()
+        await chain.fetch_epoch(int(cfg.current_epoch))
+    except Exception:
+        await chain.init_epoch()
+
+    # 2. Create new markets from upcoming fixtures
     await task_create_markets(chain, api, state)
     
-    # 2. Update odds for open markets
+    # 3. Initialize outcome mints for newly created markets
+    await task_init_market_mints(chain, state)
+
+    # 4. Update odds for open markets
     await task_update_odds(chain, api, state)
     
-    # 3. Execute slip legs while markets are still open
+    # 5. Execute slip legs while markets are still open
     await task_execute_slip_legs(chain)
 
-    # 4. Suspend markets at start time
+    # 6. Suspend markets at start time
     await task_suspend_markets(chain, state)
 
-    # 5. Settle markets after delay
+    # 7. Settle markets after delay
     await task_settle_markets(chain, api, state)
 
-    # 6. Void expired markets
+    # 8. Close any epochs that have fully finalized
+    await task_close_settled_epochs(chain, state)
+
+    # 9. Void expired markets
     await task_void_expired(chain, state)
 
-    # 7. Settle and resolve slips
+    # 10. Settle and resolve slips
     await task_settle_slips(chain, state)
 
     log.info("bot_pass_complete")
@@ -630,42 +697,26 @@ async def main(once: bool = False) -> None:
         if once:
             await run_once(chain, api, state)
             return
-        
-        # Run on schedule
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(
-            run_once,
-            "interval",
-            seconds=config.POLL_INTERVAL_SECONDS,
-            args=[chain, api, state],
-            id="bot_pass",
-            max_instances=1,
-            coalesce=True,
-        )
-        scheduler.start()
+
         log.info("bot_started", 
                  interval_seconds=config.POLL_INTERVAL_SECONDS,
                  sports=config.SPORTS)
 
-        api_task: asyncio.Task[None] | None = None
+        api_thread: threading.Thread | None = None
         if config.BOT_API_ENABLED:
-            api_task = asyncio.create_task(run_api_server())
+            api_thread = threading.Thread(target=run_api_server, daemon=True)
+            api_thread.start()
             log.info("bot_api_started", host=config.BOT_API_HOST, port=config.BOT_API_PORT)
 
-        # Run immediately on startup
-        await run_once(chain, api, state)
-        
-        # Keep running until interrupted
+        # Keep running on a single event loop to avoid cross-loop RPC issues.
         try:
             while True:
-                await asyncio.sleep(60)
+                await run_once(chain, api, state)
+                await asyncio.sleep(config.POLL_INTERVAL_SECONDS)
         except (KeyboardInterrupt, SystemExit):
             log.info("bot_stopping")
-            scheduler.shutdown()
-            if api_task is not None:
-                api_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await api_task
+            if api_thread is not None:
+                api_thread.join(timeout=1)
     finally:
         await chain.close()
         await api.close()

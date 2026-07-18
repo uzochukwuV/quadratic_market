@@ -44,6 +44,7 @@ class TrackedMarket:
     """An individual market (e.g., 1X2 for a match)."""
     fixture_id: int          # txodds fixture ID
     market_id: int            # on-chain market ID
+    epoch_id: int            # on-chain epoch ID
     market_type: MarketType   # 1x2, over_under, gg_ng
     category: int            # 0=1X2, 1=O/U, 2=GG/NG
     num_outcomes: int       # 2 or 3
@@ -132,6 +133,7 @@ class BotState:
                 m = TrackedMarket(
                     fixture_id=item["fixture_id"],
                     market_id=item["market_id"],
+                    epoch_id=item.get("epoch_id", 0),
                     market_type=MarketType(item["market_type"]),
                     category=item["category"],
                     num_outcomes=item["num_outcomes"],
@@ -212,6 +214,9 @@ class BotState:
 
     def all_markets_in_stage(self, stage: MarketStage) -> List[TrackedMarket]:
         return [m for m in self._markets.values() if m.stage == stage]
+
+    def all_markets_in_epoch(self, epoch_id: int) -> List[TrackedMarket]:
+        return [m for m in self._markets.values() if m.epoch_id == epoch_id]
 
     # ── Slip Queries ───────────────────────────────────────────────────────────
 
