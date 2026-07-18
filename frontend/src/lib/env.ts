@@ -3,7 +3,7 @@ const DEFAULT_PROGRAM_ID = "FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN";
 const DEFAULT_TXORACLE_PROGRAM_ID = "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J";
 const DEFAULT_BASE_MINT = "8yqhLuiQRnvuU1RjDPM4kcRCcD1D5wPRfWdpG6dom3Vk";
 const DEFAULT_TXLINE_API_ORIGIN = "https://txline-dev.txodds.com";
-const DEFAULT_BOT_API_ORIGIN = "http://localhost:8787";
+const DEFAULT_BOT_API_ORIGIN = "http://34.205.52.49:8787";
 const DEFAULT_DONATION_WALLET = "9H1DCo5QaUtiMne4UH44aefHyv8Xpc8EgZwrshRZqsLC";
 
 export const frontendEnv = {

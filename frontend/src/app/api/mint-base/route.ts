@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const BOT_API_ORIGIN = process.env.NEXT_PUBLIC_BOT_API_ORIGIN ?? "http://localhost:8787";
+const BOT_API_ORIGIN = process.env.NEXT_PUBLIC_BOT_API_ORIGIN ?? process.env.BOT_API_ORIGIN ?? "http://34.205.52.49:8787";
 const BOT_API_KEY = process.env.BOT_API_KEY ?? "";
 
 export async function POST(request: Request) {
