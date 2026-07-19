@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Telegram Betting Mini App"
+version = "1.0.0"
+id = "artifacts/tg-miniapp"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22904
+
+[services.development]
+run = "pnpm --filter @workspace/tg-miniapp run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/tg-miniapp", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/tg-miniapp/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22904"
+BASE_PATH = "/"

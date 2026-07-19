@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Public serverless TxLINE AI Pundit feed API
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: txline-agent-feed
+    AllowedPattern: "^[a-z0-9-]+$"
+  CodeBucket:
+    Type: String
+  CodeKey:
+    Type: String
+  TxoddsTokenSecretArn:
+    Type: String
+  OpenRouterSecretArn:
+    Type: String
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}"
+      RetentionInDays: 14
+
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  FeedFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LogGroup
+    Properties:
+      FunctionName: !Ref ProjectName
+      Runtime: python3.12
+      Handler: handler.lambda_handler
+      Role: !GetAtt FunctionRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      Environment:
+        Variables:
+          TXODDS_NETWORK: devnet
+          TXODDS_API_TOKEN: !Sub "{{resolve:secretsmanager:${TxoddsTokenSecretArn}:SecretString}}"
+          OPENROUTER_API_KEY: !Sub "{{resolve:secretsmanager:${OpenRouterSecretArn}:SecretString}}"
+          OPENROUTER_MODEL: tencent/hy3:free
+          OPENROUTER_APP_TITLE: TxLINE AI Pundit
+
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !Ref FeedFunction
+      Cors:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+        AllowHeaders:
+          - "*"
+
+  FunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref FeedFunction
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  FunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref FeedFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  FeedApiUrl:
+    Value: !GetAtt FunctionUrl.FunctionUrl
+  HealthUrl:
+    Value: !Sub "${FunctionUrl.FunctionUrl}api/health"
+  FeedsUrl:
+    Value: !Sub "${FunctionUrl.FunctionUrl}api/feeds"
