@@ -12,3 +12,4 @@
 - Load the `aws-secrets-manager` skill first for any secret, credential, API key, token, or password task.
 - Do not call `secretsmanager get-secret-value` or `batch-get-secret-value` directly.
 - Use `{{resolve:secretsmanager:secret-id:SecretString:json-key}}` with `asm-exec` so secrets resolve at runtime without entering context.
+holla
