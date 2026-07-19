@@ -54,6 +54,11 @@ python bot.py --once
 When `BOT_API_ENABLED=true`, the same process also exposes:
 
 - `POST /api/mint-base`
+- `GET /api/slips/pending`
+- `POST /api/slips/execute-pending`
+- `GET /api/markets/by-epoch`
+
+Full request and response documentation is in [API.md](./API.md).
 
 Example body:
 

@@ -319,6 +319,71 @@ pub fn void_market_handler(ctx: Context<VoidMarket>) -> Result<()> {
     Ok(())
 }
 
+// ─── Manual Settle Market ──────────────────────────────────────
+// Operator/admin settlement for markets that are not bound to TxLINE.
+// Markets with txline_fixture_id must use settle_with_proof.
+
+#[derive(Accounts)]
+pub struct SettleMarket<'info> {
+    #[account(mut, seeds = [seeds::GLOBAL_CONFIG], bump = global_config.bump)]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(mut, seeds = [seeds::MARKET, market.market_id.to_le_bytes().as_ref()], bump = market.bump)]
+    pub market: Account<'info, Market>,
+
+    #[account(
+        mut,
+        seeds = [seeds::EPOCH, market.epoch_id.to_le_bytes().as_ref()],
+        bump = epoch.bump,
+    )]
+    pub epoch: Account<'info, Epoch>,
+
+    pub authority: Signer<'info>,
+}
+
+pub fn settle_market_handler(ctx: Context<SettleMarket>, winning_outcome: u8) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+    let market = &mut ctx.accounts.market;
+    let epoch = &mut ctx.accounts.epoch;
+
+    require!(
+        config.is_authorized(&ctx.accounts.authority.key()),
+        QuadraticMarketError::Unauthorized
+    );
+    require!(
+        market.txline_fixture_id.is_none(),
+        QuadraticMarketError::TxlineProofValidationFailed
+    );
+    require!(
+        market.status.can_settle(),
+        QuadraticMarketError::InvalidMarketStatus
+    );
+    require!(
+        (winning_outcome as usize) < market.num_outcomes as usize,
+        QuadraticMarketError::InvalidOutcomeId
+    );
+
+    let now = Clock::get()?.unix_timestamp;
+    market.winning_outcome = winning_outcome;
+    market.status = MarketStatus::Settled;
+    market.settlement_time = now;
+
+    if !market.settled_in_epoch {
+        market.settled_in_epoch = true;
+        epoch.num_settled_markets = epoch
+            .num_settled_markets
+            .checked_add(1)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+        if epoch.num_markets > 0 && epoch.num_settled_markets >= epoch.num_markets {
+            epoch.all_markets_settled = true;
+            epoch.lp_shares_at_close = config.total_lp_supply;
+            epoch.withdrawals_enabled = true;
+        }
+    }
+
+    Ok(())
+}
+
 // ─── Void If Expired (permissionless) ─────────────────────────
 // Any caller can trigger auto-void if the oracle never settled the market
 // within `settlement_deadline_seconds` of `start_time`.

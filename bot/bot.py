@@ -56,7 +56,9 @@ structlog.configure(
 log = structlog.get_logger(__name__)
 
 # Path to the compiled IDL (built by `anchor build`)
-IDL_PATH = Path(__file__).parent.parent / "target" / "idl" / "quadratic_market.json"
+IDL_PATH = Path(
+    config.IDL_PATH or Path(__file__).parent.parent / "target" / "idl" / "quadratic_market.json"
+).expanduser()
 
 app = FastAPI(title="Quadratic Market Bot API", version="1.0.0")
 app.add_middleware(
@@ -134,6 +136,62 @@ async def mint_base(
     )
 
 
+@app.get("/api/slips/pending")
+async def pending_slips(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict:
+    require_api_key(x_api_key)
+    runtime = get_runtime()
+    slips = await runtime.chain.fetch_all_slips()
+    pending = []
+
+    for slip_id, slip in slips:
+        status = _enum_name(slip.status).lower()
+        if status not in {"pending", "active"}:
+            continue
+        num_legs = int(slip.num_legs)
+        bought_mask = int(slip.legs_bought_mask)
+        pending.append(
+            {
+                "slip_id": slip_id,
+                "owner": str(slip.owner),
+                "status": status,
+                "num_legs": num_legs,
+                "bought_mask": bought_mask,
+                "unbought_legs": [
+                    {
+                        "leg_index": leg_index,
+                        "market_id": int(slip.leg_market_ids[leg_index]),
+                        "outcome_id": int(slip.leg_outcome_ids[leg_index]),
+                    }
+                    for leg_index in range(num_legs)
+                    if not bought_mask & (1 << leg_index)
+                ],
+                "cancel_deadline": int(slip.cancel_deadline),
+            }
+        )
+
+    return {"count": len(pending), "slips": pending}
+
+
+@app.post("/api/slips/execute-pending")
+async def execute_pending_slips(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict:
+    require_api_key(x_api_key)
+    runtime = get_runtime()
+    return await task_execute_slip_legs(runtime.chain)
+
+
+@app.get("/api/markets/by-epoch")
+async def markets_by_epoch(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict:
+    require_api_key(x_api_key)
+    runtime = get_runtime()
+    return await build_markets_by_epoch(runtime.chain, runtime.state)
+
+
 async def run_api_server() -> uvicorn.Server:
     server_config = uvicorn.Config(
         app,
@@ -171,10 +229,181 @@ MARKET_TYPE_CONFIG = {
 def _enum_name(value) -> str:
     if isinstance(value, dict) and len(value) == 1:
         return next(iter(value.keys()))
+    for attr in ("name", "variant"):
+        name = getattr(value, attr, None)
+        if isinstance(name, str) and name:
+            return name
+    if hasattr(value, "__dict__"):
+        variants = [key for key, inner in vars(value).items() if not key.startswith("_") and inner is not None]
+        if len(variants) == 1:
+            return variants[0]
+    rendered = str(value)
+    if rendered.endswith("()") and rendered[:-2].isidentifier():
+        return rendered[:-2]
+    if rendered.endswith("()") and "." in rendered:
+        return rendered.rsplit(".", 1)[-1][:-2]
+    lowered = rendered.lower()
+    for candidate in (
+        "pending",
+        "active",
+        "won",
+        "lost",
+        "cancelled",
+        "open",
+        "suspended",
+        "settled",
+        "voided",
+        "closed",
+    ):
+        if candidate in lowered:
+            return candidate
     return str(value)
 
 
+def _txline_outcome_for_market(market_type: StateMarketType, home_score: int, away_score: int) -> int:
+    """Match the on-chain settlement outcome derivation for each market type."""
+    if market_type == StateMarketType.OVER_UNDER:
+        return 0 if home_score + away_score > 2 else 1
+    if market_type == StateMarketType.GG_NG:
+        return 0 if home_score > 0 and away_score > 0 else 1
+    if home_score > away_score:
+        return 0
+    if away_score > home_score:
+        return 2
+    return 1
+
+
+def _serialize_epoch(epoch_id: int, epoch, vault) -> dict:
+    return {
+        "epoch_id": epoch_id,
+        "exists": epoch is not None,
+        "start_time": int(getattr(epoch, "start_time", 0)) if epoch else None,
+        "end_time": int(getattr(epoch, "end_time", 0)) if epoch else None,
+        "num_markets": int(getattr(epoch, "num_markets", 0)) if epoch else 0,
+        "num_settled_markets": int(getattr(epoch, "num_settled_markets", 0)) if epoch else 0,
+        "all_markets_settled": bool(getattr(epoch, "all_markets_settled", False)) if epoch else False,
+        "withdrawals_enabled": bool(getattr(epoch, "withdrawals_enabled", False)) if epoch else False,
+        "vault": {
+            "exists": vault is not None,
+            "total_deposits": int(getattr(vault, "total_deposits", 0)) if vault else 0,
+            "total_withdrawals": int(getattr(vault, "total_withdrawals", 0)) if vault else 0,
+            "total_shares": int(getattr(vault, "total_shares", 0)) if vault else 0,
+            "num_lps": int(getattr(vault, "num_lps", 0)) if vault else 0,
+            "withdrawals_enabled": bool(getattr(vault, "withdrawals_enabled", False)) if vault else False,
+        },
+    }
+
+
+def _serialize_market(market_id: int, market, tracked: TrackedMarket | None) -> dict:
+    return {
+        "market_id": market_id,
+        "fixture_id": int(getattr(market, "txline_fixture_id", 0) or (tracked.fixture_id if tracked else 0)),
+        "group_id": getattr(market, "group_id", None),
+        "epoch_id": int(getattr(market, "epoch_id", tracked.epoch_id if tracked else 0)),
+        "title": str(getattr(market, "title", tracked.title if tracked else "")),
+        "description": str(getattr(market, "description", "")),
+        "status": _enum_name(getattr(market, "status", "")).lower(),
+        "market_type": tracked.market_type.value if tracked else _enum_name(getattr(market, "market_type", "")).lower(),
+        "category": int(getattr(market, "category", tracked.category if tracked else 0)),
+        "num_outcomes": int(getattr(market, "num_outcomes", tracked.num_outcomes if tracked else 0)),
+        "start_time": int(getattr(market, "start_time", tracked.start_time if tracked else 0)),
+        "odds": [int(odd) for odd in list(getattr(market, "odds", []))[: int(getattr(market, "num_outcomes", 0))]],
+        "winning_outcome": int(getattr(market, "winning_outcome", 0)),
+        "settlement_time": int(getattr(market, "settlement_time", 0)),
+        "settled_in_epoch": bool(getattr(market, "settled_in_epoch", False)),
+        "stage": tracked.stage.value if tracked else None,
+    }
+
+
+async def build_markets_by_epoch(chain: ChainClient, state: BotState) -> dict:
+    markets = await chain.fetch_all_markets()
+    grouped: dict[int, list[dict]] = {}
+
+    for market_id, market in markets:
+        epoch_id = int(getattr(market, "epoch_id", 0))
+        grouped.setdefault(epoch_id, []).append(
+            _serialize_market(market_id, market, state.get_market(market_id))
+        )
+
+    epochs = []
+    for epoch_id, epoch_markets in sorted(grouped.items()):
+        try:
+            epoch = await chain.fetch_epoch(epoch_id)
+        except Exception:
+            epoch = None
+        try:
+            vault = await chain.fetch_epoch_vault(epoch_id)
+        except Exception:
+            vault = None
+
+        epochs.append(
+            {
+                **_serialize_epoch(epoch_id, epoch, vault),
+                "markets": sorted(epoch_markets, key=lambda item: item["market_id"]),
+            }
+        )
+
+    return {
+        "count": len(markets),
+        "epoch_count": len(epochs),
+        "epochs": epochs,
+    }
+
+
 # ─── Bot Tasks ────────────────────────────────────────────────────────────────
+
+async def task_ensure_active_epoch(chain: ChainClient) -> int:
+    cfg = await chain.fetch_global_config()
+    epoch_id = int(cfg.current_epoch)
+    needs_init = False
+    try:
+        await chain.fetch_epoch(epoch_id)
+        log.info("active_epoch_exists", epoch_id=epoch_id)
+    except Exception:
+        needs_init = True
+    try:
+        await chain.fetch_epoch_vault(epoch_id)
+    except Exception:
+        needs_init = True
+
+    if needs_init:
+        await chain.init_epoch()
+        log.info("active_epoch_published", epoch_id=epoch_id)
+    return epoch_id
+
+
+async def task_auto_epoch_liquidity(chain: ChainClient) -> None:
+    if not config.AUTO_EPOCH_LIQUIDITY_ENABLED:
+        return
+
+    amount = int(config.AUTO_EPOCH_LIQUIDITY_AMOUNT)
+    if amount <= 0:
+        return
+
+    cfg = await chain.fetch_global_config()
+    epoch_id = int(cfg.current_epoch)
+    try:
+        vault = await chain.fetch_epoch_vault(epoch_id)
+    except Exception as exc:
+        log.warning("epoch_vault_missing", epoch_id=epoch_id, error=str(exc))
+        return
+
+    try:
+        await chain.fetch_epoch_lp_position(epoch_id, chain.operator_kp.pubkey())
+        log.info(
+            "epoch_liquidity_already_added",
+            epoch_id=epoch_id,
+            amount=int(getattr(vault, "total_deposits", 0)),
+        )
+        return
+    except Exception:
+        pass
+
+    try:
+        await chain.opt_in_epoch_liquidity(epoch_id, amount)
+        log.info("epoch_liquidity_added", epoch_id=epoch_id, amount=amount)
+    except Exception as exc:
+        log.error("epoch_liquidity_add_failed", epoch_id=epoch_id, amount=amount, error=str(exc))
 
 async def task_create_markets(
     chain: ChainClient, 
@@ -188,8 +417,13 @@ async def task_create_markets(
     cfg = await chain.fetch_global_config()
     current_epoch = int(cfg.current_epoch)
     fixtures = await api.get_upcoming_fixtures(config.MARKET_LOOKAHEAD_DAYS)
+    seen_fixture_ids: set[int] = set()
     
     for fix in fixtures:
+        if fix.fixture_id in seen_fixture_ids:
+            continue
+        seen_fixture_ids.add(fix.fixture_id)
+
         if state.is_group_tracked(fix.fixture_id):
             continue
         
@@ -206,34 +440,36 @@ async def task_create_markets(
                 f"GG/NG: {title}",
             ]
 
-            current_market_id = await chain.next_market_id()
-            group_id = current_market_id
-            market_start_id = current_market_id
+            # Market group ids live in their own PDA namespace. Use the TxLINE
+            # fixture id so retries find the same group without depending on
+            # global_config.next_market_id, which only advances for markets.
+            group_id = int(fix.fixture_id)
             market_ids = []
-
-            # If we already partially created this fixture, reuse the existing group
-            # and any market that already landed on-chain.
-            for candidate_group_id in (current_market_id, current_market_id - 1 if current_market_id > 0 else None):
-                if candidate_group_id is None:
-                    continue
-                try:
-                    existing_group = await chain.fetch_market_group(candidate_group_id)
-                except Exception:
-                    continue
+            existing_count = 0
+            try:
+                existing_group = await chain.fetch_market_group(group_id)
                 if getattr(existing_group, "title", None) != title:
+                    log.error(
+                        "market_group_title_mismatch",
+                        fixture_id=fix.fixture_id,
+                        group_id=group_id,
+                        expected=title,
+                        actual=getattr(existing_group, "title", None),
+                    )
                     continue
-                group_id = candidate_group_id
-                log.info("market_group_exists", fixture_id=fix.fixture_id, group_id=group_id)
-
-                try:
-                    existing_first_market = await chain.fetch_market(group_id)
-                    if getattr(existing_first_market, "title", None) == market_titles[0]:
-                        market_ids.append(group_id)
-                        market_start_id = group_id + 1
-                except Exception:
-                    market_start_id = group_id
-                break
-            else:
+                existing_count = min(int(getattr(existing_group, "num_markets", 0)), 3)
+                market_ids = [
+                    int(market_id)
+                    for market_id in list(getattr(existing_group, "market_ids", []))[:existing_count]
+                    if int(market_id) != 0
+                ]
+                log.info(
+                    "market_group_exists",
+                    fixture_id=fix.fixture_id,
+                    group_id=group_id,
+                    markets=market_ids,
+                )
+            except Exception:
                 await chain.create_market_group(
                     group_id=group_id,
                     title=title,
@@ -267,8 +503,41 @@ async def task_create_markets(
                 },
             ]
 
-            for market_offset, spec in enumerate(market_specs[len(market_ids):]):
-                market_id = market_start_id + market_offset
+            if len(market_ids) < len(market_specs):
+                next_market_id = await chain.next_market_id()
+                recovered_markets: dict[int, int] = {}
+                for candidate_market_id in range(max(1, next_market_id - 50), next_market_id):
+                    if candidate_market_id in market_ids:
+                        continue
+                    try:
+                        candidate = await chain.fetch_market(candidate_market_id)
+                    except Exception:
+                        continue
+                    candidate_title = getattr(candidate, "title", None)
+                    candidate_fixture_id = int(getattr(candidate, "txline_fixture_id", 0) or 0)
+                    if candidate_fixture_id != int(fix.fixture_id) or candidate_title not in market_titles:
+                        continue
+                    if getattr(candidate, "group_id", None) is not None:
+                        continue
+                    recovered_index = market_titles.index(candidate_title)
+                    recovered_markets[recovered_index] = candidate_market_id
+                    log.info(
+                        "orphan_market_recovered",
+                        fixture_id=fix.fixture_id,
+                        group_id=group_id,
+                        market_id=candidate_market_id,
+                        market_index=recovered_index,
+                    )
+            else:
+                next_market_id = 0
+                recovered_markets = {}
+
+            for market_index, spec in enumerate(market_specs[len(market_ids):], start=len(market_ids)):
+                recovered_market_id = recovered_markets.get(market_index)
+                if recovered_market_id is not None:
+                    market_ids.append(recovered_market_id)
+                    continue
+
                 created_market_id, _ = await chain.create_market(
                     start_time=fix.start_time,
                     num_outcomes=spec["num_outcomes"],
@@ -278,19 +547,22 @@ async def task_create_markets(
                     market_type=spec["market_type"],
                     initial_odds=spec["initial_odds"],
                     txline_fixture_id=fix.fixture_id,
-                    market_id=market_id,
+                    market_id=next_market_id,
                 )
                 market_ids.append(created_market_id)
+                next_market_id = created_market_id + 1
 
-            # Add markets to group
-            for i, mkt_id in enumerate(market_ids):
-                try:
-                    mkt = await chain.fetch_market(mkt_id)
-                    if getattr(mkt, "group_id", None) is not None:
-                        continue
-                except Exception:
-                    pass
+            for i, mkt_id in enumerate(market_ids[existing_count:], start=existing_count):
                 await chain.add_market_to_group(group_id, mkt_id, i)
+
+            if len(market_ids) < len(market_specs):
+                log.warning(
+                    "market_group_incomplete",
+                    fixture_id=fix.fixture_id,
+                    group_id=group_id,
+                    markets=market_ids,
+                )
+                continue
             
             # Track group
             group = TrackedMarketGroup(
@@ -309,10 +581,15 @@ async def task_create_markets(
             for i, mkt_id in enumerate(market_ids):
                 mkt_type = ["1x2", "over_under", "gg_ng"][i]
                 mkt_config = MARKET_TYPE_CONFIG[mkt_type]
+                try:
+                    onchain_market = await chain.fetch_market(mkt_id)
+                    epoch_id = int(getattr(onchain_market, "epoch_id", current_epoch))
+                except Exception:
+                    epoch_id = current_epoch
                 market = TrackedMarket(
                     fixture_id=fix.fixture_id,
                     market_id=mkt_id,
-                    epoch_id=current_epoch,
+                    epoch_id=epoch_id,
                     market_type=StateMarketType(mkt_type),
                     category=mkt_config["category"],
                     num_outcomes=mkt_config["num_outcomes"],
@@ -422,50 +699,75 @@ async def task_suspend_markets(
                       error=str(exc))
 
 
-async def task_execute_slip_legs(chain: ChainClient) -> None:
+async def task_execute_slip_legs(chain: ChainClient) -> dict[str, int]:
     """
     Execute any pending slip legs while their markets are still open.
     """
     now = int(time.time())
     slips = await chain.fetch_all_slips()
+    pending_count = 0
+    bought_count = 0
 
     for slip_id, slip in slips:
-        status = _enum_name(slip.status).lower()
-        if status not in {"pending", "active"}:
-            continue
-
-        num_legs = int(slip.num_legs)
-        bought_mask = int(slip.legs_bought_mask)
-        for leg_index in range(num_legs):
-            if bought_mask & (1 << leg_index):
+        try:
+            status = _enum_name(slip.status).lower()
+            if status not in {"pending", "active"}:
                 continue
 
-            market_id = int(slip.leg_market_ids[leg_index])
-            market = await chain.fetch_market(market_id)
-            market_status = _enum_name(market.status).lower()
-            if market_status != "open":
-                continue
-            if now >= int(market.start_time):
-                continue
-            if now >= int(slip.cancel_deadline):
-                continue
+            pending_count += 1
+            num_legs = int(slip.num_legs)
+            bought_mask = int(slip.legs_bought_mask)
+            log.info(
+                "pending_slip_found",
+                slip_id=slip_id,
+                owner=str(slip.owner),
+                status=status,
+                num_legs=num_legs,
+                bought_mask=bought_mask,
+                cancel_deadline=int(slip.cancel_deadline),
+            )
 
-            try:
+            for leg_index in range(num_legs):
+                if bought_mask & (1 << leg_index):
+                    continue
+
+                market_id = int(slip.leg_market_ids[leg_index])
+                outcome_id = int(slip.leg_outcome_ids[leg_index])
+                market = await chain.fetch_market(market_id)
+                market_status = _enum_name(market.status).lower()
+                if market_status != "open":
+                    log.info("slip_leg_not_executable", slip_id=slip_id, leg_index=leg_index, market_id=market_id, reason=f"market_{market_status}")
+                    continue
+                if now >= int(market.start_time):
+                    log.info("slip_leg_not_executable", slip_id=slip_id, leg_index=leg_index, market_id=market_id, reason="market_started")
+                    continue
+                if now >= int(slip.cancel_deadline):
+                    log.info("slip_leg_not_executable", slip_id=slip_id, leg_index=leg_index, market_id=market_id, reason="cancel_deadline_passed")
+                    continue
+
+                outcome_mints = [str(mint) for mint in getattr(market, "outcome_mints", [])]
+                if outcome_id >= len(outcome_mints):
+                    log.info("slip_leg_not_executable", slip_id=slip_id, leg_index=leg_index, market_id=market_id, outcome_id=outcome_id, reason="missing_outcome_mint_slot")
+                    continue
+                if outcome_mints[outcome_id] == str(Pubkey.default()):
+                    await chain.init_outcome_mint(market_id, outcome_id)
+                    log.info("slip_leg_outcome_mint_initialized", slip_id=slip_id, leg_index=leg_index, market_id=market_id, outcome_id=outcome_id)
+
                 await chain.buy_leg_for_slip(slip_id, leg_index, chain.operator_kp.pubkey())
+                bought_count += 1
                 log.info(
                     "slip_leg_bought",
                     slip_id=slip_id,
                     leg_index=leg_index,
                     market_id=market_id,
+                    outcome_id=outcome_id,
                 )
-            except Exception as exc:
-                log.error(
-                    "buy_slip_leg_failed",
-                    slip_id=slip_id,
-                    leg_index=leg_index,
-                    market_id=market_id,
-                    error=str(exc),
-                )
+        except Exception as exc:
+            log.error("execute_pending_slip_failed", slip_id=slip_id, error=str(exc))
+
+    result = {"pending_slips": pending_count, "legs_bought": bought_count}
+    log.info("pending_slips_execution_complete", **result)
+    return result
 
 
 async def task_settle_markets(
@@ -490,10 +792,16 @@ async def task_settle_markets(
             if not proof_bundle:
                 continue
 
+            proposed_outcome = _txline_outcome_for_market(
+                market.market_type,
+                int(proof_bundle["home_score"]),
+                int(proof_bundle["away_score"]),
+            )
+
             await chain.settle_with_proof(
                 market_id=market.market_id,
                 txline_fixture_id=market.fixture_id,
-                proposed_outcome=proof_bundle["proposed_outcome"],
+                proposed_outcome=proposed_outcome,
                 validation_timestamp=proof_bundle["validation_timestamp"],
                 home_score=proof_bundle["home_score"],
                 away_score=proof_bundle["away_score"],
@@ -502,13 +810,16 @@ async def task_settle_markets(
             )
             state.mark_market_settled(
                 market.market_id,
-                proof_bundle["proposed_outcome"],
+                proposed_outcome,
             )
             log.info(
                 "market_settled_with_proof",
                 market_id=market.market_id,
                 fixture_id=market.fixture_id,
-                outcome=proof_bundle["proposed_outcome"],
+                market_type=market.market_type.value,
+                outcome=proposed_outcome,
+                home_score=proof_bundle["home_score"],
+                away_score=proof_bundle["away_score"],
             )
         except Exception as exc:
             log.error(
@@ -637,37 +948,36 @@ async def run_once(chain: ChainClient, api: TxoddsApiClient, state: BotState) ->
     log.info("bot_pass_start")
     
     # 1. Ensure the active epoch exists
-    try:
-        cfg = await chain.fetch_global_config()
-        await chain.fetch_epoch(int(cfg.current_epoch))
-    except Exception:
-        await chain.init_epoch()
+    await task_ensure_active_epoch(chain)
 
-    # 2. Create new markets from upcoming fixtures
+    # 2. Add operator liquidity to the active epoch vault when available
+    await task_auto_epoch_liquidity(chain)
+
+    # 3. Create new markets from upcoming fixtures
     await task_create_markets(chain, api, state)
     
-    # 3. Initialize outcome mints for newly created markets
+    # 4. Initialize outcome mints for newly created markets
     await task_init_market_mints(chain, state)
 
-    # 4. Update odds for open markets
+    # 5. Update odds for open markets
     await task_update_odds(chain, api, state)
     
-    # 5. Execute slip legs while markets are still open
+    # 6. Execute slip legs while markets are still open
     await task_execute_slip_legs(chain)
 
-    # 6. Suspend markets at start time
+    # 7. Suspend markets at start time
     await task_suspend_markets(chain, state)
 
-    # 7. Settle markets after delay
+    # 8. Settle markets after delay
     await task_settle_markets(chain, api, state)
 
-    # 8. Close any epochs that have fully finalized
+    # 9. Close any epochs that have fully finalized
     await task_close_settled_epochs(chain, state)
 
-    # 9. Void expired markets
+    # 10. Void expired markets
     await task_void_expired(chain, state)
 
-    # 10. Settle and resolve slips
+    # 11. Settle and resolve slips
     await task_settle_slips(chain, state)
 
     log.info("bot_pass_complete")
@@ -717,6 +1027,13 @@ async def main(once: bool = False) -> None:
         if config.BOT_API_ENABLED:
             api_task = asyncio.create_task(run_api_server())
             log.info("bot_api_started", host=config.BOT_API_HOST, port=config.BOT_API_PORT)
+
+        if not config.BOT_SCHEDULER_ENABLED:
+            log.info("bot_scheduler_disabled")
+            if api_task is None:
+                return
+            await api_task
+            return
 
         # Keep running on a single event loop to avoid cross-loop RPC issues.
         try:

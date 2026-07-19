@@ -23,6 +23,7 @@ venv/
 dist/
 build/
 target/
+test-ledger/
 .mypy_cache/
 .pytest_cache/
 .coverage
@@ -41,6 +42,7 @@ htmlcov/
 Thumbs.db
 *.log
 _keys/
+bot/bot_state.localnet.json
 
 # Compression
 *.zip

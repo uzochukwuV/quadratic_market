@@ -11,6 +11,7 @@ Tracks:
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, asdict, field
 from enum import Enum
@@ -21,7 +22,7 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-STATE_FILE = Path(__file__).parent / "bot_state.json"
+STATE_FILE = Path(os.getenv("BOT_STATE_FILE", Path(__file__).parent / "bot_state.json")).expanduser()
 
 
 class MarketStage(str, Enum):
@@ -180,6 +181,9 @@ class BotState:
     def get_group(self, fixture_id: int) -> Optional[TrackedMarketGroup]:
         return self._groups.get(fixture_id)
 
+    def all_groups(self) -> List[TrackedMarketGroup]:
+        return list(self._groups.values())
+
     def add_group(self, group: TrackedMarketGroup) -> None:
         self._groups[group.fixture_id] = group
         self._save()
@@ -198,6 +202,9 @@ class BotState:
 
     def get_market(self, market_id: int) -> Optional[TrackedMarket]:
         return self._markets.get(market_id)
+
+    def all_markets(self) -> List[TrackedMarket]:
+        return list(self._markets.values())
 
     def add_market(self, market: TrackedMarket) -> None:
         self._markets[market.market_id] = market

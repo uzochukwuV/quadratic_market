@@ -4,6 +4,8 @@ export type Status = "prematch" | "live";
 export type Outcome = {
   id: string;
   marketId: string;
+  marketAccount?: string;
+  outcomeId: number;
   marketKey: MarketKey;
   code: string;
   label: string;
@@ -24,6 +26,7 @@ export type Fixture = {
   away: string;
   liquidity: string;
   moreMarkets: number;
+  source: "chain" | "demo";
   outcomes: Outcome[];
 };
 

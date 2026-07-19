@@ -65,11 +65,25 @@ async function main() {
   }
 
   // Create or reuse a local mock base mint for betting.
-  const baseMintPath = path.join(process.cwd(), "_keys", "mock-base-mint.txt");
+  const isLocalnet = /127\.0\.0\.1|localhost/.test(provider.connection.rpcEndpoint);
+  const baseMintPath = path.join(
+    process.cwd(),
+    "_keys",
+    isLocalnet ? "mock-base-mint.localnet.txt" : "mock-base-mint.txt"
+  );
   let baseMint: PublicKey;
   if (fs.existsSync(baseMintPath)) {
-    baseMint = new PublicKey(fs.readFileSync(baseMintPath, "utf8").trim());
-    console.log("Reusing mock base mint from:", baseMintPath);
+    const savedBaseMint = new PublicKey(fs.readFileSync(baseMintPath, "utf8").trim());
+    const savedMintInfo = await provider.connection.getAccountInfo(savedBaseMint);
+    if (savedMintInfo) {
+      baseMint = savedBaseMint;
+      console.log("Reusing mock base mint from:", baseMintPath);
+    } else {
+      console.log("Saved mock base mint does not exist on this cluster, creating a new one.");
+      baseMint = await createMint(provider.connection, payer, admin, null, 6);
+      fs.writeFileSync(baseMintPath, `${baseMint.toBase58()}\n`);
+      console.log("Replaced mock base mint at:", baseMintPath);
+    }
   } else {
     baseMint = await createMint(provider.connection, payer, admin, null, 6);
     fs.mkdirSync(path.dirname(baseMintPath), { recursive: true });
@@ -168,17 +182,24 @@ async function main() {
       [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
       program.programId
     );
+    const [epochVaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch_vault"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
     console.log("Epoch 0 PDA:", epochPda.toString());
+    console.log("Epoch 0 Vault PDA:", epochVaultPda.toString());
 
     const epochInfo = await provider.connection.getAccountInfo(epochPda);
-    if (epochInfo) {
-      console.log("Epoch 0 already initialized at:", epochPda.toString());
+    const epochVaultInfo = await provider.connection.getAccountInfo(epochVaultPda);
+    if (epochInfo && epochVaultInfo) {
+      console.log("Epoch 0 and vault already initialized.");
     } else {
       const initEpochIx = new TransactionInstruction({
         programId: program.programId,
         keys: [
           { pubkey: globalConfigPda, isSigner: false, isWritable: true },
           { pubkey: epochPda, isSigner: false, isWritable: true },
+          { pubkey: epochVaultPda, isSigner: false, isWritable: true },
           { pubkey: admin, isSigner: true, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],

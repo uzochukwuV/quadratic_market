@@ -6,7 +6,7 @@ import {
 } from "@solana/spl-token";
 import { PublicKey, SYSVAR_RENT_PUBKEY, SystemProgram } from "@solana/web3.js";
 import { BASE_MINT_ADDRESS, TXORACLE_PROGRAM_ID } from "./env";
-import { fetchGlobalConfig, fetchMarket } from "./accounts";
+import { fetchGlobalConfig, fetchMarket, fetchSlip } from "./accounts";
 import {
   getEpochLpPositionPda,
   getEpochPda,
@@ -186,11 +186,12 @@ export async function placeSlipAwait(
   cancelDeadline: U64Input,
 ) {
   const slipId = await nextId(program, "nextSlipId");
+  const currentEpoch = await nextId(program, "currentEpoch");
   const [globalConfig] = getGlobalConfigPda();
   const [slip] = getSlipPda(slipId);
-  const [treasury] = getTreasuryPda();
+  const [epochVault] = getEpochVaultPda(currentEpoch);
   const ownerBaseAta = await baseAta(owner);
-  const treasuryBaseAta = await baseAta(treasury, true);
+  const epochVaultBaseAta = await baseAta(epochVault, true);
 
   return methods(program)
     .placeSlipAwait(
@@ -205,9 +206,9 @@ export async function placeSlipAwait(
     .accounts({
       globalConfig,
       slip,
-      treasury,
+      epochVault,
       ownerBaseAta,
-      treasuryBaseAta,
+      epochVaultBaseAta,
       baseMint: BASE_MINT_ADDRESS,
       owner,
       tokenProgram: TOKEN_PROGRAM_ID,
@@ -228,10 +229,11 @@ export async function buyLegForSlip(
   const [globalConfig] = getGlobalConfigPda();
   const [slip] = getSlipPda(slipId);
   const [market] = getMarketPda(marketId);
-  const [treasury] = getTreasuryPda();
+  const slipAccount = (await fetchSlip(program as Parameters<typeof fetchSlip>[0], slipId.toString())) as { epochId: { toString(): string } };
+  const [epochVault] = getEpochVaultPda(slipAccount.epochId.toString());
   const [outcomeMint] = getOutcomeMintPda(marketId, outcomeId);
   const buyerOutcomeAta = await outcomeAta(outcomeMint, buyer);
-  const treasuryBaseAta = await baseAta(treasury, true);
+  const epochVaultBaseAta = await baseAta(epochVault, true);
 
   return methods(program)
     .buyLegForSlip(bn(slipId), legIndex, outcomeId)
@@ -239,9 +241,9 @@ export async function buyLegForSlip(
       globalConfig,
       slip,
       market,
-      treasury,
+      epochVault,
       buyerOutcomeAta,
-      treasuryBaseAta,
+      epochVaultBaseAta,
       outcomeMint,
       baseMint: BASE_MINT_ADDRESS,
       buyer,
@@ -255,17 +257,18 @@ export async function buyLegForSlip(
 export async function cancelSlip(program: QuadraticProgram, owner: PublicKey, slipId: U64Input) {
   const [globalConfig] = getGlobalConfigPda();
   const [slip] = getSlipPda(slipId);
-  const [treasury] = getTreasuryPda();
+  const slipAccount = (await fetchSlip(program as Parameters<typeof fetchSlip>[0], slipId.toString())) as { epochId: { toString(): string } };
+  const [epochVault] = getEpochVaultPda(slipAccount.epochId.toString());
 
   return methods(program)
     .cancelSlip(bn(slipId))
     .accounts({
       globalConfig,
       slip,
-      treasury,
+      epochVault,
       owner,
       cancellerBaseAta: await baseAta(owner),
-      treasuryBaseAta: await baseAta(treasury, true),
+      epochVaultBaseAta: await baseAta(epochVault, true),
       baseMint: BASE_MINT_ADDRESS,
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -284,17 +287,18 @@ export async function settleSlipLeg(program: QuadraticProgram, caller: PublicKey
 export async function resolveSlip(program: QuadraticProgram, owner: PublicKey, slipId: U64Input) {
   const [globalConfig] = getGlobalConfigPda();
   const [slip] = getSlipPda(slipId);
-  const [treasury] = getTreasuryPda();
+  const slipAccount = (await fetchSlip(program as Parameters<typeof fetchSlip>[0], slipId.toString())) as { epochId: { toString(): string } };
+  const [epochVault] = getEpochVaultPda(slipAccount.epochId.toString());
 
   return methods(program)
     .resolveSlip(bn(slipId))
     .accounts({
       globalConfig,
       slip,
-      treasury,
+      epochVault,
       owner,
       claimerBaseAta: await baseAta(owner),
-      treasuryBaseAta: await baseAta(treasury, true),
+      epochVaultBaseAta: await baseAta(epochVault, true),
       baseMint: BASE_MINT_ADDRESS,
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,

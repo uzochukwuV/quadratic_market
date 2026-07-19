@@ -29,6 +29,15 @@ pub struct InitEpoch<'info> {
     )]
     pub epoch: Account<'info, Epoch>,
 
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = EpochVault::LEN,
+        seeds = [seeds::EPOCH_VAULT, global_config.current_epoch.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub epoch_vault: Account<'info, EpochVault>,
+
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -73,6 +82,20 @@ pub fn init_epoch_handler(ctx: Context<InitEpoch>) -> Result<()> {
         if epoch_duration > 0 {
             config.next_epoch_start = epoch_start + epoch_duration;
         }
+    }
+
+    let vault = &mut ctx.accounts.epoch_vault;
+    if vault.bump == 0 {
+        let now = Clock::get()?.unix_timestamp;
+        vault.epoch_id = config.current_epoch;
+        vault.total_deposits = 0;
+        vault.total_withdrawals = 0;
+        vault.total_shares = 0;
+        vault.num_lps = 0;
+        vault.created_at = now;
+        vault.closed_at = 0;
+        vault.withdrawals_enabled = false;
+        vault.bump = *ctx.bumps.get("epoch_vault").unwrap();
     }
 
     Ok(())
@@ -181,6 +204,112 @@ pub fn close_epoch_handler(ctx: Context<CloseEpoch>) -> Result<()> {
     Ok(())
 }
 
+// ─── Start Next Epoch ──────────────────────────────────────────
+// Advances global_config.current_epoch and creates the matching epoch + vault.
+// The previous epoch must be empty or fully settled so LP accounting does not
+// straddle multiple active epochs.
+
+#[derive(Accounts)]
+#[instruction(next_epoch_id: u64)]
+pub struct StartNextEpoch<'info> {
+    #[account(
+        mut,
+        seeds = [seeds::GLOBAL_CONFIG],
+        bump = global_config.bump,
+    )]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
+
+    #[account(
+        seeds = [seeds::EPOCH, global_config.current_epoch.to_le_bytes().as_ref()],
+        bump = current_epoch.bump,
+    )]
+    pub current_epoch: Account<'info, Epoch>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = Epoch::LEN,
+        seeds = [seeds::EPOCH, next_epoch_id.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub next_epoch: Account<'info, Epoch>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = EpochVault::LEN,
+        seeds = [seeds::EPOCH_VAULT, next_epoch_id.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub next_epoch_vault: Account<'info, EpochVault>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn start_next_epoch_handler(ctx: Context<StartNextEpoch>, next_epoch_id: u64) -> Result<()> {
+    let config = &mut ctx.accounts.global_config;
+    let current_epoch = &ctx.accounts.current_epoch;
+
+    require!(
+        config.is_authorized(&ctx.accounts.authority.key()),
+        QuadraticMarketError::Unauthorized
+    );
+    require!(
+        next_epoch_id == config.current_epoch.checked_add(1).ok_or(QuadraticMarketError::MathOverflow)?,
+        QuadraticMarketError::InvalidAmount
+    );
+    require!(
+        current_epoch.num_markets == 0 || current_epoch.all_markets_settled,
+        QuadraticMarketError::EpochNotComplete
+    );
+
+    let now = Clock::get()?.unix_timestamp;
+    let epoch_duration = config.epoch_duration_seconds;
+    let end_time = if epoch_duration > 0 {
+        now.checked_add(epoch_duration).ok_or(QuadraticMarketError::MathOverflow)?
+    } else {
+        i64::MAX
+    };
+
+    let epoch = &mut ctx.accounts.next_epoch;
+    epoch.epoch_id = next_epoch_id;
+    epoch.start_time = now;
+    epoch.end_time = end_time;
+    epoch.total_liquidity_added = 0;
+    epoch.total_liquidity_removed = 0;
+    epoch.num_markets = 0;
+    epoch.num_settled_markets = 0;
+    epoch.all_markets_settled = true;
+    epoch.withdrawals_enabled = true;
+    epoch.lp_shares_at_close = config.total_lp_supply;
+    epoch.bump = *ctx.bumps.get("next_epoch").unwrap();
+
+    let vault = &mut ctx.accounts.next_epoch_vault;
+    vault.epoch_id = next_epoch_id;
+    vault.total_deposits = 0;
+    vault.total_withdrawals = 0;
+    vault.total_shares = 0;
+    vault.num_lps = 0;
+    vault.created_at = now;
+    vault.closed_at = 0;
+    vault.withdrawals_enabled = false;
+    vault.bump = *ctx.bumps.get("next_epoch_vault").unwrap();
+
+    config.current_epoch = next_epoch_id;
+    config.epoch_paused = false;
+    config.next_epoch_start = end_time;
+
+    emit!(EpochPublished {
+        epoch_id: next_epoch_id,
+        start_time: now,
+        end_time,
+    });
+
+    Ok(())
+}
+
 // ─── Publish Epoch ──────────────────────────────────────────────
 // Publishes an epoch with its market list. This is the announcement
 // LPs see before choosing to opt-in. No funds moved yet.
@@ -196,7 +325,7 @@ pub struct PublishEpoch<'info> {
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         space = Epoch::LEN,
         seeds = [seeds::EPOCH, epoch_id.to_le_bytes().as_ref()],
@@ -205,7 +334,7 @@ pub struct PublishEpoch<'info> {
     pub epoch: Account<'info, Epoch>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         space = EpochVault::LEN,
         seeds = [seeds::EPOCH_VAULT, epoch_id.to_le_bytes().as_ref()],
@@ -223,7 +352,7 @@ pub fn publish_epoch_handler(
     epoch_id: u64,
     _market_ids: Vec<u64>, // Future: store market list if needed
 ) -> Result<()> {
-    let config = &ctx.accounts.global_config;
+    let config = &mut ctx.accounts.global_config;
     let epoch = &mut ctx.accounts.epoch;
     let vault = &mut ctx.accounts.epoch_vault;
 
@@ -232,39 +361,52 @@ pub fn publish_epoch_handler(
         QuadraticMarketError::Unauthorized
     );
 
-    let now = Clock::get()?.unix_timestamp;
-    let epoch_duration = config.epoch_duration_seconds;
+    let mut start_time = epoch.start_time;
+    let mut end_time = epoch.end_time;
+    if epoch.bump == 0 {
+        let now = Clock::get()?.unix_timestamp;
+        let epoch_duration = config.epoch_duration_seconds;
+        start_time = now;
+        end_time = if epoch_duration > 0 {
+            now.checked_add(epoch_duration).ok_or(QuadraticMarketError::MathOverflow)?
+        } else {
+            i64::MAX
+        };
 
-    epoch.epoch_id = epoch_id;
-    epoch.num_markets = 0; // Will be incremented as markets are added
-    epoch.start_time = now;
-    epoch.end_time = if epoch_duration > 0 {
-        now + epoch_duration
-    } else {
-        i64::MAX
-    };
-    epoch.total_liquidity_added = 0;
-    epoch.total_liquidity_removed = 0;
-    epoch.num_settled_markets = 0;
-    epoch.all_markets_settled = false;
-    epoch.withdrawals_enabled = false;
-    epoch.lp_shares_at_close = 0;
-    epoch.bump = *ctx.bumps.get("epoch").unwrap();
+        epoch.epoch_id = epoch_id;
+        epoch.num_markets = 0;
+        epoch.start_time = start_time;
+        epoch.end_time = end_time;
+        epoch.total_liquidity_added = 0;
+        epoch.total_liquidity_removed = 0;
+        epoch.num_settled_markets = 0;
+        epoch.all_markets_settled = true;
+        epoch.withdrawals_enabled = true;
+        epoch.lp_shares_at_close = config.total_lp_supply;
+        epoch.bump = *ctx.bumps.get("epoch").unwrap();
 
-    vault.epoch_id = epoch_id;
-    vault.total_deposits = 0;
-    vault.total_withdrawals = 0;
-    vault.total_shares = 0;
-    vault.num_lps = 0;
-    vault.created_at = now;
-    vault.closed_at = 0;
-    vault.withdrawals_enabled = false;
-    vault.bump = *ctx.bumps.get("epoch_vault").unwrap();
+        if epoch_id == config.current_epoch {
+            config.next_epoch_start = end_time;
+        }
+    }
+
+    if vault.bump == 0 {
+        let now = Clock::get()?.unix_timestamp;
+        vault.epoch_id = epoch_id;
+        vault.total_deposits = 0;
+        vault.total_withdrawals = 0;
+        vault.total_shares = 0;
+        vault.num_lps = 0;
+        vault.created_at = now;
+        vault.closed_at = 0;
+        vault.withdrawals_enabled = false;
+        vault.bump = *ctx.bumps.get("epoch_vault").unwrap();
+    }
 
     emit!(EpochPublished {
         epoch_id,
-        start_time: now,
-        end_time: epoch.end_time,
+        start_time,
+        end_time,
     });
 
     Ok(())
@@ -291,7 +433,7 @@ pub struct OptInEpochLiquidity<'info> {
     pub epoch_vault: Account<'info, EpochVault>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = lp,
         space = EpochLpPosition::LEN,
         seeds = [b"epoch_lp", epoch_id.to_le_bytes().as_ref(), lp.key().as_ref()],
@@ -324,6 +466,10 @@ pub fn opt_in_epoch_liquidity_handler(
     require!(!config.paused, QuadraticMarketError::Paused);
     require!(!config.epoch_paused, QuadraticMarketError::EpochPaused);
     require!(amount > 0, QuadraticMarketError::InvalidAmount);
+    require!(
+        vault.epoch_id == epoch_id,
+        QuadraticMarketError::EpochAccountMismatch
+    );
 
     // First depositor gets minimum liquidity protection
     let shares_to_mint = if vault.total_shares == 0 || vault.total_deposits == 0 {
@@ -361,14 +507,24 @@ pub fn opt_in_epoch_liquidity_handler(
         .total_shares
         .checked_add(shares_to_mint)
         .ok_or(QuadraticMarketError::MathOverflow)?;
-    vault.num_lps += 1;
-
-    // Create LP position
-    position.owner = ctx.accounts.lp.key();
-    position.epoch_id = epoch_id;
-    position.shares = shares_to_mint;
-    position.withdrawn = false;
-    position.bump = *ctx.bumps.get("lp_position").unwrap();
+    if position.bump == 0 {
+        position.owner = ctx.accounts.lp.key();
+        position.epoch_id = epoch_id;
+        position.shares = shares_to_mint;
+        position.withdrawn = false;
+        position.bump = *ctx.bumps.get("lp_position").unwrap();
+        vault.num_lps = vault.num_lps.checked_add(1).ok_or(QuadraticMarketError::MathOverflow)?;
+    } else {
+        require!(
+            position.owner == ctx.accounts.lp.key() && position.epoch_id == epoch_id,
+            QuadraticMarketError::EpochAccountMismatch
+        );
+        require!(!position.withdrawn, QuadraticMarketError::InsufficientLpShares);
+        position.shares = position
+            .shares
+            .checked_add(shares_to_mint)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
+    }
 
     emit!(EpochLiquidityOptedIn {
         epoch_id,

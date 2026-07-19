@@ -480,6 +480,37 @@ export type QuadraticMarket = {
       "args": []
     },
     {
+      "name": "settleMarket",
+      "accounts": [
+        {
+          "name": "globalConfig",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "epoch",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "winningOutcome",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "settleWithProof",
       "docs": [
         "Settle market using TxLINE on-chain proof validation.",
@@ -909,7 +940,7 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasury",
+          "name": "epochVault",
           "isMut": false,
           "isSigner": false
         },
@@ -919,7 +950,7 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasuryBaseAta",
+          "name": "epochVaultBaseAta",
           "isMut": true,
           "isSigner": false
         },
@@ -990,7 +1021,7 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasury",
+          "name": "epochVault",
           "isMut": false,
           "isSigner": false
         },
@@ -1000,7 +1031,7 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasuryBaseAta",
+          "name": "epochVaultBaseAta",
           "isMut": true,
           "isSigner": false
         },
@@ -1067,7 +1098,7 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasury",
+          "name": "epochVault",
           "isMut": false,
           "isSigner": false
         },
@@ -1082,7 +1113,7 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasuryBaseAta",
+          "name": "epochVaultBaseAta",
           "isMut": true,
           "isSigner": false
         },
@@ -1164,7 +1195,7 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasury",
+          "name": "epochVault",
           "isMut": false,
           "isSigner": false
         },
@@ -1179,7 +1210,7 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasuryBaseAta",
+          "name": "epochVaultBaseAta",
           "isMut": true,
           "isSigner": false
         },
@@ -1557,6 +1588,11 @@ export type QuadraticMarket = {
           "isSigner": false
         },
         {
+          "name": "epochVault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
           "name": "authority",
           "isMut": true,
           "isSigner": true
@@ -1568,6 +1604,50 @@ export type QuadraticMarket = {
         }
       ],
       "args": []
+    },
+    {
+      "name": "startNextEpoch",
+      "docs": [
+        "Advance to the next active epoch and create its epoch vault."
+      ],
+      "accounts": [
+        {
+          "name": "globalConfig",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "currentEpoch",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "nextEpoch",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "nextEpochVault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "nextEpochId",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "pauseEpoch",
@@ -4180,6 +4260,37 @@ export const IDL: QuadraticMarket = {
       "args": []
     },
     {
+      "name": "settleMarket",
+      "accounts": [
+        {
+          "name": "globalConfig",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "epoch",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "winningOutcome",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "settleWithProof",
       "docs": [
         "Settle market using TxLINE on-chain proof validation.",
@@ -4609,7 +4720,7 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasury",
+          "name": "epochVault",
           "isMut": false,
           "isSigner": false
         },
@@ -4619,7 +4730,7 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasuryBaseAta",
+          "name": "epochVaultBaseAta",
           "isMut": true,
           "isSigner": false
         },
@@ -4690,7 +4801,7 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasury",
+          "name": "epochVault",
           "isMut": false,
           "isSigner": false
         },
@@ -4700,7 +4811,7 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasuryBaseAta",
+          "name": "epochVaultBaseAta",
           "isMut": true,
           "isSigner": false
         },
@@ -4767,7 +4878,7 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasury",
+          "name": "epochVault",
           "isMut": false,
           "isSigner": false
         },
@@ -4782,7 +4893,7 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasuryBaseAta",
+          "name": "epochVaultBaseAta",
           "isMut": true,
           "isSigner": false
         },
@@ -4864,7 +4975,7 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasury",
+          "name": "epochVault",
           "isMut": false,
           "isSigner": false
         },
@@ -4879,7 +4990,7 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
-          "name": "treasuryBaseAta",
+          "name": "epochVaultBaseAta",
           "isMut": true,
           "isSigner": false
         },
@@ -5257,6 +5368,11 @@ export const IDL: QuadraticMarket = {
           "isSigner": false
         },
         {
+          "name": "epochVault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
           "name": "authority",
           "isMut": true,
           "isSigner": true
@@ -5268,6 +5384,50 @@ export const IDL: QuadraticMarket = {
         }
       ],
       "args": []
+    },
+    {
+      "name": "startNextEpoch",
+      "docs": [
+        "Advance to the next active epoch and create its epoch vault."
+      ],
+      "accounts": [
+        {
+          "name": "globalConfig",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "currentEpoch",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "nextEpoch",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "nextEpochVault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "nextEpochId",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "pauseEpoch",

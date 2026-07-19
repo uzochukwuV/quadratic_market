@@ -22,8 +22,11 @@ export function MarketBoard({
   setActiveMarket,
   groupedFixtures,
   notice,
+  loading,
+  error,
   choose,
   isSelected,
+  isSameMarketAlternative,
 }: {
   status: Status;
   setStatus: (status: Status) => void;
@@ -33,8 +36,11 @@ export function MarketBoard({
   setActiveMarket: (market: MarketTabKey) => void;
   groupedFixtures: Record<string, Fixture[]>;
   notice: string;
+  loading?: boolean;
+  error?: string;
   choose: (fixture: Fixture, outcome: Outcome) => void;
   isSelected: (outcomeId: string) => boolean;
+  isSameMarketAlternative: (outcome: Outcome) => boolean;
 }) {
   const codes = headerCodes(activeMarket);
   const gridClass = activeMarket === "popular" ? "popular" : codes.length === 2 ? "focused-two" : "focused-three";
@@ -43,8 +49,8 @@ export function MarketBoard({
     <section className="market-area">
       <div className="market-toolbar">
         <div className="tabs" role="tablist" aria-label="Fixture status">
-          <button onClick={() => setStatus("prematch")} className={status === "prematch" ? "active" : ""}>Prematch</button>
-          <button onClick={() => setStatus("live")} className={status === "live" ? "active live-tab" : "live-tab"}><i /> Live</button>
+          <button type="button" onClick={() => setStatus("prematch")} className={status === "prematch" ? "active" : ""}>Prematch</button>
+          <button type="button" onClick={() => setStatus("live")} className={status === "live" ? "active live-tab" : "live-tab"}><i /> Live</button>
         </div>
         <label className="search">
           <Icon name="search" size={16} />
@@ -54,7 +60,7 @@ export function MarketBoard({
 
       <div className="market-chips" aria-label="Market filter">
         {marketTabs.map((tab) => (
-          <button key={tab.key} onClick={() => setActiveMarket(tab.key)} className={activeMarket === tab.key ? "active" : ""}>
+          <button type="button" key={tab.key} onClick={() => setActiveMarket(tab.key)} className={activeMarket === tab.key ? "active" : ""}>
             {tab.label}
           </button>
         ))}
@@ -79,7 +85,7 @@ export function MarketBoard({
                 <b>{groupFixtures[0].league}</b>
                 <small>{groupFixtures[0].country}</small>
               </div>
-              <button aria-label={`Open ${groupFixtures[0].league}`}><Icon name="chevron" size={14} /></button>
+              <button type="button" aria-label={`Open ${groupFixtures[0].league}`}><Icon name="chevron" size={14} /></button>
             </div>
 
             {groupFixtures.map((fixture) => {
@@ -104,12 +110,19 @@ export function MarketBoard({
 
                   <div className="odds-grid">
                     {outcomes.map((outcome) => (
-                      <button key={outcome.id} onClick={() => choose(fixture, outcome)} className={isSelected(outcome.id) ? "odd selected" : `odd ${outcome.trend}`}>
+                      <button
+                        type="button"
+                        key={outcome.id}
+                        onClick={() => choose(fixture, outcome)}
+                        className={isSelected(outcome.id) ? "odd selected" : isSameMarketAlternative(outcome) ? `odd alternative ${outcome.trend}` : `odd ${outcome.trend}`}
+                        aria-pressed={isSelected(outcome.id)}
+                        title={isSameMarketAlternative(outcome) ? "Selecting this replaces the current pick from this market" : undefined}
+                      >
                         <small>{outcome.code}</small>
                         <b>{outcome.odds.toFixed(2)}</b>
                       </button>
                     ))}
-                    <button className="more">
+                    <button className="more" type="button">
                       +{fixture.moreMarkets}
                       <Icon name="chevron" size={13} />
                     </button>
@@ -120,10 +133,14 @@ export function MarketBoard({
           </div>
         ))}
 
-        {!Object.keys(groupedFixtures).length && <div className="empty-results">No fixtures match this view.</div>}
+        {!Object.keys(groupedFixtures).length && (
+          <div className="empty-results">
+            {loading ? "Loading on-chain markets..." : error ? "Unable to load on-chain markets." : "No on-chain fixtures match this view."}
+          </div>
+        )}
       </div>
 
-      <p className="disclaimer">Demo odds only. Please bet responsibly. 18+</p>
+      <p className="disclaimer">On-chain odds. Please bet responsibly. 18+</p>
     </section>
   );
 }

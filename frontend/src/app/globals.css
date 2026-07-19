@@ -97,6 +97,7 @@ button:disabled {
 }
 
 .main-nav button,
+.main-nav a,
 .header-actions button,
 .tabs button,
 .market-chips button,
@@ -105,16 +106,22 @@ button:disabled {
   background: transparent;
 }
 
-.main-nav button {
+.main-nav button,
+.main-nav a {
+  align-items: center;
   border-radius: 8px;
   color: var(--color-ash);
+  display: inline-flex;
   font-size: 14px;
   height: 36px;
   padding: 0 12px;
+  text-decoration: none;
 }
 
 .main-nav button.active,
-.main-nav button:hover {
+.main-nav button:hover,
+.main-nav a.active,
+.main-nav a:hover {
   background: var(--color-card-carbon);
   color: var(--color-snow);
 }
@@ -138,7 +145,7 @@ button:disabled {
 
 .balance-pill,
 .mint-button,
-.wallet-adapter-button {
+.wallet-button {
   align-items: center !important;
   background: var(--color-card-carbon) !important;
   border: 1px solid var(--color-steel-border) !important;
@@ -151,6 +158,21 @@ button:disabled {
   height: 38px !important;
   line-height: 1 !important;
   padding: 0 12px !important;
+}
+
+.wallet-button {
+  min-width: 132px;
+}
+
+.wallet-button.connected {
+  justify-content: space-between;
+  min-width: 168px;
+}
+
+.wallet-button b {
+  color: var(--color-blue-cornflower);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .balance-pill span {
@@ -181,6 +203,127 @@ button:disabled {
 
 .topbar-toast.success {
   color: var(--color-blue-cornflower);
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 80;
+}
+
+.mint-modal {
+  background: var(--color-deep-coal);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.42);
+  max-width: 360px;
+  padding: 16px;
+  width: 100%;
+}
+
+.modal-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.modal-head span,
+.mint-field span {
+  color: var(--color-ash);
+  display: block;
+  font-size: 12px;
+}
+
+.modal-head b {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.modal-head button {
+  align-items: center;
+  background: var(--color-card-carbon);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  color: var(--color-ash);
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.mint-field > div {
+  align-items: center;
+  background: var(--color-page-ink);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  display: flex;
+  height: 44px;
+  margin-top: 8px;
+  padding: 0 12px;
+}
+
+.mint-field input {
+  background: transparent;
+  border: 0;
+  color: var(--color-snow);
+  font-size: 18px;
+  outline: 0;
+  width: 100%;
+}
+
+.mint-field b {
+  color: var(--color-blue-cornflower);
+  font-size: 12px;
+}
+
+.quick-mint {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 12px 0;
+}
+
+.quick-mint button {
+  background: var(--color-card-carbon);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  color: var(--color-ash);
+  height: 34px;
+}
+
+.quick-mint button:hover {
+  border-color: var(--color-blue-cornflower);
+  color: var(--color-snow);
+}
+
+.modal-error {
+  color: #ff9b9b;
+  font-size: 12px;
+  margin: 10px 0;
+}
+
+.modal-submit {
+  background: var(--color-snow);
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-page-ink);
+  font-size: 14px;
+  font-weight: 600;
+  height: 42px;
+  width: 100%;
+}
+
+.modal-submit:disabled {
+  background: var(--color-graphite);
+  color: var(--color-ash);
 }
 
 .dashboard {
@@ -266,6 +409,12 @@ button:disabled {
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.15;
+  margin: 8px 0 0;
+}
+
+.market-summary p {
+  color: var(--color-ash);
+  font-size: 13px;
   margin: 8px 0 0;
 }
 
@@ -439,6 +588,14 @@ button:disabled {
   grid-template-columns: repeat(3, minmax(72px, 1fr)) 58px;
 }
 
+.focused-two-head > div {
+  grid-template-columns: repeat(2, minmax(86px, 1fr)) 58px;
+}
+
+.focused-three-head > div {
+  grid-template-columns: repeat(3, minmax(72px, 1fr)) 58px;
+}
+
 .league-head {
   align-items: center;
   background: var(--color-card-carbon);
@@ -561,6 +718,14 @@ button:disabled {
   grid-template-columns: repeat(3, minmax(72px, 1fr)) 58px;
 }
 
+.focused-two-row .odds-grid {
+  grid-template-columns: repeat(2, minmax(86px, 1fr)) 58px;
+}
+
+.focused-three-row .odds-grid {
+  grid-template-columns: repeat(3, minmax(72px, 1fr)) 58px;
+}
+
 .odd,
 .more {
   align-items: center;
@@ -594,6 +759,23 @@ button:disabled {
 
 .odd.down b {
   color: var(--color-ash);
+}
+
+.odd.alternative {
+  border-color: var(--color-graphite);
+  color: var(--color-fog);
+  position: relative;
+}
+
+.odd.alternative::after {
+  background: var(--color-blue-cornflower);
+  border-radius: 999px;
+  content: "";
+  height: 5px;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 5px;
 }
 
 .odd.selected {
@@ -783,6 +965,39 @@ button:disabled {
   font-size: 14px;
 }
 
+.slip-status {
+  border-bottom: 1px solid var(--color-steel-border);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  padding: 12px 16px;
+}
+
+.slip-status div {
+  background: var(--color-deep-coal);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.slip-status span {
+  color: var(--color-ash);
+  display: block;
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+
+.slip-status b {
+  color: var(--color-snow);
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .totals {
   padding: 16px;
 }
@@ -851,9 +1066,575 @@ button:disabled {
   width: calc(100% - 32px);
 }
 
+.place-bet:disabled {
+  background: var(--color-graphite);
+  color: var(--color-ash);
+}
+
+.wallet-note.error {
+  color: #ff9b9b;
+  padding: 0 16px;
+}
+
+.wallet-note.success {
+  color: var(--color-blue-cornflower);
+  padding: 0 16px;
+}
+
 .mobile-slip-button,
 .mobile-overlay {
   display: none;
+}
+
+.bets-page {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 32px 24px 72px;
+}
+
+.bets-hero {
+  align-items: end;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.bets-hero h1 {
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.15;
+  margin: 8px 0 0;
+}
+
+.bets-hero p {
+  color: var(--color-ash);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.bets-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.bets-summary div,
+.bets-money-grid div {
+  background: rgba(30, 30, 30, 0.92);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.bets-summary span,
+.bets-money-grid span {
+  color: var(--color-ash);
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.bets-summary b {
+  color: var(--color-snow);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.bets-panel {
+  background: rgba(20, 20, 20, 0.78);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bets-tabs {
+  align-items: center;
+  border-bottom: 1px solid var(--color-steel-border);
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px;
+}
+
+.bets-tabs button {
+  align-items: center;
+  background: var(--color-card-carbon);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  color: var(--color-ash);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 13px;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  text-transform: capitalize;
+}
+
+.bets-tabs button.active {
+  border-color: var(--color-blue-cornflower);
+  color: var(--color-snow);
+}
+
+.bets-tabs button:last-child {
+  margin-left: auto;
+}
+
+.bets-tabs span {
+  align-items: center;
+  background: var(--color-deep-coal);
+  border-radius: 4px;
+  color: var(--color-blue-cornflower);
+  display: inline-flex;
+  font-size: 11px;
+  height: 18px;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 5px;
+}
+
+.bets-empty {
+  color: var(--color-ash);
+  font-size: 14px;
+  padding: 44px 18px;
+  text-align: center;
+}
+
+.bets-empty.error {
+  color: #ff9b9b;
+}
+
+.bets-card {
+  border-bottom: 1px solid var(--color-steel-border);
+  padding: 16px;
+}
+
+.bets-card:last-child {
+  border-bottom: 0;
+}
+
+.bets-card-head,
+.bets-card-foot {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.bets-card-head span,
+.bets-status-meta span,
+.bets-card-foot {
+  color: var(--color-ash);
+  font-size: 12px;
+}
+
+.bets-card-head b {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.bets-status-meta {
+  align-items: end;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bets-status-meta strong {
+  border: 1px solid var(--color-steel-border);
+  border-radius: 6px;
+  color: var(--color-blue-cornflower);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  text-transform: capitalize;
+}
+
+.bets-card.pending .bets-status-meta strong {
+  color: #ffd18f;
+}
+
+.bets-card.settled .bets-status-meta strong {
+  color: var(--color-ash);
+}
+
+.bets-money-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 14px 0;
+}
+
+.bets-money-grid b {
+  color: var(--color-snow);
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bets-leg-table {
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bets-leg-head,
+.bets-leg-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 48px minmax(220px, 1fr) 96px 72px 92px;
+}
+
+.bets-leg-head {
+  background: var(--color-card-carbon);
+  color: var(--color-fog);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  min-height: 36px;
+  padding: 0 12px;
+  text-transform: uppercase;
+}
+
+.bets-leg-row {
+  border-top: 1px solid rgba(49, 49, 49, 0.68);
+  min-height: 56px;
+  padding: 8px 12px;
+}
+
+.bets-leg-row > span {
+  color: var(--color-ash);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.bets-leg-row b,
+.bets-leg-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bets-leg-row b {
+  color: var(--color-snow);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bets-leg-row small {
+  color: var(--color-fog);
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.bets-leg-row .pending,
+.bets-leg-row .bought,
+.bets-leg-row .won,
+.bets-leg-row .lost {
+  border: 1px solid var(--color-steel-border);
+  border-radius: 6px;
+  display: inline-flex;
+  justify-content: center;
+  padding: 4px 7px;
+}
+
+.bets-leg-row .bought,
+.bets-leg-row .won {
+  color: var(--color-blue-cornflower);
+}
+
+.bets-leg-row .lost {
+  color: #ff9b9b;
+}
+
+.bets-card-foot {
+  margin-top: 12px;
+}
+
+.bets-card-foot span {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lp-page {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 32px 24px 72px;
+}
+
+.lp-hero {
+  align-items: end;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.lp-hero h1 {
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.15;
+  margin: 8px 0 0;
+}
+
+.lp-hero p {
+  color: var(--color-ash);
+  font-size: 13px;
+  margin: 8px 0 0;
+  max-width: 660px;
+}
+
+.lp-summary,
+.lp-metrics,
+.lp-epoch-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.lp-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.lp-summary div,
+.lp-metrics div,
+.lp-epoch-grid div {
+  background: rgba(30, 30, 30, 0.92);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.lp-summary span,
+.lp-metrics span,
+.lp-epoch-grid span {
+  color: var(--color-ash);
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.lp-summary b {
+  color: var(--color-snow);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.lp-metrics,
+.lp-epoch-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.lp-metrics b,
+.lp-epoch-grid b {
+  color: var(--color-snow);
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lp-window-note,
+.lp-notice {
+  background: var(--color-deep-coal);
+  border: 1px solid var(--color-steel-border);
+  border-left-color: var(--color-blue-cornflower);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.lp-window-note b {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+.lp-window-note span,
+.lp-notice {
+  color: var(--color-ash);
+  font-size: 13px;
+}
+
+.lp-notice.error {
+  border-left-color: #ff9b9b;
+  color: #ff9b9b;
+}
+
+.lp-panel {
+  background: rgba(20, 20, 20, 0.78);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.lp-panel-head {
+  align-items: center;
+  border-bottom: 1px solid var(--color-steel-border);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.lp-panel-head b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lp-panel-head span {
+  color: var(--color-ash);
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.lp-panel-head button,
+.lp-actions button {
+  background: var(--color-snow);
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-page-ink);
+  font-size: 14px;
+  font-weight: 600;
+  height: 38px;
+  padding: 0 14px;
+}
+
+.lp-actions button:disabled {
+  background: var(--color-graphite);
+  color: var(--color-ash);
+}
+
+.lp-empty {
+  color: var(--color-ash);
+  font-size: 14px;
+  padding: 44px 18px;
+  text-align: center;
+}
+
+.lp-empty.error {
+  color: #ff9b9b;
+}
+
+.lp-card {
+  border-bottom: 1px solid var(--color-steel-border);
+  padding: 16px;
+}
+
+.lp-card:last-child {
+  border-bottom: 0;
+}
+
+.lp-card-head,
+.lp-card-foot {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.lp-card-head span,
+.lp-card-foot {
+  color: var(--color-ash);
+  font-size: 12px;
+}
+
+.lp-card-head b {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.lp-card-head strong {
+  border: 1px solid var(--color-steel-border);
+  border-radius: 6px;
+  color: var(--color-ash);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 8px;
+}
+
+.lp-card-head strong.open {
+  color: var(--color-blue-cornflower);
+}
+
+.lp-card-head strong.withdraw {
+  color: #92e6a7;
+}
+
+.lp-progress {
+  background: var(--color-card-carbon);
+  border-radius: 999px;
+  height: 8px;
+  margin: 14px 0;
+  overflow: hidden;
+}
+
+.lp-progress span {
+  background: var(--color-blue-cornflower);
+  display: block;
+  height: 100%;
+  min-width: 4px;
+}
+
+.lp-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lp-actions > div {
+  align-items: end;
+  background: rgba(10, 10, 10, 0.48);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.lp-actions label span {
+  color: var(--color-ash);
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.lp-actions input {
+  background: var(--color-page-ink);
+  border: 1px solid var(--color-steel-border);
+  border-radius: 8px;
+  color: var(--color-snow);
+  height: 38px;
+  outline: 0;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.lp-card-foot {
+  margin-top: 12px;
 }
 
 @media (max-width: 1180px) {
@@ -958,7 +1739,8 @@ button:disabled {
 @media (max-width: 740px) {
   .topbar {
     gap: 10px;
-    height: 60px;
+    height: auto;
+    min-height: 60px;
     padding: 0 12px;
   }
 
@@ -976,9 +1758,13 @@ button:disabled {
     display: none;
   }
 
-  .wallet-adapter-button {
+  .wallet-button {
     max-width: 132px;
     overflow: hidden;
+  }
+
+  .header-actions {
+    gap: 6px;
   }
 
   .dashboard {
@@ -1000,6 +1786,7 @@ button:disabled {
   }
 
   .summary-grid {
+    gap: 6px;
     margin-top: 16px;
   }
 
@@ -1016,17 +1803,29 @@ button:disabled {
   }
 
   .market-toolbar {
+    align-items: stretch;
+    gap: 10px;
     padding: 0 12px;
   }
 
+  .tabs {
+    min-width: 0;
+  }
+
+  .tabs button {
+    padding: 0 10px;
+  }
+
   .search {
-    width: 42px;
+    flex: 1;
+    min-width: 116px;
+    width: auto;
   }
 
   .search input {
-    opacity: 0;
-    pointer-events: none;
-    position: absolute;
+    opacity: 1;
+    pointer-events: auto;
+    position: static;
   }
 
   .market-chips {
@@ -1053,6 +1852,7 @@ button:disabled {
   }
 
   .event-cell {
+    align-items: flex-start;
     margin-bottom: 10px;
   }
 
@@ -1061,11 +1861,19 @@ button:disabled {
   }
 
   .popular-row .odds-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(64px, 1fr));
   }
 
   .focused-row .odds-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(72px, 1fr));
+  }
+
+  .focused-two-row .odds-grid {
+    grid-template-columns: repeat(2, minmax(84px, 1fr));
+  }
+
+  .focused-three-row .odds-grid {
+    grid-template-columns: repeat(3, minmax(72px, 1fr));
   }
 
   .odd,
@@ -1077,5 +1885,172 @@ button:disabled {
 
   .disclaimer {
     margin-bottom: 16px;
+  }
+
+  .bets-page {
+    padding: 22px 12px 64px;
+  }
+
+  .bets-hero {
+    align-items: stretch;
+    display: block;
+  }
+
+  .bets-hero h1 {
+    font-size: 30px;
+  }
+
+  .bets-hero .wallet-button {
+    margin-top: 14px;
+    width: 100%;
+  }
+
+  .bets-summary,
+  .bets-money-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bets-panel {
+    border-left: 0;
+    border-radius: 0;
+    border-right: 0;
+    margin-left: -12px;
+    margin-right: -12px;
+  }
+
+  .bets-tabs button:last-child {
+    margin-left: 0;
+  }
+
+  .bets-card-head,
+  .bets-card-foot {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .bets-status-meta {
+    align-items: start;
+  }
+
+  .bets-leg-head {
+    display: none;
+  }
+
+  .bets-leg-row {
+    align-items: start;
+    grid-template-columns: 30px minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .bets-leg-row > span:nth-child(3),
+  .bets-leg-row > span:nth-child(4),
+  .bets-leg-row > span:nth-child(5) {
+    grid-column: 2;
+  }
+
+  .lp-page {
+    padding: 22px 12px 64px;
+  }
+
+  .lp-hero {
+    align-items: stretch;
+    display: block;
+  }
+
+  .lp-hero h1 {
+    font-size: 30px;
+  }
+
+  .lp-hero .wallet-button {
+    margin-top: 14px;
+    width: 100%;
+  }
+
+  .lp-summary,
+  .lp-metrics,
+  .lp-epoch-grid,
+  .lp-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lp-panel {
+    border-left: 0;
+    border-radius: 0;
+    border-right: 0;
+    margin-left: -12px;
+    margin-right: -12px;
+  }
+
+  .lp-card-head,
+  .lp-card-foot {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .lp-actions > div {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding-bottom: 10px;
+    padding-top: 10px;
+  }
+
+  .brand {
+    flex: 1 0 auto;
+    min-width: 0;
+  }
+
+  .header-actions {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) minmax(112px, auto);
+    width: 100%;
+  }
+
+  .mint-button {
+    justify-content: center;
+  }
+
+  .wallet-button {
+    justify-content: center !important;
+    max-width: none;
+    width: 100%;
+  }
+
+  .balance-pill {
+    display: inline-flex;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .summary-grid b {
+    font-size: 17px;
+  }
+
+  .market-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .search {
+    flex-basis: 100%;
+  }
+
+  .popular-row .odds-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lp-summary,
+  .lp-metrics,
+  .lp-epoch-grid,
+  .lp-actions {
+    grid-template-columns: 1fr;
   }
 }

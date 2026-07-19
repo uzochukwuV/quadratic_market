@@ -1,8 +1,8 @@
 use crate::constants::{seeds, MAX_SLIP_LEGS};
 use crate::errors::QuadraticMarketError;
 use crate::state::{
-    market_group::CORRELATION_BPS_MULTIPLIER, GlobalConfig, Market, MarketGroup, MarketStatus,
-    SlipLeg,
+    market_group::CORRELATION_BPS_MULTIPLIER, EpochVault, GlobalConfig, Market, MarketGroup,
+    MarketStatus, SlipLeg,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
@@ -311,15 +311,22 @@ pub struct PlaceSlipAwait<'info> {
     )]
     pub slip: Account<'info, Slip>,
 
-    /// CHECK: Treasury PDA for escrow
-    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
-    pub treasury: SystemAccount<'info>,
+    #[account(
+        seeds = [seeds::EPOCH_VAULT, global_config.current_epoch.to_le_bytes().as_ref()],
+        bump = epoch_vault.bump,
+        constraint = epoch_vault.epoch_id == global_config.current_epoch @ QuadraticMarketError::EpochAccountMismatch,
+    )]
+    pub epoch_vault: Account<'info, EpochVault>,
 
     #[account(mut)]
     pub owner_base_ata: Account<'info, TokenAccount>,
 
-    #[account(mut)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = epoch_vault_base_ata.mint == global_config.base_mint @ QuadraticMarketError::Unauthorized,
+        constraint = epoch_vault_base_ata.owner == epoch_vault.key() @ QuadraticMarketError::Unauthorized,
+    )]
+    pub epoch_vault_base_ata: Account<'info, TokenAccount>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
     pub base_mint: Account<'info, Mint>,
@@ -404,13 +411,13 @@ pub fn place_slip_await_handler<'info>(
         slip.leg_outcome_ids[i] = 0;
     }
 
-    // Transfer stake to treasury escrow
+    // Transfer stake to the epoch vault backing this slip.
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
             token::Transfer {
                 from: ctx.accounts.owner_base_ata.to_account_info(),
-                to: ctx.accounts.treasury_base_ata.to_account_info(),
+                to: ctx.accounts.epoch_vault_base_ata.to_account_info(),
                 authority: ctx.accounts.owner.to_account_info(),
             },
         ),
@@ -452,15 +459,22 @@ pub struct BuyLegForSlip<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
-    /// CHECK: Treasury PDA
-    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
-    pub treasury: SystemAccount<'info>,
+    #[account(
+        seeds = [seeds::EPOCH_VAULT, slip.epoch_id.to_le_bytes().as_ref()],
+        bump = epoch_vault.bump,
+        constraint = epoch_vault.epoch_id == slip.epoch_id @ QuadraticMarketError::EpochAccountMismatch,
+    )]
+    pub epoch_vault: Account<'info, EpochVault>,
 
     #[account(mut)]
     pub buyer_outcome_ata: Account<'info, TokenAccount>,
 
-    #[account(mut)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = epoch_vault_base_ata.mint == global_config.base_mint @ QuadraticMarketError::Unauthorized,
+        constraint = epoch_vault_base_ata.owner == epoch_vault.key() @ QuadraticMarketError::Unauthorized,
+    )]
+    pub epoch_vault_base_ata: Account<'info, TokenAccount>,
 
     #[account(
         mut,
@@ -561,16 +575,9 @@ pub fn buy_leg_for_slip_handler<'info>(
         .checked_mul(fixed_odds)
         .ok_or(QuadraticMarketError::MathOverflow)?
         / 10000;
-
     // Update market exposure (liability for this leg's payout)
     market.exposure = market
         .exposure
-        .checked_add(leg_payout)
-        .ok_or(QuadraticMarketError::MathOverflow)?;
-
-    // Update locked_payouts for the potential payout
-    config.locked_payouts = config
-        .locked_payouts
         .checked_add(leg_payout)
         .ok_or(QuadraticMarketError::MathOverflow)?;
 
@@ -601,6 +608,19 @@ pub fn buy_leg_for_slip_handler<'info>(
                 .ok_or(QuadraticMarketError::MathOverflow)?
                 / 10000;
         }
+        let free_liquidity = ctx
+            .accounts
+            .epoch_vault_base_ata
+            .amount
+            .saturating_sub(config.locked_payouts);
+        require!(
+            free_liquidity >= total_payout,
+            QuadraticMarketError::InsufficientLiquidity
+        );
+        config.locked_payouts = config
+            .locked_payouts
+            .checked_add(total_payout)
+            .ok_or(QuadraticMarketError::MathOverflow)?;
         slip.potential_payout = total_payout;
         slip.locked_amount = total_payout;
     }
@@ -634,9 +654,12 @@ pub struct CancelSlip<'info> {
     )]
     pub slip: Account<'info, Slip>,
 
-    /// CHECK: Treasury PDA
-    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
-    pub treasury: SystemAccount<'info>,
+    #[account(
+        seeds = [seeds::EPOCH_VAULT, slip.epoch_id.to_le_bytes().as_ref()],
+        bump = epoch_vault.bump,
+        constraint = epoch_vault.epoch_id == slip.epoch_id @ QuadraticMarketError::EpochAccountMismatch,
+    )]
+    pub epoch_vault: Account<'info, EpochVault>,
 
     /// CHECK: Slip owner; receives the refund.
     pub owner: UncheckedAccount<'info>,
@@ -648,8 +671,12 @@ pub struct CancelSlip<'info> {
     )]
     pub canceller_base_ata: Account<'info, TokenAccount>,
 
-    #[account(mut)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = epoch_vault_base_ata.mint == global_config.base_mint @ QuadraticMarketError::Unauthorized,
+        constraint = epoch_vault_base_ata.owner == epoch_vault.key() @ QuadraticMarketError::Unauthorized,
+    )]
+    pub epoch_vault_base_ata: Account<'info, TokenAccount>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
     pub base_mint: Account<'info, Mint>,
@@ -698,25 +725,25 @@ pub fn cancel_slip_handler<'info>(
     // Refund = total_stake - used_stake (unused portion of stake)
     let refund = slip.total_stake - used_stake;
 
-    // Release locked_payouts by total_cost for the bought legs
-    // This reverses the locked_payouts increase from buy_leg_for_slip
-    config.locked_payouts = config.locked_payouts.saturating_sub(slip.total_cost);
+    config.locked_payouts = config.locked_payouts.saturating_sub(slip.locked_amount);
 
     // Mark as cancelled
     slip.status = SlipStatus::Cancelled;
 
-    // Transfer refund to owner
-    let treasury_seeds: &[&[&[u8]]] = &[&[seeds::TREASURY, &[config.treasury_bump]]];
+    // Transfer refund from the slip's epoch vault to owner.
+    let epoch_id_bytes = slip.epoch_id.to_le_bytes();
+    let vault_seeds: &[&[&[u8]]] =
+        &[&[seeds::EPOCH_VAULT, epoch_id_bytes.as_ref(), &[ctx.accounts.epoch_vault.bump]]];
     if refund > 0 {
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 token::Transfer {
-                    from: ctx.accounts.treasury_base_ata.to_account_info(),
+                    from: ctx.accounts.epoch_vault_base_ata.to_account_info(),
                     to: ctx.accounts.canceller_base_ata.to_account_info(),
-                    authority: ctx.accounts.treasury.to_account_info(),
+                    authority: ctx.accounts.epoch_vault.to_account_info(),
                 },
-                treasury_seeds,
+                vault_seeds,
             ),
             refund,
         )?;
@@ -765,7 +792,7 @@ pub fn settle_slip_leg_handler<'info>(
 ) -> Result<()> {
     let config = &mut ctx.accounts.global_config;
     let slip = &mut ctx.accounts.slip;
-    let market = &ctx.accounts.market;
+    let market = &mut ctx.accounts.market;
 
     // Slip must be active
     require!(
@@ -809,7 +836,8 @@ pub fn settle_slip_leg_handler<'info>(
         slip.legs_won_mask |= bit;
     }
 
-    // Release exposure from this leg
+    // Release exposure from this leg. The slip-level payout lock is released
+    // once when the full slip is resolved or cancelled.
     let leg_stake = slip.total_stake / slip.num_legs as u64;
     let fee = leg_stake
         .checked_mul(config.house_fee_bps)
@@ -822,7 +850,7 @@ pub fn settle_slip_leg_handler<'info>(
         .checked_mul(market.odds[expected_outcome as usize])
         .ok_or(QuadraticMarketError::MathOverflow)?
         / 10000;
-    config.locked_payouts = config.locked_payouts.saturating_sub(leg_payout);
+    market.exposure = market.exposure.saturating_sub(leg_payout);
 
     emit!(SlipLegSettled {
         slip_id,
@@ -861,9 +889,12 @@ pub struct ResolveSlip<'info> {
     )]
     pub slip: Account<'info, Slip>,
 
-    /// CHECK: Treasury PDA
-    #[account(seeds = [seeds::TREASURY], bump = global_config.treasury_bump)]
-    pub treasury: SystemAccount<'info>,
+    #[account(
+        seeds = [seeds::EPOCH_VAULT, slip.epoch_id.to_le_bytes().as_ref()],
+        bump = epoch_vault.bump,
+        constraint = epoch_vault.epoch_id == slip.epoch_id @ QuadraticMarketError::EpochAccountMismatch,
+    )]
+    pub epoch_vault: Account<'info, EpochVault>,
 
     /// CHECK: Slip owner; receives the payout and rent.
     pub owner: UncheckedAccount<'info>,
@@ -875,8 +906,12 @@ pub struct ResolveSlip<'info> {
     )]
     pub claimer_base_ata: Account<'info, TokenAccount>,
 
-    #[account(mut)]
-    pub treasury_base_ata: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = epoch_vault_base_ata.mint == global_config.base_mint @ QuadraticMarketError::Unauthorized,
+        constraint = epoch_vault_base_ata.owner == epoch_vault.key() @ QuadraticMarketError::Unauthorized,
+    )]
+    pub epoch_vault_base_ata: Account<'info, TokenAccount>,
 
     #[account(constraint = base_mint.key() == global_config.base_mint @ QuadraticMarketError::Unauthorized)]
     pub base_mint: Account<'info, Mint>,
@@ -902,19 +937,21 @@ pub fn resolve_slip_handler<'info>(
         QuadraticMarketError::Unauthorized
     );
 
-    let treasury_seeds: &[&[&[u8]]] = &[&[seeds::TREASURY, &[config.treasury_bump]]];
+    let epoch_id_bytes = slip.epoch_id.to_le_bytes();
+    let vault_seeds: &[&[&[u8]]] =
+        &[&[seeds::EPOCH_VAULT, epoch_id_bytes.as_ref(), &[ctx.accounts.epoch_vault.bump]]];
 
     if slip.status == SlipStatus::Won {
-        // Transfer payout to winner
+        // Transfer payout to winner from the slip's epoch vault.
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 token::Transfer {
-                    from: ctx.accounts.treasury_base_ata.to_account_info(),
+                    from: ctx.accounts.epoch_vault_base_ata.to_account_info(),
                     to: ctx.accounts.claimer_base_ata.to_account_info(),
-                    authority: ctx.accounts.treasury.to_account_info(),
+                    authority: ctx.accounts.epoch_vault.to_account_info(),
                 },
-                treasury_seeds,
+                vault_seeds,
             ),
             slip.potential_payout,
         )?;
@@ -926,8 +963,8 @@ pub fn resolve_slip_handler<'info>(
             payout: slip.potential_payout,
         });
     } else {
-        // Lost: payout stays in treasury (house win)
-        // The original stake was already taken at place_slip_await
+        // Lost: payout stays in the epoch vault.
+        // The original stake was already escrowed at place_slip_await.
         emit!(SlipResolved {
             slip_id,
             owner: slip.owner,

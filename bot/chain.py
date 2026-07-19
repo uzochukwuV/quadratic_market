@@ -6,6 +6,7 @@ All public functions are async and return the transaction signature string.
 """
 
 import json
+import asyncio
 from pathlib import Path
 from typing import Optional, Tuple, List, Any
 
@@ -19,7 +20,7 @@ from anchorpy.program.namespace.instruction import _InstructionFn  # noqa: F401 
 from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID
 from spl.token.instructions import (
     MintToParams,
-    create_associated_token_account,
+    create_idempotent_associated_token_account,
     get_associated_token_address,
     mint_to,
 )
@@ -37,6 +38,8 @@ SEED_OUTCOME_MINT = b"outcome_mint"
 SEED_SLIP = b"slip"
 SEED_EPOCH = b"epoch"
 SEED_MARKET_GROUP = b"market_group"
+SEED_EPOCH_VAULT = b"epoch_vault"
+SEED_EPOCH_LP = b"epoch_lp"
 
 
 def load_keypair(path: Path) -> Keypair:
@@ -81,6 +84,20 @@ def epoch_pda(program_id: Pubkey, epoch_id: int) -> tuple[Pubkey, int]:
     )
 
 
+def epoch_vault_pda(program_id: Pubkey, epoch_id: int) -> tuple[Pubkey, int]:
+    return Pubkey.find_program_address(
+        [SEED_EPOCH_VAULT, epoch_id.to_bytes(8, "little")],
+        program_id,
+    )
+
+
+def epoch_lp_position_pda(program_id: Pubkey, epoch_id: int, lp: Pubkey) -> tuple[Pubkey, int]:
+    return Pubkey.find_program_address(
+        [SEED_EPOCH_LP, epoch_id.to_bytes(8, "little"), bytes(lp)],
+        program_id,
+    )
+
+
 def market_group_pda(program_id: Pubkey, group_id: int) -> tuple[Pubkey, int]:
     return Pubkey.find_program_address(
         [SEED_MARKET_GROUP, group_id.to_bytes(8, "little")],
@@ -115,6 +132,7 @@ class ChainClient:
 
         self.global_config, _ = global_config_pda(self.program_id)
         self.treasury, _ = treasury_pda(self.program_id)
+        self._next_market_id_hint: Optional[int] = None
 
     @classmethod
     async def create(
@@ -164,6 +182,14 @@ class ChainClient:
         pda, _ = epoch_pda(self.program_id, epoch_id)
         return await self.program.account["Epoch"].fetch(pda)
 
+    async def fetch_epoch_vault(self, epoch_id: int) -> dict:
+        pda, _ = epoch_vault_pda(self.program_id, epoch_id)
+        return await self.program.account["EpochVault"].fetch(pda)
+
+    async def fetch_epoch_lp_position(self, epoch_id: int, lp: Pubkey) -> dict:
+        pda, _ = epoch_lp_position_pda(self.program_id, epoch_id, lp)
+        return await self.program.account["EpochLpPosition"].fetch(pda)
+
     async def next_market_id(self) -> int:
         cfg = await self.fetch_global_config()
         return int(cfg.next_market_id)
@@ -178,14 +204,41 @@ class ChainClient:
         for slip_id in range(1, int(cfg.next_slip_id)):
             try:
                 slips.append((slip_id, await self.fetch_slip(slip_id)))
-            except Exception:
+            except Exception as exc:
+                log.debug("fetch_slip_skipped", slip_id=slip_id, error=str(exc))
                 continue
+        log.info("fetch_all_slips", next_slip_id=int(cfg.next_slip_id), found=len(slips))
         return slips
+
+    async def fetch_all_markets(self) -> list[tuple[int, Any]]:
+        cfg = await self.fetch_global_config()
+        markets: list[tuple[int, Any]] = []
+        for market_id in range(1, int(cfg.next_market_id)):
+            try:
+                markets.append((market_id, await self.fetch_market(market_id)))
+            except Exception as exc:
+                log.debug("fetch_market_skipped", market_id=market_id, error=str(exc))
+                continue
+        log.info("fetch_all_markets", next_market_id=int(cfg.next_market_id), found=len(markets))
+        return markets
 
     @staticmethod
     def _enum_name(value: Any) -> str:
         if isinstance(value, dict) and len(value) == 1:
             return next(iter(value.keys()))
+        for attr in ("name", "variant"):
+            name = getattr(value, attr, None)
+            if isinstance(name, str) and name:
+                return name
+        if hasattr(value, "__dict__"):
+            variants = [key for key, inner in vars(value).items() if not key.startswith("_") and inner is not None]
+            if len(variants) == 1:
+                return variants[0]
+        rendered = str(value)
+        if rendered.endswith("()") and rendered[:-2].isidentifier():
+            return rendered[:-2]
+        if rendered.endswith("()") and "." in rendered:
+            return rendered.rsplit(".", 1)[-1][:-2]
         return str(value)
 
     async def ensure_associated_token_account(self, owner: Pubkey, mint: Pubkey) -> Pubkey:
@@ -193,7 +246,7 @@ class ChainClient:
         conn = self.program.provider.connection
         info = await conn.get_account_info(ata)
         if info.value is None:
-            ix = create_associated_token_account(
+            ix = create_idempotent_associated_token_account(
                 payer=self.operator_kp.pubkey(),
                 owner=owner,
                 mint=mint,
@@ -321,7 +374,19 @@ class ChainClient:
             market_type: Anchor enum variant name
             initial_odds: List of odds in BPS (e.g., [20000, 35000, 30000])
         """
-        mid = market_id if market_id is not None else await self.next_market_id()
+        live_next_market_id = await self.next_market_id()
+        mid = max(
+            live_next_market_id,
+            self._next_market_id_hint if self._next_market_id_hint is not None else live_next_market_id,
+        )
+        if market_id is not None and int(market_id) != mid:
+            log.warning(
+                "create_market_id_prediction_stale",
+                predicted_market_id=market_id,
+                selected_market_id=mid,
+                live_next_market_id=live_next_market_id,
+                hinted_next_market_id=self._next_market_id_hint,
+            )
         mkt_pda, _ = market_pda(self.program_id, mid)
 
         # Get current epoch
@@ -368,7 +433,13 @@ class ChainClient:
                 signers=[self.operator_kp],
             ),
         )
+        self._next_market_id_hint = mid + 1
         log.info("create_market", market_id=mid, title=title, odds=initial_odds, sig=str(sig))
+        for _ in range(10):
+            info = await self.program.provider.connection.get_account_info(mkt_pda)
+            if info.value is not None:
+                break
+            await asyncio.sleep(0.25)
         return mid, str(sig)
 
     async def add_market_to_group(
@@ -530,24 +601,28 @@ class ChainClient:
         """
         slip = await self.fetch_slip(slip_id)
         market_id = int(slip.leg_market_ids[leg_index])
+        outcome_id = int(slip.leg_outcome_ids[leg_index])
+        epoch_id = int(slip.epoch_id)
         mkt_pda, _ = market_pda(self.program_id, market_id)
+        vault_pda, _ = epoch_vault_pda(self.program_id, epoch_id)
         market = await self.fetch_market(market_id)
-        outcome_mint = Pubkey.from_string(str(market.outcome_mints[leg_index]))
+        outcome_mint = Pubkey.from_string(str(market.outcome_mints[outcome_id]))
         buyer_outcome_ata = await self.ensure_associated_token_account(buyer, outcome_mint)
-        treasury_base_ata = await self.ensure_associated_token_account(self.treasury, self.base_mint)
-        slip_pda, _ = slip_pda(self.program_id, slip_id)
+        epoch_vault_base_ata = await self.ensure_associated_token_account(vault_pda, self.base_mint)
+        slip_account_pda, _ = slip_pda(self.program_id, slip_id)
 
         sig = await self.program.rpc["buy_leg_for_slip"](
             slip_id,
             leg_index,
+            outcome_id,
             ctx=Context(
                 accounts={
                     "global_config": self.global_config,
-                    "slip": slip_pda,
+                    "slip": slip_account_pda,
                     "market": mkt_pda,
-                    "treasury": self.treasury,
+                    "epoch_vault": vault_pda,
                     "buyer_outcome_ata": buyer_outcome_ata,
-                    "treasury_base_ata": treasury_base_ata,
+                    "epoch_vault_base_ata": epoch_vault_base_ata,
                     "outcome_mint": outcome_mint,
                     "base_mint": self.base_mint,
                     "buyer": buyer,
@@ -558,7 +633,14 @@ class ChainClient:
                 signers=[self.operator_kp],
             ),
         )
-        log.info("buy_leg_for_slip", slip_id=slip_id, leg_index=leg_index, sig=str(sig))
+        log.info(
+            "buy_leg_for_slip",
+            slip_id=slip_id,
+            leg_index=leg_index,
+            market_id=market_id,
+            outcome_id=outcome_id,
+            sig=str(sig),
+        )
         return str(sig)
 
     async def place_slip_await(
@@ -574,10 +656,12 @@ class ChainClient:
         """
         cfg = await self.fetch_global_config()
         slip_id = int(cfg.next_slip_id)
+        epoch_id = int(cfg.current_epoch)
         slip_account_pda, _ = slip_pda(self.program_id, slip_id)
+        vault_pda, _ = epoch_vault_pda(self.program_id, epoch_id)
 
         owner_base_ata = await self.ensure_associated_token_account(owner.pubkey(), self.base_mint)
-        treasury_base_ata = await self.ensure_associated_token_account(self.treasury, self.base_mint)
+        epoch_vault_base_ata = await self.ensure_associated_token_account(vault_pda, self.base_mint)
 
         sig = await self.program.rpc["place_slip_await"](
             legs,
@@ -587,9 +671,9 @@ class ChainClient:
                 accounts={
                     "global_config": self.global_config,
                     "slip": slip_account_pda,
-                    "treasury": self.treasury,
+                    "epoch_vault": vault_pda,
                     "owner_base_ata": owner_base_ata,
-                    "treasury_base_ata": treasury_base_ata,
+                    "epoch_vault_base_ata": epoch_vault_base_ata,
                     "base_mint": self.base_mint,
                     "owner": owner.pubkey(),
                     "token_program": TOKEN_PROGRAM_ID,
@@ -613,7 +697,7 @@ class ChainClient:
         slip = await self.fetch_slip(slip_id)
         market_id = int(slip.leg_market_ids[leg_index])
         mkt_pda, _ = market_pda(self.program_id, market_id)
-        slip_pda, _ = slip_pda(self.program_id, slip_id)
+        slip_account_pda, _ = slip_pda(self.program_id, slip_id)
 
         sig = await self.program.rpc["settle_slip_leg"](
             slip_id,
@@ -621,9 +705,9 @@ class ChainClient:
             ctx=Context(
                 accounts={
                     "global_config": self.global_config,
-                    "slip": slip_pda,
+                    "slip": slip_account_pda,
                     "market": mkt_pda,
-                    "authority": self.operator_kp.pubkey(),
+                    "caller": self.operator_kp.pubkey(),
                 },
                 signers=[self.operator_kp],
             ),
@@ -637,8 +721,10 @@ class ChainClient:
         """
         slip = await self.fetch_slip(slip_id)
         owner = Pubkey.from_string(str(slip.owner))
-        slip_pda, _ = slip_pda(self.program_id, slip_id)
-        treasury_base_ata = await self.ensure_associated_token_account(self.treasury, self.base_mint)
+        epoch_id = int(slip.epoch_id)
+        slip_account_pda, _ = slip_pda(self.program_id, slip_id)
+        vault_pda, _ = epoch_vault_pda(self.program_id, epoch_id)
+        epoch_vault_base_ata = await self.ensure_associated_token_account(vault_pda, self.base_mint)
         claimer_base_ata = await self.ensure_associated_token_account(owner, self.base_mint)
 
         sig = await self.program.rpc["resolve_slip"](
@@ -646,11 +732,11 @@ class ChainClient:
             ctx=Context(
                 accounts={
                     "global_config": self.global_config,
-                    "slip": slip_pda,
-                    "treasury": self.treasury,
+                    "slip": slip_account_pda,
+                    "epoch_vault": vault_pda,
                     "owner": owner,
                     "claimer_base_ata": claimer_base_ata,
-                    "treasury_base_ata": treasury_base_ata,
+                    "epoch_vault_base_ata": epoch_vault_base_ata,
                     "base_mint": self.base_mint,
                     "token_program": TOKEN_PROGRAM_ID,
                     "associated_token_program": ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -663,17 +749,21 @@ class ChainClient:
 
     async def void_if_expired(self, market_id: int) -> str:
         """Void a market that the oracle never settled within the deadline."""
+        market = await self.fetch_market(market_id)
         mkt_pda, _ = market_pda(self.program_id, market_id)
+        epoch_id = int(market.epoch_id)
+        ep_pda, _ = epoch_pda(self.program_id, epoch_id)
         sig = await self.program.rpc["void_if_expired"](
             ctx=Context(
                 accounts={
                     "global_config": self.global_config,
                     "market": mkt_pda,
+                    "epoch": ep_pda,
                 },
                 signers=[self.operator_kp],
             ),
         )
-        log.info("void_if_expired", market_id=market_id, sig=str(sig))
+        log.info("void_if_expired", market_id=market_id, epoch_id=epoch_id, sig=str(sig))
         return str(sig)
 
     # ── Epoch Operations ─────────────────────────────────────────────────────
@@ -685,19 +775,105 @@ class ChainClient:
         cfg = await self.fetch_global_config()
         epoch_id = int(cfg.current_epoch)
         ep_pda, _ = epoch_pda(self.program_id, epoch_id)
+        vault_pda, _ = epoch_vault_pda(self.program_id, epoch_id)
 
         sig = await self.program.rpc["init_epoch"](
             ctx=Context(
                 accounts={
                     "global_config": self.global_config,
                     "epoch": ep_pda,
-                    "admin": self.operator_kp.pubkey(),
+                    "epoch_vault": vault_pda,
+                    "authority": self.operator_kp.pubkey(),
                     "system_program": SYS_PROGRAM_ID,
                 },
                 signers=[self.operator_kp],
             ),
         )
         log.info("init_epoch", epoch_id=epoch_id, sig=str(sig))
+        return str(sig)
+
+    async def start_next_epoch(self) -> tuple[int, str]:
+        cfg = await self.fetch_global_config()
+        current_epoch_id = int(cfg.current_epoch)
+        next_epoch_id = current_epoch_id + 1
+        current_epoch_pda, _ = epoch_pda(self.program_id, current_epoch_id)
+        next_epoch_pda, _ = epoch_pda(self.program_id, next_epoch_id)
+        next_vault_pda, _ = epoch_vault_pda(self.program_id, next_epoch_id)
+
+        sig = await self.program.rpc["start_next_epoch"](
+            next_epoch_id,
+            ctx=Context(
+                accounts={
+                    "global_config": self.global_config,
+                    "current_epoch": current_epoch_pda,
+                    "next_epoch": next_epoch_pda,
+                    "next_epoch_vault": next_vault_pda,
+                    "authority": self.operator_kp.pubkey(),
+                    "system_program": SYS_PROGRAM_ID,
+                },
+                signers=[self.operator_kp],
+            ),
+        )
+        log.info("start_next_epoch", previous_epoch_id=current_epoch_id, epoch_id=next_epoch_id, sig=str(sig))
+        return next_epoch_id, str(sig)
+
+    async def publish_epoch(self, epoch_id: int, market_ids: Optional[List[int]] = None) -> str:
+        """
+        Create an epoch and its epoch vault. Prefer this for bot-created epochs
+        because opt-in liquidity requires the epoch vault account.
+        """
+        ep_pda, _ = epoch_pda(self.program_id, epoch_id)
+        vault_pda, _ = epoch_vault_pda(self.program_id, epoch_id)
+
+        sig = await self.program.rpc["publish_epoch"](
+            epoch_id,
+            market_ids or [],
+            ctx=Context(
+                accounts={
+                    "global_config": self.global_config,
+                    "epoch": ep_pda,
+                    "epoch_vault": vault_pda,
+                    "authority": self.operator_kp.pubkey(),
+                    "system_program": SYS_PROGRAM_ID,
+                },
+                signers=[self.operator_kp],
+            ),
+        )
+        log.info("publish_epoch", epoch_id=epoch_id, sig=str(sig))
+        return str(sig)
+
+    async def opt_in_epoch_liquidity(self, epoch_id: int, amount: int) -> str:
+        """
+        Deposit operator-owned base tokens into an epoch vault.
+        """
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+
+        lp = self.operator_kp.pubkey()
+        vault_pda, _ = epoch_vault_pda(self.program_id, epoch_id)
+        lp_position_pda, _ = epoch_lp_position_pda(self.program_id, epoch_id, lp)
+        lp_base_ata = await self.ensure_associated_token_account(lp, self.base_mint)
+        epoch_vault_base_ata = await self.ensure_associated_token_account(vault_pda, self.base_mint)
+
+        sig = await self.program.rpc["opt_in_epoch_liquidity"](
+            epoch_id,
+            amount,
+            ctx=Context(
+                accounts={
+                    "global_config": self.global_config,
+                    "epoch_vault": vault_pda,
+                    "lp_position": lp_position_pda,
+                    "lp_base_ata": lp_base_ata,
+                    "epoch_vault_base_ata": epoch_vault_base_ata,
+                    "lp": lp,
+                    "token_program": TOKEN_PROGRAM_ID,
+                    "associated_token_program": ASSOCIATED_TOKEN_PROGRAM_ID,
+                    "system_program": SYS_PROGRAM_ID,
+                },
+                signers=[self.operator_kp],
+            ),
+        )
+        log.info("opt_in_epoch_liquidity", epoch_id=epoch_id, amount=amount, sig=str(sig))
         return str(sig)
 
     async def close_epoch(self, epoch_id: int) -> str:

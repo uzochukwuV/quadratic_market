@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { BOT_API_ORIGIN } from "@/lib/solana/env";
+import { waitForSignatureConfirmation } from "@/lib/solana/provider";
+import { useSolanaConnection } from "./useQuadraticProgram";
 
 type MintStatus = "idle" | "minting" | "success" | "error";
 
@@ -17,6 +19,7 @@ const DEFAULT_MINT_AMOUNT = 1_000_000;
 
 export function useMintBaseToken(onSuccess?: () => Promise<void> | void) {
   const { publicKey, connected } = useWallet();
+  const connection = useSolanaConnection();
   const [status, setStatus] = useState<MintStatus>("idle");
   const [error, setError] = useState<string>("");
   const [lastMint, setLastMint] = useState<MintBaseResponse | null>(null);
@@ -28,7 +31,12 @@ export function useMintBaseToken(onSuccess?: () => Promise<void> | void) {
       return null;
     }
 
-    const origin = BOT_API_ORIGIN || "http://localhost:8787";
+    if (!BOT_API_ORIGIN) {
+      setStatus("error");
+      setError("Set NEXT_PUBLIC_BOT_API_ORIGIN to enable BASE minting.");
+      return null;
+    }
+
     setStatus("minting");
     setError("");
 
@@ -37,7 +45,7 @@ export function useMintBaseToken(onSuccess?: () => Promise<void> | void) {
       const apiKey = process.env.NEXT_PUBLIC_BOT_API_KEY;
       if (apiKey) headers["X-API-Key"] = apiKey;
 
-      const response = await fetch(`${origin}/api/mint-base`, {
+      const response = await fetch(`${BOT_API_ORIGIN}/api/mint-base`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -52,10 +60,13 @@ export function useMintBaseToken(onSuccess?: () => Promise<void> | void) {
         throw new Error(Array.isArray(detail) ? detail.map((item) => item.msg).join(", ") : String(detail));
       }
 
-      setLastMint(payload as MintBaseResponse);
+      const minted = payload as MintBaseResponse;
+      await waitForSignatureConfirmation(connection, minted.signature, "confirmed");
+
+      setLastMint(minted);
       setStatus("success");
       await onSuccess?.();
-      return payload as MintBaseResponse;
+      return minted;
     } catch (caught) {
       setStatus("error");
       setError(caught instanceof Error ? caught.message : String(caught));

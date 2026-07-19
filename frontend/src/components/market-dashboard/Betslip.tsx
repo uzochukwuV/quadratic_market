@@ -13,6 +13,11 @@ export function Betslip({
   setSlipMode,
   remove,
   clear,
+  placeBet,
+  placing = false,
+  canPlace = false,
+  placeError = "",
+  signature = "",
   className = "",
 }: {
   picks: Pick[];
@@ -24,6 +29,11 @@ export function Betslip({
   setSlipMode: (mode: SlipMode) => void;
   remove: (id: string) => void;
   clear: () => void;
+  placeBet: () => void;
+  placing?: boolean;
+  canPlace?: boolean;
+  placeError?: string;
+  signature?: string;
   className?: string;
 }) {
   return (
@@ -64,6 +74,17 @@ export function Betslip({
             ))}
           </div>
 
+          <div className="slip-status">
+            <div>
+              <span>Selections</span>
+              <b>{picks.length}</b>
+            </div>
+            <div>
+              <span>Market rule</span>
+              <b>One pick per market</b>
+            </div>
+          </div>
+
           <div className="totals">
             <div>
               <span>{slipMode === "multiple" ? "Total odds" : "Combined singles"}</span>
@@ -82,7 +103,11 @@ export function Betslip({
             </div>
           </div>
 
-          <button className="place-bet">Place bet</button>
+          <button className="place-bet" onClick={placeBet} disabled={!canPlace || placing}>
+            {placing ? "Placing bet" : "Place bet"}
+          </button>
+          {placeError && <p className="wallet-note error">{placeError}</p>}
+          {signature && <p className="wallet-note success">Slip awaited: {signature.slice(0, 10)}...</p>}
           <p className="wallet-note">Wallet required before submission.</p>
         </>
       )}

@@ -75,6 +75,7 @@ BOT_API_ENABLED: bool = os.getenv("BOT_API_ENABLED", "true").lower() in {"1", "t
 BOT_API_HOST: str = os.getenv("BOT_API_HOST", "0.0.0.0")
 BOT_API_PORT: int = int(os.getenv("BOT_API_PORT", "8787"))
 BOT_API_KEY: str = os.getenv("BOT_API_KEY", "").strip()
+BOT_SCHEDULER_ENABLED: bool = os.getenv("BOT_SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 
 # ─── Txodds API ──────────────────────────────────────────────────────────────
 
@@ -94,6 +95,11 @@ MARKET_LOOKAHEAD_DAYS: int = int(os.getenv("MARKET_LOOKAHEAD_DAYS", "7"))
 RESULT_DELAY_SECONDS: int = int(os.getenv("RESULT_DELAY_SECONDS", "7200"))
 POLL_INTERVAL_SECONDS: int = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
 
+# ─── Epoch Liquidity ─────────────────────────────────────────────────────────
+
+AUTO_EPOCH_LIQUIDITY_ENABLED: bool = os.getenv("AUTO_EPOCH_LIQUIDITY_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+AUTO_EPOCH_LIQUIDITY_AMOUNT: int = int(os.getenv("AUTO_EPOCH_LIQUIDITY_AMOUNT", "10000000"))
+
 # ─── Odds ───────────────────────────────────────────────────────────────────
 
 # Min/max odds in basis points (e.g., 10100 = 1.01x, 100000 = 10x)
@@ -103,3 +109,4 @@ DEFAULT_MAX_ODDS_BPS: int = int(os.getenv("DEFAULT_MAX_ODDS_BPS", "100000"))
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+IDL_PATH: str = os.getenv("IDL_PATH", "").strip()

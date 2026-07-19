@@ -31,12 +31,36 @@ export async function fetchMarket(program: QuadraticProgram, marketId: bigint | 
 }
 
 export async function fetchAllMarkets(program: QuadraticProgram) {
-  return program.account.market.all();
+  console.log("[markets] fetchAllMarkets:start", {
+    hasMarketClient: Boolean(program.account.market),
+  });
+  try {
+    const markets = await program.account.market.all();
+    console.log("[markets] fetchAllMarkets:success", {
+      count: markets.length,
+      sample: markets.slice(0, 3).map(({ publicKey, account }) => ({
+        publicKey: publicKey?.toBase58?.() ?? String(publicKey),
+        marketId: account?.marketId?.toString?.() ?? account?.marketId,
+        title: account?.title,
+        status: account?.status,
+        marketType: account?.marketType,
+      })),
+    });
+    return markets;
+  } catch (error) {
+    console.error("[markets] fetchAllMarkets:error", error);
+    throw error;
+  }
 }
 
 export async function fetchOpenMarkets(program: QuadraticProgram) {
   const markets = await fetchAllMarkets(program);
-  return markets.filter(({ account }) => "open" in account.status);
+  const openMarkets = markets.filter(({ account }) => "open" in account.status);
+  console.log("[markets] fetchOpenMarkets:filtered", {
+    total: markets.length,
+    open: openMarkets.length,
+  });
+  return openMarkets;
 }
 
 export async function fetchSlip(program: QuadraticProgram, slipId: bigint | number | string) {
@@ -69,6 +93,14 @@ export async function fetchEpochVault(program: QuadraticProgram, epochId: bigint
   return program.account.epochVault.fetch(epochVault);
 }
 
+export async function fetchAllEpochs(program: QuadraticProgram) {
+  return program.account.epoch.all();
+}
+
+export async function fetchAllEpochVaults(program: QuadraticProgram) {
+  return program.account.epochVault.all();
+}
+
 export async function fetchEpochLpPosition(
   program: QuadraticProgram,
   epochId: bigint | number | string,
@@ -76,6 +108,17 @@ export async function fetchEpochLpPosition(
 ) {
   const [lpPosition] = getEpochLpPositionPda(epochId, owner);
   return program.account.epochLpPosition.fetch(lpPosition);
+}
+
+export async function fetchUserEpochLpPositions(program: QuadraticProgram, owner: PublicKey) {
+  return program.account.epochLpPosition.all([
+    {
+      memcmp: {
+        offset: 8,
+        bytes: owner.toBase58(),
+      },
+    },
+  ]);
 }
 
 export async function fetchMarketGroup(program: QuadraticProgram, groupId: bigint | number | string) {

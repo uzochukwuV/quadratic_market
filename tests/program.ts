@@ -6,11 +6,16 @@ import { SystemProgram, Transaction, SYSVAR_RENT_PUBKEY } from "@solana/web3.js"
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { QuadraticMarket } from "../target/types/quadratic_market";
 
-const PROGRAM_ID = new PublicKey("FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN");
+const PROGRAM_ID = new PublicKey(
+  process.env.PROGRAM_ID ?? "FPaJasqbU2qULcJpbiGwduJix6dFRGK8JUefbXbSDcrN",
+);
 
 function normalizeIdl(value: any): any {
   if (Array.isArray(value)) {
     return value.map(normalizeIdl);
+  }
+  if (value === "publicKey") {
+    return "pubkey";
   }
   if (!value || typeof value !== "object") {
     return value;
@@ -34,11 +39,21 @@ function normalizeIdl(value: any): any {
 
     out[key] = normalizeIdl(inner);
   }
+  if ("isMut" in out && !("writable" in out)) {
+    out.writable = out.isMut;
+  }
+  if ("isSigner" in out && !("signer" in out)) {
+    out.signer = out.isSigner;
+  }
   return out;
 }
 
 function anchorDiscriminator(name: string): number[] {
   return Array.from(createHash("sha256").update(`global:${name}`).digest().subarray(0, 8));
+}
+
+function anchorAccountDiscriminator(name: string): number[] {
+  return Array.from(createHash("sha256").update(`account:${name}`).digest().subarray(0, 8));
 }
 
 function camelToSnake(value: string): string {
@@ -76,11 +91,29 @@ anchorMethods.MethodsBuilder.prototype.accountsStrict = function (accounts: any)
 
 export function quadraticMarketProgram(provider: anchor.AnchorProvider): Program<QuadraticMarket> {
   const rawIdl = require("../target/idl/quadratic_market.json");
-  const frontendIdl = require("../frontend/src/lib/idl.json");
+  let frontendIdl: any = {};
+  try {
+    frontendIdl = require("../frontend/src/lib/idl.json");
+  } catch (_err) {
+    try {
+      frontendIdl = require("../frontend/src/idl/quadratic_market.json");
+    } catch (_fallbackErr) {
+      frontendIdl = {};
+    }
+  }
   const idl = normalizeIdl(rawIdl);
+  for (const account of idl.accounts ?? []) {
+    if (account.type && !(idl.types ?? []).some((ty: any) => ty.name === account.name)) {
+      (idl.types ??= []).push({
+        name: account.name,
+        type: account.type,
+      });
+    }
+    account.discriminator ??= anchorAccountDiscriminator(account.name);
+  }
   const frontendAccounts = new Map((frontendIdl.accounts ?? []).map((acc: any) => [acc.name, acc]));
   for (const account of idl.accounts ?? []) {
-    const frontendAccount = frontendAccounts.get(account.name);
+    const frontendAccount: any = frontendAccounts.get(account.name);
     if (frontendAccount?.discriminator && !account.discriminator) {
       account.discriminator = frontendAccount.discriminator;
     }

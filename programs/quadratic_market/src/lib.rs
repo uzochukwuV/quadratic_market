@@ -154,6 +154,10 @@ pub mod quadratic_market {
         void_if_expired_handler(ctx)
     }
 
+    pub fn settle_market(ctx: Context<SettleMarket>, winning_outcome: u8) -> Result<()> {
+        settle_market_handler(ctx, winning_outcome)
+    }
+
     // ─── Betting via Slip Only ─────────────────────────────────
     // All betting goes through the slip system. Use place_slip_await for single or multi-leg bets.
     // Backend executes each leg via buy_leg_for_slip as separate transactions.
@@ -340,6 +344,11 @@ pub mod quadratic_market {
     /// Must be called before any markets can be created in a new epoch.
     pub fn init_epoch(ctx: Context<InitEpoch>) -> Result<()> {
         init_epoch_handler(ctx)
+    }
+
+    /// Advance to the next active epoch and create its epoch vault.
+    pub fn start_next_epoch(ctx: Context<StartNextEpoch>, next_epoch_id: u64) -> Result<()> {
+        start_next_epoch_handler(ctx, next_epoch_id)
     }
 
     /// Pause epoch — blocks deposits, withdrawals, and market creation.
