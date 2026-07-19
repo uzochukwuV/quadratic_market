@@ -206,7 +206,13 @@ class ChainClient:
                 [self.operator_kp],
                 blockhash,
             )
-            await self.program.provider.send(tx)
+            try:
+                await self.program.provider.send(tx)
+            except Exception:
+                refreshed = await conn.get_account_info(ata)
+                if refreshed.value is None:
+                    raise
+                log.info("associated_token_account_already_created", owner=str(owner), mint=str(mint), ata=str(ata))
         return ata
 
     async def mint_base_to(self, recipient: Pubkey, amount: int) -> tuple[str, Pubkey]:

@@ -22,7 +22,6 @@ import asyncio
 import sys
 import time
 import argparse
-import threading
 from pathlib import Path
 from typing import List, Optional
 
@@ -135,15 +134,17 @@ async def mint_base(
     )
 
 
-def run_api_server() -> None:
-    uvicorn.run(
+async def run_api_server() -> uvicorn.Server:
+    server_config = uvicorn.Config(
         app,
         host=config.BOT_API_HOST,
         port=config.BOT_API_PORT,
         log_level="info",
-        loop="asyncio",
         lifespan="off",
     )
+    server = uvicorn.Server(server_config)
+    await server.serve()
+    return server
 
 
 # ─── Market Type Mapping ───────────────────────────────────────────────────
@@ -702,6 +703,7 @@ async def main(once: bool = False) -> None:
     state = BotState()
     runtime = BotRuntime(chain=chain, api=api, state=state)
     set_runtime(runtime)
+    api_task: asyncio.Task[uvicorn.Server] | None = None
     
     try:
         if once:
@@ -712,10 +714,8 @@ async def main(once: bool = False) -> None:
                  interval_seconds=config.POLL_INTERVAL_SECONDS,
                  sports=config.SPORTS)
 
-        api_thread: threading.Thread | None = None
         if config.BOT_API_ENABLED:
-            api_thread = threading.Thread(target=run_api_server, daemon=True)
-            api_thread.start()
+            api_task = asyncio.create_task(run_api_server())
             log.info("bot_api_started", host=config.BOT_API_HOST, port=config.BOT_API_PORT)
 
         # Keep running on a single event loop to avoid cross-loop RPC issues.
@@ -725,9 +725,13 @@ async def main(once: bool = False) -> None:
                 await asyncio.sleep(config.POLL_INTERVAL_SECONDS)
         except (KeyboardInterrupt, SystemExit):
             log.info("bot_stopping")
-            if api_thread is not None:
-                api_thread.join(timeout=1)
     finally:
+        if api_task is not None and not api_task.done():
+            api_task.cancel()
+            try:
+                await api_task
+            except asyncio.CancelledError:
+                pass
         await chain.close()
         await api.close()
 

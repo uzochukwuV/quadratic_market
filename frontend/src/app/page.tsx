@@ -1,3 +1,5 @@
+import { MarketDashboard } from "@/components/market-dashboard/MarketDashboard";
+
 export default function HomePage() {
-  return <main className="min-h-screen bg-white" />;
+  return <MarketDashboard />;
 }
